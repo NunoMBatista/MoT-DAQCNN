@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="210mm"
+   height="125mm"
+   viewBox="0 0 210 125"
+   version="1.1"
+   id="svg5"
+   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
+   sodipodi:docname="CNN_diagram.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     showgrid="true"
+     inkscape:zoom="2.3786088"
+     inkscape:cx="131.16911"
+     inkscape:cy="122.55063"
+     inkscape:window-width="1489"
+     inkscape:window-height="1278"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="layer1">
+    <inkscape:grid
+       type="axonomgrid"
+       id="grid136"
+       originx="0"
+       originy="0" />
+  </sodipodi:namedview>
+  <defs
+     id="defs2">
+    <inkscape:perspective
+       sodipodi:type="inkscape:persp3d"
+       inkscape:vp_x="0 : 62.5 : 1"
+       inkscape:vp_y="0 : 1000 : 0"
+       inkscape:vp_z="210 : 62.5 : 1"
+       inkscape:persp3d-origin="105 : 41.666667 : 1"
+       id="perspective347" />
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <g
+       sodipodi:type="inkscape:box3d"
+       id="g349"
+       style="fill:#2a00ff;stroke:#2a01ff;stroke-linejoin:round"
+       inkscape:perspectiveID="#perspective347"
+       inkscape:corner0="1.7232654 : 0.076136502 : 0 : 1"
+       inkscape:corner7="1.0080243 : 0.11261637 : 0.1796045 : 1">
+      <path
+         sodipodi:type="inkscape:box3dside"
+         id="path361"
+         style="fill:#e9e9ff;fill-rule:evenodd;stroke:none;stroke-linejoin:round"
+         inkscape:box3dsidetype="11"
+         d="M 49.164087,43.448795 65.238192,37.220039 V 20.54451 L 49.164087,30.881966 Z"
+         points="65.238192,37.220039 65.238192,20.54451 49.164087,30.881966 49.164087,43.448795 " />
+      <path
+         sodipodi:type="inkscape:box3dside"
+         id="path351"
+         style="fill:#353564;fill-rule:evenodd;stroke:none;stroke-linejoin:round"
+         inkscape:box3dsidetype="6"
+         d="M 38.556654,42.192332 V 28.796697 l 10.607433,2.085269 v 12.566829 z"
+         points="38.556654,28.796697 49.164087,30.881966 49.164087,43.448795 38.556654,42.192332 " />
+      <path
+         sodipodi:type="inkscape:box3dside"
+         id="path359"
+         style="fill:#afafde;fill-rule:evenodd;stroke:none;stroke-linejoin:round"
+         inkscape:box3dsidetype="13"
+         d="M 38.556654,28.796697 52.290205,16.791869 65.238192,20.54451 49.164087,30.881966 Z"
+         points="52.290205,16.791869 65.238192,20.54451 49.164087,30.881966 38.556654,28.796697 " />
+      <path
+         sodipodi:type="inkscape:box3dside"
+         id="path353"
+         style="fill:#4d4d9f;fill-rule:evenodd;stroke:none;stroke-linejoin:round"
+         inkscape:box3dsidetype="5"
+         d="m 38.556654,42.192332 13.733551,-7.233418 12.947987,2.261125 -16.074105,6.228756 z"
+         points="52.290205,34.958914 65.238192,37.220039 49.164087,43.448795 38.556654,42.192332 " />
+      <path
+         sodipodi:type="inkscape:box3dside"
+         id="path357"
+         style="fill:#d7d7ff;fill-rule:evenodd;stroke:none;stroke-linejoin:round"
+         inkscape:box3dsidetype="14"
+         d="M 52.290205,34.958914 V 16.791869 l 12.947987,3.752641 v 16.675529 z"
+         points="52.290205,16.791869 65.238192,20.54451 65.238192,37.220039 52.290205,34.958914 " />
+      <path
+         sodipodi:type="inkscape:box3dside"
+         id="path355"
+         style="fill:#8686bf;fill-rule:evenodd;stroke:none;stroke-linejoin:round"
+         inkscape:box3dsidetype="3"
+         d="M 38.556654,42.192332 52.290205,34.958914 V 16.791869 L 38.556654,28.796697 Z"
+         points="52.290205,34.958914 52.290205,16.791869 38.556654,28.796697 38.556654,42.192332 " />
+    </g>
+  </g>
+</svg>
