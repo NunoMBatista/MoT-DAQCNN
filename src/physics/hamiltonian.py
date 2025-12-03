@@ -9,9 +9,12 @@ def projector_eta(wire):
     """
     Returns the projector eta_j = (1 - sigma_z)/2.
     This represents the Rydberg state occupation number n_i.
+    
+    if |0> = ground state --> eta|0> = 0
+    if |1> = Rydberg state --> eta|1> = 1
     """
     
-    # Note: (I - Z)/2. In PennyLane, Hamiltonian arithmetic handles the identity.
+    # (I - Z)/2. In PennyLane, Hamiltonian arithmetic handles the identity.
     return 0.5 * (qml.Identity(wire) - qml.PauliZ(wire))
 
 

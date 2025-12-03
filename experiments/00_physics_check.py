@@ -30,8 +30,9 @@ def main():
     
     
     # 2. Define Parameters from Paper 
-    tau = 0.2
-    dt = 0.05
+    tau = 0.2 # total evolution time
+    dt = 0.05 # trotter step size
+    
     # NOTE: Tuning 'scaling_factor' is crucial. 
     # Too high = Trotter diverges. Too low = No entanglement.
     test_scaling = 1.0 
@@ -59,7 +60,7 @@ def main():
 
 
     # 4. Run Comparisons
-    # Input: Random angles normalized to [0, pi] as per paper
+    # Input: Random angles normalized to [0, pi] (like in the paper)
     dummy_input = np.array([0.5, 1.2, 2.5, 0.1])
     
     print(f"\nRunning Simulation (tau={tau}, dt={dt}, scale={test_scaling})...")
