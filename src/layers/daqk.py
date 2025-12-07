@@ -3,98 +3,106 @@ import torch.nn as nn
 import pennylane as qml
 from pennylane import numpy as np
 
-# Import your physics engine
+# Import defined physics
 import src.physics.hamiltonian as phys
 import src.physics.evolution as evo
-
+import src.physics.kernel_topologies as topologies
 
 class DAQKLayer(nn.Module):
     """
     Digital-Analog Quantum Kernel Layer.
-    Wraps the Rydberg physics engine into a PyTorch module.
 
-    Args:
-        n_qubits (int): Number of qubits (4 for 2x2, 9 for 3x3).
-        grid_size (int): 2 or 3.
-        scaling_factor (float): The 's' parameter for interaction strength.
+    Supports one or more kernel topologies. Outputs are concatenated along the feature
+    dimension: shape (batch, num_kernels * n_qubits).
+    
+    Attributes:
+        n_qubits (int): Number of qubits (must match kernel topology size).
+        grid_size (int): Size of the kernel grid (e.g., 2 for 2x2).
+        scaling_factor (float): Scaling factor for the Hamiltonian terms.
         mode (str): 'trotter' (default) or 'exact'.
+        coordinates (list | None): Explicit coordinates for a single kernel.
+        kernel_topology_names (list | None): Names of topologies to use; ignored if coordinates provided.        
     """
-    def __init__(self, n_qubits=4, grid_size=2, scaling_factor=1.0, mode="trotter"):
+    def __init__(
+        self,
+        n_qubits=4,
+        grid_size=2,
+        scaling_factor=1.0,
+        mode="trotter",
+        coordinates=None,
+        kernel_topology_names=None,
+    ):
         super().__init__()
 
         self.n_qubits = n_qubits
         self.wires = list(range(n_qubits))
         self.mode = mode
 
-        # 1. Pre-compute Geometry and Hamiltonian
-        # We do this once to save overhead.
-        self.coords = phys.create_geometry(grid_size)
+        # Resolve coordinate sets: explicit coordinates take priority, else use named kernels.
+        #if coordinates is not None:
+        #    coord_sets = [coordinates]
+        #else:
+         
+        # Default to single kings kernel to preserve previous single-output behavior.
+        names = ("kings",) if kernel_topology_names is None else kernel_topology_names
+        coord_sets = topologies.build_kernel_coordinate_sets(grid_size, names)
 
-        # Note: Hamiltonian is time-dependent, but the structure is static.
-        self.hamiltonian = phys.get_rydberg_hamiltonian(
-            self.wires,
-            self.coords,
-            scaling_factor=scaling_factor,
-        )
+        self.num_kernels = len(coord_sets)
 
-        # 2. Define the Quantum Device
-        # 'default.qubit' is standard for simulation.
-        self.dev = qml.device("default.qubit", wires=self.n_qubits)
-
-        # 3. Create the QNode
-        # interface='torch' ensures gradients can flow (even if we don't train it yet)
-        self.qnode = qml.QNode(self._circuit, self.dev, interface="torch")
+        self._build_kernels(coord_sets, scaling_factor)
 
 
-    def _circuit(self, inputs):
-        """
-        The actual quantum circuit execution.
-        inputs: Tensor of shape (n_qubits,) containing pixel angles.
-        """
-        # --- A. Encoding Layer  ---
-        # The paper specifies H * Ry(phi).
-        for i in range(self.n_qubits):
-            qml.RY(inputs[i], wires=i)
-            qml.Hadamard(wires=i)
+    def _build_kernels(self, coord_sets, scaling_factor):
+        """Create one Hamiltonian/QNode per topology and cache them."""
+        self.hamiltonians = []
+        self.devices = []
+        self.qnodes = []
 
-        # --- B. Analog Evolution ---
-        # Evolve for tau=0.2 using the specified mode (trotter/exact)
-        evo.evolve_analog_block(
-            self.hamiltonian,
-            time_interval=[0, 0.2],
-            mode=self.mode,
-            dt=0.05,
-        )
+        for coords in coord_sets:
+            hamiltonian = phys.get_rydberg_hamiltonian(
+                self.wires,
+                coords,
+                scaling_factor=scaling_factor,
+            )
+            dev = qml.device("default.qubit", wires=self.n_qubits)
 
-        # --- C. Measurement  ---
-        # Return expectation value of Sigma_Z for every qubit
-        return [qml.expval(qml.PauliZ(i)) for i in self.wires]
+            def _circuit(inputs, H=hamiltonian):
+                for i in range(self.n_qubits):
+                    qml.RY(inputs[i], wires=i)
+                    qml.Hadamard(wires=i)
+
+                evo.evolve_analog_block(
+                    H,
+                    time_interval=[0, 0.2],
+                    mode=self.mode,
+                    dt=0.05,
+                )
+
+                return [qml.expval(qml.PauliZ(i)) for i in self.wires]
+
+            qnode = qml.QNode(_circuit, dev, interface="torch")
+
+            self.hamiltonians.append(hamiltonian)
+            self.devices.append(dev)
+            self.qnodes.append(qnode)
 
 
     def forward(self, x):
-        """
-        PyTorch Forward Pass.
+        """Forward pass over one or more kernels.
 
         Args:
-            x (Tensor): Input batch of image patches. Shape (Batch, n_qubits).
-                        Values should be normalized to [0, pi].
-
+            x: Tensor of shape (batch, n_qubits) with values in [0, pi].
         Returns:
-            Tensor: Output features. Shape (Batch, n_qubits).
+            Tensor of shape (batch, num_kernels * n_qubits).
         """
-        # PennyLane's torch interface usually handles batching automatically
-        # if the first dimension is batch_size. However, explicit looping
-        # or vmap is safer for custom Hamiltonians.
-
-        # For simplicity/safety in simulation:
         batch_size = x.shape[0]
-        outputs = []
+        per_kernel = [] 
 
-        # Loop over batch (parallelize this later if slow)
-        for i in range(batch_size):
-            # The QNode returns a list of tensors/floats
-            # Stack them into a single tensor
-            out = torch.stack(self.qnode(x[i]))
-            outputs.append(out)
+        for qnode in self.qnodes:
+            outputs = []
+            for i in range(batch_size):
+                out = torch.stack(qnode(x[i]))
+                outputs.append(out)
+            per_kernel.append(torch.stack(outputs))  # (B, n_qubits)
 
-        return torch.stack(outputs)
+        return torch.cat(per_kernel, dim=1)

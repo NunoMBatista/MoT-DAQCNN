@@ -2,7 +2,6 @@ import sys
 import os
 from pathlib import Path
 
-
 # Add project root to sys.path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
@@ -15,6 +14,7 @@ import numpy as np
 import pennylane as qml
 import src.physics.hamiltonian as phys
 import src.physics.evolution as evo
+import src.physics.kernel_topologies as topologies
 
 
 def main():
@@ -25,7 +25,7 @@ def main():
     grid_size = 2
     
     # Create Geometry (King's Graph) 
-    coords = phys.create_kings_graph_geometry(grid_size)
+    coords = topologies.create_kings_graph_geometry(grid_size)
     print(f"Geometry created: {len(coords)} atoms (2x2 grid)")
     
     
@@ -53,7 +53,7 @@ def main():
             qml.Hadamard(wires=i)
             
         # Analog Evolution Layer
-        evo.evolve_analog_block(H_sys, [0, tau], mode=mode, dt=dt)
+        evo.evolve_analog_block(H_sys, [0, tau], mode=mode, dt=dt, params=None)
         
         # Measurement: Expectation of Z
         return [qml.expval(qml.PauliZ(i)) for i in wires]
