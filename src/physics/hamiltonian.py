@@ -5,6 +5,7 @@ import numpy.linalg as npl
 
 import pennylane as qml
 
+
 def projector_eta(wire):
     """
     Returns the projector eta_j = (1 - sigma_z)/2.
@@ -29,6 +30,17 @@ def create_kings_graph_geometry(grid_size=2):
         for y in range(grid_size):
             coords.append([x, y])
     return np.array(coords, dtype=float)
+
+
+# Backwards-compatible alias used by downstream layers
+def create_geometry(grid_size=2):
+    """Return grid coordinates using the King's graph layout.
+
+    The DAQK layer expects a ``create_geometry`` helper; this wraps the
+    existing King's graph generator to keep the API consistent.
+    """
+
+    return create_kings_graph_geometry(grid_size)
 
 
 def get_rydberg_hamiltonian(wires, coordinates, scaling_factor=1.0):
