@@ -91,4 +91,11 @@ def build_kernel_coordinate_sets(grid_size: int, names=None) -> List[np.ndarray]
     if names is None:
         names = list(kernel_map.keys())
 
-    return [kernel_map[n] if n in kernel_map else kernel_map.get("kings") for n in names] # type: ignore
+    kernel_set = []
+    for n in names:
+        if n in kernel_map:
+            kernel_set.append(kernel_map[n])
+        else:
+            kernel_set.append(kernel_map.get("kings"))
+
+    return kernel_set

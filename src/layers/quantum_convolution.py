@@ -24,25 +24,36 @@ class QuantumConv2d(nn.Module):
         kernel_topology_names (Iterable[str] | None): Topologies to use; defaults to manual set per grid size (see kernel_topologies).
         scaling_factor (float): The 's' parameter for interaction strength.
         mode (str): 'trotter' (default) or 'exact'.
+        quantum_device (str): Pennylane device name (e.g., "default.qubit", "lightning.gpu").
+        quantum_device_kwargs (dict | None): Extra kwargs for the quantum device.
     """
 
     def __init__(
         self,
         in_channels=1,
         out_channels=None,
-        kernel_size=2,
+        kernel_size=None,
         stride=1,
         num_kernels=None,
         kernel_topology_names=None,
         scaling_factor=1.0,
         mode="trotter",
+        quantum_device="default.qubit",
+        quantum_device_kwargs=None,
     ):
         super().__init__()
 
         self.in_channels = in_channels
         self.kernel_size = kernel_size
         self.stride = stride
+
+
+        if kernel_size is None:
+            raise ValueError("QuantumConv2d requires a kernel_size (e.g., 2 or 3).")
         self.n_qubits = kernel_size * kernel_size
+
+
+        # This just checks if I want specific kernel names or not
         if kernel_topology_names is None:
             if kernel_size == 2:
                 default_names = list(get_2x2_kernel_set().keys())
@@ -50,15 +61,19 @@ class QuantumConv2d(nn.Module):
                 default_names = list(get_3x3_kernel_set().keys())
             else:
                 default_names = ["kings"]
+                print("QuantumConv2d: No kernel_topology_names provided for kernel_size > 3, defaulting to ('kings',)")
         else:
             default_names = kernel_topology_names
 
+        self.quantum_kernel: DAQKLayer
         self.quantum_kernel = DAQKLayer(
             n_qubits=self.n_qubits,
             grid_size=kernel_size,
             scaling_factor=scaling_factor,
             mode=mode,
             kernel_topology_names=default_names,
+            quantum_device=quantum_device,
+            quantum_device_kwargs=quantum_device_kwargs,
         )
 
         self.num_kernels = self.quantum_kernel.num_kernels if num_kernels is None else num_kernels
@@ -105,6 +120,7 @@ class QuantumConv2d(nn.Module):
         w_out = (W - self.kernel_size) // self.stride + 1
 
         # Apply quantum kernel layer
+        
         q_out = self.quantum_kernel(patches)  # (B*n_patches, num_kernels * n_qubits)
         
         # Reshape back to (B, out_channels, h_out, w_out) group outputs by image and by patch

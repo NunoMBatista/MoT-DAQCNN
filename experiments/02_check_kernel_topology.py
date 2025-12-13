@@ -76,16 +76,16 @@ def plot_topology(display_coords: np.ndarray, edges: list[tuple[int, int, float]
 
 
 def main():
-    grid = 3
+    kernel_size = 3
     scaling = 1
 
-    coord_sets = topologies.build_kernel_coordinate_sets(grid)
-    names = list(topologies.get_2x2_kernel_set().keys()) if grid == 2 else list(topologies.get_3x3_kernel_set().keys())
+    names = ["kings", "vertical"]
+    coord_sets = topologies.build_kernel_coordinate_sets(kernel_size, names)
 
     for name, physical in zip(names, coord_sets):
         edges = compute_edges(physical, scaling)
         display = canonical_layout(len(physical))
-        title = f"{name} (grid={grid}, scaling={scaling})"
+        title = f"{name} (grid={kernel_size}, scaling={scaling})"
         plot_topology(display, edges, title)
    
 

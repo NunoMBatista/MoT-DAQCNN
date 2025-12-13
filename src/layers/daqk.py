@@ -21,7 +21,9 @@ class DAQKLayer(nn.Module):
         scaling_factor (float): Scaling factor for the Hamiltonian terms.
         mode (str): 'trotter' (default) or 'exact'.
         coordinates (list | None): Explicit coordinates for a single kernel.
-        kernel_topology_names (list | None): Names of topologies to use; ignored if coordinates provided.        
+        kernel_topology_names (list | None): Names of topologies to use; ignored if coordinates provided.
+        quantum_device (str): Pennylane device name (e.g., "default.qubit", "lightning.gpu").
+        quantum_device_kwargs (dict | None): Extra kwargs for the device (e.g., {"batch_size": B}).        
     """
     def __init__(
         self,
@@ -31,6 +33,8 @@ class DAQKLayer(nn.Module):
         mode="trotter",
         coordinates=None,
         kernel_topology_names=None,
+        quantum_device="default.qubit",
+        quantum_device_kwargs=None,
     ):
         super().__init__()
 
@@ -38,25 +42,26 @@ class DAQKLayer(nn.Module):
         self.wires = list(range(n_qubits))
         self.mode = mode
 
-        # Resolve coordinate sets: explicit coordinates take priority, else use named kernels.
-        #if coordinates is not None:
-        #    coord_sets = [coordinates]
-        #else:
-         
+
         # Default to single kings kernel to preserve previous single-output behavior.
-        names = ("kings",) if kernel_topology_names is None else kernel_topology_names
+        names = ("kings",)
+        if kernel_topology_names is not None:
+            names = kernel_topology_names
+        else:
+            print("DAQKLayer: No kernel_topology_names provided, defaulting to ('kings',)")
+        
         coord_sets = topologies.build_kernel_coordinate_sets(grid_size, names)
 
         self.num_kernels = len(coord_sets)
 
-        self._build_kernels(coord_sets, scaling_factor)
+        self._build_kernels(coord_sets, scaling_factor, quantum_device, quantum_device_kwargs or {})
 
 
-    def _build_kernels(self, coord_sets, scaling_factor):
+    def _build_kernels(self, coord_sets, scaling_factor, quantum_device, quantum_device_kwargs):
         """Create one Hamiltonian/QNode per topology and cache them."""
         self.hamiltonians = []
         self.devices = []
-        self.qnodes = []
+        self.kernel_circuits = []
 
         for coords in coord_sets:
             hamiltonian = phys.get_rydberg_hamiltonian(
@@ -64,7 +69,8 @@ class DAQKLayer(nn.Module):
                 coords,
                 scaling_factor=scaling_factor,
             )
-            dev = qml.device("default.qubit", wires=self.n_qubits)
+            
+            dev = qml.device(quantum_device, wires=self.n_qubits, **quantum_device_kwargs)
 
             def _circuit(inputs, H=hamiltonian):
                 for i in range(self.n_qubits):
@@ -84,7 +90,7 @@ class DAQKLayer(nn.Module):
 
             self.hamiltonians.append(hamiltonian)
             self.devices.append(dev)
-            self.qnodes.append(qnode)
+            self.kernel_circuits.append(qnode)
 
 
     def forward(self, x):
@@ -95,14 +101,30 @@ class DAQKLayer(nn.Module):
         Returns:
             Tensor of shape (batch, num_kernels * n_qubits).
         """
-        batch_size = x.shape[0]
+        batch_size = x.shape[0] # This is every patch from a batch (batch * n_patches)
+        #print(x.shape)
         per_kernel = [] 
+        #print(len(self.kernel_circuits))
 
-        for qnode in self.qnodes:
+        # For each kernel topology
+        for kernel_circuit in self.kernel_circuits:
+            
             outputs = []
+            # run every patch from every batch
             for i in range(batch_size):
-                out = torch.stack(qnode(x[i]))
+                # get the output from a single quantum patch
+                quantum_output = kernel_circuit(x[i])
+                #print(quantum_output)
+                
+                # make a tensor with the outputs from each atom in the patch
+                out = torch.stack(quantum_output)
+                #print(out)
+                #exit(0)
                 outputs.append(out)
+                
+                #print(len(outputs))
+                
+                
             per_kernel.append(torch.stack(outputs))  # (B, n_qubits)
 
         return torch.cat(per_kernel, dim=1)

@@ -29,7 +29,7 @@ def main():
         kernel_topology_names=kernel_topology_names
     )
 
-    # Forward pass without training
+    # Forward pass without trainin
     with torch.no_grad():
         out = layer(x)
         
