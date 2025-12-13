@@ -10,7 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.layers.quantum_convolution import QuantumConv2d
 
 
-def main(quantum_device):
+def main(quantum_device, mode):
     torch.manual_seed(0)
 
     kernel_names = ["kings", "horizontal"]
@@ -18,11 +18,12 @@ def main(quantum_device):
         kernel_size=3,
         kernel_topology_names=kernel_names,
         quantum_device=quantum_device,
+        mode=mode,
         stride=1)
 
     # Dummy grayscale image scaled to [0, pi]
     # Input shape is (batch_size, channels, height, width)
-    dummy_img = torch.rand(2, 1, 28, 28) * torch.pi
+    dummy_img = torch.rand(3, 1, 28, 28) * torch.pi
 
     output = q_conv(dummy_img)
 
@@ -32,11 +33,13 @@ def main(quantum_device):
 
 if __name__ == "__main__":
     start_time = time.time()
-    main("lightning.gpu")
-    end_time = time.time()
-    print(f"Execution time for lightning.gpu: {end_time - start_time:.2f} seconds")
-    
-    start_time = time.time()
-    main("default.qubit")
+    main("default.qubit", "exact")
     end_time = time.time()
     print(f"Execution time for default.qubit: {end_time - start_time:.2f} seconds")
+    
+    # start_time = time.time()
+    # main("lightning.gpu")
+    # end_time = time.time()
+    # print(f"Execution time for lightning.gpu: {end_time - start_time:.2f} seconds")
+    
+    

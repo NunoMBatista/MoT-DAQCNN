@@ -63,18 +63,27 @@ class DAQKLayer(nn.Module):
         self.devices = []
         self.kernel_circuits = []
 
+        # Go through the coordinates of every kernel
         for coords in coord_sets:
+            # build the Hamiltonian corresponding to each coordinate set
             hamiltonian = phys.get_rydberg_hamiltonian(
                 self.wires,
                 coords,
                 scaling_factor=scaling_factor,
             )
             
-            dev = qml.device(quantum_device, wires=self.n_qubits, **quantum_device_kwargs)
+            dev = qml.device(
+                quantum_device, 
+                wires=self.n_qubits, 
+                **quantum_device_kwargs
+            )
 
             def _circuit(inputs, H=hamiltonian):
                 for i in range(self.n_qubits):
-                    qml.RY(inputs[i], wires=i)
+                    
+                    # [..., i] to handle both single inputs (N) and batches (B, N)
+                    qml.RY(inputs[..., i], wires=i)
+                    #qml.RY(inputs[i], wires=i)
                     qml.Hadamard(wires=i)
 
                 evo.evolve_analog_block(
@@ -86,7 +95,11 @@ class DAQKLayer(nn.Module):
 
                 return [qml.expval(qml.PauliZ(i)) for i in self.wires]
 
-            qnode = qml.QNode(_circuit, dev, interface="torch")
+            qnode = qml.QNode(
+                _circuit, 
+                dev, 
+                interface="torch"
+            )
 
             self.hamiltonians.append(hamiltonian)
             self.devices.append(dev)
@@ -103,28 +116,37 @@ class DAQKLayer(nn.Module):
         """
         batch_size = x.shape[0] # This is every patch from a batch (batch * n_patches)
         #print(x.shape)
-        per_kernel = [] 
+        per_kernel = [] # This will store the outputs from each kernel
+        
         #print(len(self.kernel_circuits))
 
         # For each kernel topology
-        for kernel_circuit in self.kernel_circuits:
+        # for kernel_circuit in self.kernel_circuits:
             
-            outputs = []
-            # run every patch from every batch
-            for i in range(batch_size):
-                # get the output from a single quantum patch
-                quantum_output = kernel_circuit(x[i])
-                #print(quantum_output)
+        #     outputs = []
+        #     # run every patch from every batch
+        #     for i in range(batch_size):
+        #         # get the output from a single quantum patch
+        #         quantum_output = kernel_circuit(x[i])
+        #         #print(quantum_output)
                 
-                # make a tensor with the outputs from each atom in the patch
-                out = torch.stack(quantum_output)
-                #print(out)
-                #exit(0)
-                outputs.append(out)
+        #         # make a tensor with the outputs from each atom in the patch
+        #         out = torch.stack(quantum_output)
+        #         #print(out)
+        #         #exit(0)
+        #         outputs.append(out)
                 
-                #print(len(outputs))
+        #         #print(len(outputs))
                 
                 
-            per_kernel.append(torch.stack(outputs))  # (B, n_qubits)
+        #     per_kernel.append(torch.stack(outputs))  # (B, n_qubits)
+
+        # For each kernel topology
+        for kernel_circuit in self.kernel_circuits:
+            # Input every patch from every batch
+            circuit_output = kernel_circuit(x) 
+            # circuit output outputs a list of length n_qubits with (B,) tensors
+            out = torch.stack(circuit_output, dim=1)  # (B, n_qubits)
+            per_kernel.append(out)
 
         return torch.cat(per_kernel, dim=1)
