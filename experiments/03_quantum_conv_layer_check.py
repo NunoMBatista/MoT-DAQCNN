@@ -23,9 +23,10 @@ def main(quantum_device, mode):
 
     # Dummy grayscale image scaled to [0, pi]
     # Input shape is (batch_size, channels, height, width)
-    dummy_img = torch.rand(3, 1, 28, 28) * torch.pi
-
+    dummy_img = torch.rand(2, 1, 28, 28) * torch.pi
+    
     output = q_conv(dummy_img)
+    
 
     print("Input Shape: ", tuple(dummy_img.shape))
     print("Output Shape:", tuple(output.shape))
@@ -33,7 +34,7 @@ def main(quantum_device, mode):
 
 if __name__ == "__main__":
     start_time = time.time()
-    main("default.qubit", "exact")
+    main("default.qubit", "trotter")
     end_time = time.time()
     print(f"Execution time for default.qubit: {end_time - start_time:.2f} seconds")
     

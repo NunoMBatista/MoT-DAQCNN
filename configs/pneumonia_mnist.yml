@@ -1,0 +1,28 @@
+dataset:
+  name: pneumonia_mnist
+  data_root: ./data
+  batch_size: 32
+  num_workers: 2
+  download: true
+
+model:
+  num_classes: 2
+  kernel_size: 2
+  stride: 1
+  kernel_topology_names: ["kings", "horizontal", "vertical", "square"]
+  scaling_factor: 1.0
+  mode: trotter
+  dropout: 0.1
+  quantum_device: default.qubit
+  quantum_device_kwargs: {}
+  classical_device: cuda
+
+optim:
+  lr: 1e-3
+  weight_decay: 0.0
+  epochs: 10
+  grad_clip: 1.0
+
+misc:
+  seed: 0
+  log_every: 50

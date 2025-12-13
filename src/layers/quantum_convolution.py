@@ -44,6 +44,8 @@ class QuantumConv2d(nn.Module):
         super().__init__()
 
         self.in_channels = in_channels
+        
+        self.kernel_size: int
         self.kernel_size = kernel_size
         self.stride = stride
 
@@ -75,6 +77,8 @@ class QuantumConv2d(nn.Module):
             quantum_device=quantum_device,
             quantum_device_kwargs=quantum_device_kwargs,
         )
+        
+           
 
         self.num_kernels = self.quantum_kernel.num_kernels if num_kernels is None else num_kernels
 
@@ -90,6 +94,7 @@ class QuantumConv2d(nn.Module):
         self.unfold = nn.Unfold(kernel_size=kernel_size, stride=stride)
 
 
+
     def _normalize_inputs(self, x: torch.Tensor) -> torch.Tensor:
         """Normalize input patches to [0, pi]."""
         x_min = x.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]
@@ -99,6 +104,7 @@ class QuantumConv2d(nn.Module):
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+               
         # x: (B, C, H, W)
         B, C, H, W = x.shape
         if C != self.in_channels:
@@ -120,8 +126,10 @@ class QuantumConv2d(nn.Module):
         w_out = (W - self.kernel_size) // self.stride + 1
 
         # Apply quantum kernel layer
+       
         
         q_out = self.quantum_kernel(patches)  # (B*n_patches, num_kernels * n_qubits)
+        
         
         # Reshape back to (B, out_channels, h_out, w_out) group outputs by image and by patch
         q_out = q_out.reshape(B, n_patches, self.num_kernels * self.n_qubits)

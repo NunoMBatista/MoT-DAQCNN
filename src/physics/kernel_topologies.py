@@ -12,6 +12,7 @@ def create_kings_graph_geometry(grid_size=2):
     for x in range(grid_size):
         for y in range(grid_size):
             coords.append([x, y])
+
     return np.array(coords, dtype=float)
 
 

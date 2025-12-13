@@ -1,4 +1,5 @@
 import pennylane as qml
+import numpy as np
 
 
 def evolve_analog_block(hamiltonian, time_interval, mode="trotter", dt=0.05, params=None):
@@ -20,9 +21,10 @@ def evolve_analog_block(hamiltonian, time_interval, mode="trotter", dt=0.05, par
     t_start, t_end = time_interval
     
     if mode == "exact":
-        # Use PennyLane's built-in ODE solver
-        # This provides the ideal continuous physics.
-        qml.evolve(hamiltonian)(params=params, t=time_interval)
+        # Use PennyLane's built-in ODE solver with numpy params (works with jax-based solver)
+        params_np = np.asarray(params, dtype=float)
+        t_np = np.asarray(time_interval, dtype=float)
+        qml.evolve(hamiltonian)(params=params_np, t=t_np)
         
     elif mode == "trotter":
         # Replicate the paper's discrete time steps 

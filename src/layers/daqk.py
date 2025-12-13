@@ -78,10 +78,13 @@ class DAQKLayer(nn.Module):
                 **quantum_device_kwargs
             )
 
+            # This is the circuit that will run the kernels themselves
             def _circuit(inputs, H=hamiltonian):
                 for i in range(self.n_qubits):
                     
                     # [..., i] to handle both single inputs (N) and batches (B, N)
+                    
+                    # Encode the image patch into the qubits
                     qml.RY(inputs[..., i], wires=i)
                     #qml.RY(inputs[i], wires=i)
                     qml.Hadamard(wires=i)
@@ -92,13 +95,15 @@ class DAQKLayer(nn.Module):
                     mode=self.mode,
                     dt=0.05,
                 )
-
+                
                 return [qml.expval(qml.PauliZ(i)) for i in self.wires]
 
+
             qnode = qml.QNode(
-                _circuit, 
-                dev, 
-                interface="torch"
+                _circuit,
+                dev,
+                interface="torch" if self.mode != "exact" else "autograd",
+                diff_method=None # We don't need to train the kernels
             )
 
             self.hamiltonians.append(hamiltonian)
@@ -117,36 +122,23 @@ class DAQKLayer(nn.Module):
         batch_size = x.shape[0] # This is every patch from a batch (batch * n_patches)
         #print(x.shape)
         per_kernel = [] # This will store the outputs from each kernel
-        
-        #print(len(self.kernel_circuits))
 
-        # For each kernel topology
-        # for kernel_circuit in self.kernel_circuits:
-            
-        #     outputs = []
-        #     # run every patch from every batch
-        #     for i in range(batch_size):
-        #         # get the output from a single quantum patch
-        #         quantum_output = kernel_circuit(x[i])
-        #         #print(quantum_output)
-                
-        #         # make a tensor with the outputs from each atom in the patch
-        #         out = torch.stack(quantum_output)
-        #         #print(out)
-        #         #exit(0)
-        #         outputs.append(out)
-                
-        #         #print(len(outputs))
-                
-                
-        #     per_kernel.append(torch.stack(outputs))  # (B, n_qubits)
 
         # For each kernel topology
         for kernel_circuit in self.kernel_circuits:
-            # Input every patch from every batch
-            circuit_output = kernel_circuit(x) 
-            # circuit output outputs a list of length n_qubits with (B,) tensors
-            out = torch.stack(circuit_output, dim=1)  # (B, n_qubits)
-            per_kernel.append(out)
+            # Use numpy inputs for autograd interface to avoid mixed backend issues
+            
+            if self.mode == "exact":
+                circuit_output = kernel_circuit(x.detach().cpu().numpy())
+                circuit_output = np.array(circuit_output)
+                
+                out = torch.as_tensor(circuit_output, device=x.device, dtype=x.dtype)
+                per_kernel.append(out)
+            
+            elif self.mode == "trotter":
+                circuit_output = kernel_circuit(x) # gets list of length n_qubits with (B,) tensors
+                # circuit_output is a list of length n_qubits with (B,) tensors
+                out = torch.stack(circuit_output, dim=1)  # (B, n_qubits)
+                per_kernel.append(out)
 
         return torch.cat(per_kernel, dim=1)

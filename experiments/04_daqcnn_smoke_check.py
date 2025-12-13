@@ -24,7 +24,6 @@ def main():
         kernel_topology_names=kernel_names,
         scaling_factor=1.0,
         mode="trotter",
-        hidden_dim=32,
         quantum_device="lightning.gpu",
         quantum_device_kwargs={"shots": None},
         dropout=0.0,
@@ -33,7 +32,7 @@ def main():
     model.eval()
 
     batch_size = 1
-    dummy_img = torch.rand(batch_size, 1, 4, 4) * torch.pi
+    dummy_img = torch.rand(batch_size, 1, 28, 28) * torch.pi
 
     with torch.no_grad():
         logits = model(dummy_img)
