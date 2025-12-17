@@ -15,7 +15,7 @@ model:
   dropout: 0.1
   quantum_device: default.qubit
   quantum_device_kwargs: {}
-  classical_device: cuda
+  classical_device: auto  # auto, cuda, or cpu - auto detects GPU availability
 
 optim:
   lr: 1e-3

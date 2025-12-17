@@ -89,7 +89,16 @@ def main():
     seed = cfg.get("misc", {}).get("seed", 0)
     set_seed(seed)
 
-    device = cfg.get("model", {}).get("classical_device", "cuda" if torch.cuda.is_available() else "cpu")
+    # Determine device: use config preference but fall back to CPU if CUDA unavailable
+    requested_device = cfg.get("model", {}).get("classical_device", "auto")
+    if requested_device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    elif requested_device == "cuda" and not torch.cuda.is_available():
+        print("CUDA requested but not available, falling back to CPU")
+        device = "cpu"
+    else:
+        device = requested_device
+    print(f"Using device: {device}")
 
     # Data
     train_loader, val_loader, test_loader, n_classes = get_dataloaders(cfg)
