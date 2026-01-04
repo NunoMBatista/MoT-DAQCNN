@@ -15,6 +15,7 @@ class DAQCNN(nn.Module):
         scaling_factor: Interaction strength fed to the Rydberg Hamiltonian.
         mode: "trotter" (gate-based, GPU-friendly) or "exact" (ODE solver).
         dropout: Dropout probability applied in the classical head.
+        activation: Activation function name ("relu" or "gelu").
         quantum_device: Pennylane device name (e.g., "default.qubit", "lightning.gpu").
         quantum_device_kwargs: Extra kwargs for the quantum device (e.g., shots/batch_size).
         classical_device: Torch device to place the full model (e.g., "cuda" or "cpu").
@@ -27,7 +28,7 @@ class DAQCNN(nn.Module):
         - Batch size is not a constructor argument; pass batches of shape (B, C, H, W) to forward.
             Use a DataLoader to control how many samples are processed per step.
     """
-    
+
     def __init__(
         self,
         num_classes: int,
@@ -37,12 +38,12 @@ class DAQCNN(nn.Module):
         scaling_factor: float = 1.0,
         mode: str = "trotter",
         dropout: float = 0.1,
+        activation: str = "relu",
         quantum_device: str = "default.qubit",
         quantum_device_kwargs=None,
         classical_device=None,
     ):
         super().__init__()
-
 
         self.quantum_convolutional_layer = QuantumConv2d(
             kernel_size=kernel_size,
@@ -58,18 +59,22 @@ class DAQCNN(nn.Module):
 
         out_ch = self.quantum_convolutional_layer.out_channels
 
+        # Select activation function
+        act_fn = nn.GELU() if activation.lower() == "gelu" else nn.ReLU()
+
         # Paper-like classical head:
-        # Conv2D (out_ch -> 64, 2x2, stride=1, no padding) -> BN -> ReLU
+        # Conv2D (out_ch -> 64, 2x2, stride=1, no padding) -> BN -> Activation
         # MaxPool2D (2x2, stride=2)
-        # Conv2D (64 -> 64, 2x2, stride=1) -> ReLU
+        # Conv2D (64 -> 64, 2x2, stride=1) -> Activation
         # Dropout -> Flatten -> Dropout -> Dense
         self.head = nn.Sequential(
             nn.Conv2d(out_ch, 64, kernel_size=2, stride=1, padding=0),
             nn.BatchNorm2d(64),
-            nn.ReLU(),
+            act_fn,
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Conv2d(64, 64, kernel_size=2, stride=1, padding=0),
-            nn.ReLU(),
+            # nn.GELU() if activation.lower() == "gelu" else nn.ReLU(),
+            act_fn,
             nn.Dropout(dropout),
             nn.Flatten(),
             nn.Dropout(dropout),
@@ -79,7 +84,6 @@ class DAQCNN(nn.Module):
         if classical_device is not None:
             self.to(classical_device)
 
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.quantum_convolutional_layer(x).float()
         # Ensure quantum outputs live on the same device as the classical head
@@ -87,5 +91,3 @@ class DAQCNN(nn.Module):
         if x.device != target_device:
             x = x.to(target_device)
         return self.head(x)
-
-

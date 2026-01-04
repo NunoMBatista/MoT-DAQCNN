@@ -3,17 +3,18 @@ import os
 import random
 import sys
 import time
-import yaml
 
 import torch
 import torch.nn as nn
+import yaml
+from torch.optim.adam import Adam
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-from src.models.daqcnn import DAQCNN
-from src.utils.data import get_dataloaders
+from src.models.daqcnn import DAQCNN  # noqa: E402
+from src.utils.data import get_dataloaders  # noqa: E402
 
 
 def set_seed(seed: int):
@@ -114,6 +115,7 @@ def main():
         scaling_factor=model_cfg.get("scaling_factor", 1.0),
         mode=model_cfg.get("mode", "trotter"),
         dropout=model_cfg.get("dropout", 0.1),
+        activation=model_cfg.get("activation", "relu"),
         quantum_device=model_cfg.get("quantum_device", "default.qubit"),
         quantum_device_kwargs=model_cfg.get("quantum_device_kwargs", None),
         classical_device=device,
@@ -128,13 +130,15 @@ def main():
     epochs = optim_cfg.get("epochs", 1)
     grad_clip = optim_cfg.get("grad_clip", 0.0)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     log_every = cfg.get("misc", {}).get("log_every", 50)
 
     for epoch in range(1, epochs + 1):
         t0 = time.time()
-        train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, device, grad_clip)
+        train_loss, train_acc = train_one_epoch(
+            model, train_loader, optimizer, device, grad_clip
+        )
         val_loss, val_acc = evaluate(model, val_loader, device)
         dt = time.time() - t0
         print(

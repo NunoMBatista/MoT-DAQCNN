@@ -13,7 +13,7 @@ model:
   scaling_factor: 1.0
   mode: trotter
   dropout: 0.1
-  activation: relu # relu or gelu
+  activation: gelu # relu or gelu
   quantum_device: default.qubit
   quantum_device_kwargs: {}
   classical_device: auto # auto, cuda, or cpu - auto detects GPU availability
@@ -21,9 +21,9 @@ model:
 optim:
   lr: 1e-3
   weight_decay: 0.0
-  epochs: 10
+  epochs: 1
   grad_clip: 1.0
 
 misc:
-  seed: 0
+  seed: [0, 42, 123, 456, 789] # List of seeds for multiple runs
   log_every: 50
