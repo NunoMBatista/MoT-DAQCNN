@@ -21,9 +21,9 @@ model:
 optim:
   lr: 1e-3
   weight_decay: 0.0
-  epochs: 1
+  epochs: 10
   grad_clip: 1.0
 
 misc:
-  seed: [0, 42, 123, 456, 789] # List of seeds for multiple runs
+  seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
   log_every: 50
