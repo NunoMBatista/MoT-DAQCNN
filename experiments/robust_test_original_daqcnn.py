@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import yaml
-from sklearn.metrics import f1_score, recall_score, roc_auc_score
+from sklearn.metrics import confusion_matrix, f1_score, recall_score, roc_auc_score
 from tqdm import tqdm
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -19,6 +19,7 @@ if PROJECT_ROOT not in sys.path:
 from src.models.daqcnn import DAQCNN  # noqa: E402
 from src.utils.data import get_dataloaders  # noqa: E402
 from src.utils.plotting import (  # noqa: E402
+    plot_confusion_matrix,
     plot_loss_curves,
     plot_multi_seed_loss_curves,
     plot_multi_seed_roc_curves,
@@ -55,12 +56,14 @@ def compute_metrics(logits: torch.Tensor, labels: torch.Tensor) -> dict:
 
     f1 = f1_score(labels_np, preds, average="macro", zero_division="warn")
     recall = recall_score(labels_np, preds, average="macro", zero_division="warn")
+    cm = confusion_matrix(labels_np, preds)
 
     return {
         "accuracy": float(acc),
         "auc": float(auc),
         "f1": float(f1),
         "recall": float(recall),
+        "confusion_matrix": cm,
     }
 
 
@@ -293,6 +296,16 @@ def run_single_seed(cfg, seed, output_dir, verbose=True):
     if verbose:
         print(f"ROC curve saved to: {roc_plot_path}")
 
+    # Save confusion matrix for this seed
+    cm_plot_path = os.path.join(output_dir, f"confusion_matrix_seed_{seed}.png")
+    plot_confusion_matrix(
+        test_metrics["confusion_matrix"],
+        cm_plot_path,
+        num_classes=num_classes,
+    )
+    if verbose:
+        print(f"Confusion matrix saved to: {cm_plot_path}")
+
     return {
         "seed": seed,
         "train_losses": train_losses,
@@ -306,6 +319,7 @@ def run_single_seed(cfg, seed, output_dir, verbose=True):
         "test_recall": test_metrics["recall"],
         "test_probs": test_metrics["probs"].tolist(),
         "test_labels": test_metrics["labels"].tolist(),
+        "test_confusion_matrix": test_metrics["confusion_matrix"].tolist(),
         "num_classes": num_classes,
         "final_train_loss": train_losses[-1],
         "final_val_loss": val_losses[-1],

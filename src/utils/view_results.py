@@ -9,6 +9,9 @@ import json
 import os
 import sys
 
+import numpy as np
+from plotting import plot_confusion_matrix
+
 
 def print_separator(char="=", length=70):
     print(char * length)
@@ -70,6 +73,25 @@ def view_results(output_dir):
                 f"Run {i} (seed={seed}): acc={test_acc:.6f}, loss={test_loss:.6f}, "
                 f"auc={test_auc:.6f}, f1={test_f1:.6f}, recall={test_recall:.6f}"
             )
+        print()
+
+        # Plot confusion matrices if available
+        print_separator()
+        print("Generating Confusion Matrix Plots...")
+        print_separator()
+
+        for result in individual:
+            seed = result.get("seed", "N/A")
+            cm = result.get("test_confusion_matrix")
+            num_classes = result.get("num_classes", 2)
+
+            if cm is not None:
+                cm_array = np.array(cm)
+                cm_plot_path = os.path.join(
+                    output_dir, f"confusion_matrix_seed_{seed}.png"
+                )
+                plot_confusion_matrix(cm_array, cm_plot_path, num_classes=num_classes)
+                print(f"  - Generated: confusion_matrix_seed_{seed}.png")
         print()
 
     # List available plots

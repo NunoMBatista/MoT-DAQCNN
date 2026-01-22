@@ -92,7 +92,7 @@ def main():
     kernel_size = 3
     scaling = 1
 
-    names = ["kings", "vertical"]
+    names = ["kings", "vertical", "horizontal", "cross"]
     coord_sets = topologies.build_kernel_coordinate_sets(kernel_size, names)
 
     for name, physical in zip(names, coord_sets):

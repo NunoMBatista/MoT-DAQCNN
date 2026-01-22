@@ -2,6 +2,7 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 from sklearn.metrics import auc, roc_curve
 
 
@@ -195,6 +196,26 @@ def plot_multi_seed_roc_curves(all_labels, all_probs, save_path, num_classes=2):
     plt.title(f"ROC Curves (mean ± std, n={len(all_labels)} seeds)", fontsize=14)
     plt.legend(loc="lower right", fontsize=10)
     plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+
+
+def plot_confusion_matrix(cm, save_path, num_classes=2):
+    """Plot confusion matrix.
+
+    Args:
+        cm: Confusion matrix (numpy array)
+        save_path: Path to save the plot
+        num_classes: Number of classes
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=True)
+    plt.xlabel("Predicted", fontsize=12)
+    plt.ylabel("True", fontsize=12)
+    plt.title("Confusion Matrix", fontsize=14)
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
     plt.close()
