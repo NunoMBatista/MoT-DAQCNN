@@ -11,6 +11,7 @@ model:
   stride: 1
   kernel_topology_names: ["kings", "horizontal", "vertical", "square"]
   scaling_factor: 1.0
+  evolution_time: 0.2
   mode: trotter
   dropout: 0.6
   activation: gelu # relu or gelu

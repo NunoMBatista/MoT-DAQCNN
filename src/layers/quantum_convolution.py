@@ -14,7 +14,7 @@ class QuantumConv2d(nn.Module):
     atom geometry (topology) encoded via coordinates. The outputs per patch are treated as
     channels in the resulting feature map. With num_kernels = M the output channels are
     M * kernel_size^2
-    
+
     Attributes:
         in_channels (int): Number of input channels (1 for grayscale).
         out_channels (int): Number of output channels (must equal num_kernels * kernel_size^2).
@@ -23,6 +23,7 @@ class QuantumConv2d(nn.Module):
         num_kernels (int | None): Must match the number of topology coordinate sets.
         kernel_topology_names (Iterable[str] | None): Topologies to use; defaults to manual set per grid size (see kernel_topologies).
         scaling_factor (float): The 's' parameter for interaction strength.
+        evolution_time (float): The time interval for quantum evolution.
         mode (str): 'trotter' (default) or 'exact'.
         quantum_device (str): Pennylane device name (e.g., "default.qubit", "lightning.gpu").
         quantum_device_kwargs (dict | None): Extra kwargs for the quantum device.
@@ -37,6 +38,7 @@ class QuantumConv2d(nn.Module):
         num_kernels=None,
         kernel_topology_names=None,
         scaling_factor=1.0,
+        evolution_time=0.2,
         mode="trotter",
         quantum_device="default.qubit",
         quantum_device_kwargs=None,
@@ -44,16 +46,14 @@ class QuantumConv2d(nn.Module):
         super().__init__()
 
         self.in_channels = in_channels
-        
+
         self.kernel_size: int
         self.kernel_size = kernel_size
         self.stride = stride
 
-
         if kernel_size is None:
             raise ValueError("QuantumConv2d requires a kernel_size (e.g., 2 or 3).")
         self.n_qubits = kernel_size * kernel_size
-
 
         # This just checks if I want specific kernel names or not
         if kernel_topology_names is None:
@@ -63,7 +63,9 @@ class QuantumConv2d(nn.Module):
                 default_names = list(get_3x3_kernel_set().keys())
             else:
                 default_names = ["kings"]
-                print("QuantumConv2d: No kernel_topology_names provided for kernel_size > 3, defaulting to ('kings',)")
+                print(
+                    "QuantumConv2d: No kernel_topology_names provided for kernel_size > 3, defaulting to ('kings',)"
+                )
         else:
             default_names = kernel_topology_names
 
@@ -72,18 +74,21 @@ class QuantumConv2d(nn.Module):
             n_qubits=self.n_qubits,
             grid_size=kernel_size,
             scaling_factor=scaling_factor,
+            evolution_time=evolution_time,
             mode=mode,
             kernel_topology_names=default_names,
             quantum_device=quantum_device,
             quantum_device_kwargs=quantum_device_kwargs,
         )
-        
-           
 
-        self.num_kernels = self.quantum_kernel.num_kernels if num_kernels is None else num_kernels
+        self.num_kernels = (
+            self.quantum_kernel.num_kernels if num_kernels is None else num_kernels
+        )
 
         expected_out_channels = self.num_kernels * self.n_qubits
-        self.out_channels = out_channels if out_channels is not None else expected_out_channels
+        self.out_channels = (
+            out_channels if out_channels is not None else expected_out_channels
+        )
 
         if self.out_channels != expected_out_channels:
             raise ValueError(
@@ -93,8 +98,6 @@ class QuantumConv2d(nn.Module):
         # Sliding window extractor
         self.unfold = nn.Unfold(kernel_size=kernel_size, stride=stride)
 
-
-
     def _normalize_inputs(self, x: torch.Tensor) -> torch.Tensor:
         """Normalize input patches to [0, pi]."""
         x_min = x.min(dim=-1, keepdim=True)[0].min(dim=-2, keepdim=True)[0]
@@ -102,9 +105,7 @@ class QuantumConv2d(nn.Module):
         x_norm = (x - x_min) / (x_max - x_min + 1e-8)  # avoid div by zero
         return x_norm * torch.pi
 
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-               
         # x: (B, C, H, W)
         B, C, H, W = x.shape
         if C != self.in_channels:
@@ -112,7 +113,7 @@ class QuantumConv2d(nn.Module):
 
         # Normalize inputs to [0, pi]
         x = self._normalize_inputs(x)
-        
+
         # Extract patches of size (ks*ks) from input
         patches = self.unfold(x)  # (B, C*ks*ks, n_patches)
         # The number of patches is the last dimension
@@ -126,16 +127,14 @@ class QuantumConv2d(nn.Module):
         w_out = (W - self.kernel_size) // self.stride + 1
 
         # Apply quantum kernel layer
-       
-        
+
         q_out = self.quantum_kernel(patches)  # (B*n_patches, num_kernels * n_qubits)
-        
-        
+
         # Reshape back to (B, out_channels, h_out, w_out) group outputs by image and by patch
         q_out = q_out.reshape(B, n_patches, self.num_kernels * self.n_qubits)
-        
+
         # Transpose to (B, out_channels, n_patches) move channels ahead of patches
         q_out = q_out.transpose(1, 2)  # (B, out_channels, n_patches)
-        
+
         # Reshape to (B, out_channels, h_out, w_out) map the n_patches into spacial h_out w_out
         return q_out.reshape(B, self.out_channels, h_out, w_out)

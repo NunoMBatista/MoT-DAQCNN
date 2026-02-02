@@ -13,6 +13,7 @@ class DAQCNN(nn.Module):
         stride: Stride for the quantum convolution unfold.
         kernel_topology_names: Iterable of kernel topology names; defaults per grid size if None.
         scaling_factor: Interaction strength fed to the Rydberg Hamiltonian.
+        evolution_time: The time interval for quantum evolution.
         mode: "trotter" (gate-based, GPU-friendly) or "exact" (ODE solver).
         dropout: Dropout probability applied in the classical head.
         activation: Activation function name ("relu" or "gelu").
@@ -36,6 +37,7 @@ class DAQCNN(nn.Module):
         stride: int = 1,
         kernel_topology_names=None,
         scaling_factor: float = 1.0,
+        evolution_time: float = 0.2,
         mode: str = "trotter",
         dropout: float = 0.1,
         activation: str = "relu",
@@ -50,6 +52,7 @@ class DAQCNN(nn.Module):
             stride=stride,
             kernel_topology_names=kernel_topology_names,
             scaling_factor=scaling_factor,
+            evolution_time=evolution_time,
             mode=mode,
             quantum_device=quantum_device,
             quantum_device_kwargs=quantum_device_kwargs,

@@ -115,12 +115,13 @@ def get_rydberg_hamiltonian(wires, coordinates, scaling_factor=1.0):
     coeffs = [drive_ramp, detuning_ramp]
     ops = [H_drive_base, H_detuning_base]
 
-    # if len(coeffs_int) > 0:
-    #    def constant_one(params, t):
-    #        return 1.0
-    #
-    #    ops.append(H_interaction)
-    #    coeffs.append(constant_one)
+    if len(coeffs_int) > 0:
+
+        def constant_one(params, t):
+            return 1.0
+
+        ops.append(H_interaction)
+        coeffs.append(constant_one)
 
     # Combine all terms into a single ParametrizedHamiltonian
     H_total = qml.pulse.ParametrizedHamiltonian(coeffs, ops)

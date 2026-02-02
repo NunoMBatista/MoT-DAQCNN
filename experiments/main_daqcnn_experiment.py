@@ -113,6 +113,7 @@ def main():
         stride=model_cfg.get("stride", 1),
         kernel_topology_names=model_cfg.get("kernel_topology_names", None),
         scaling_factor=model_cfg.get("scaling_factor", 1.0),
+        evolution_time=model_cfg.get("evolution_time", 0.2),
         mode=model_cfg.get("mode", "trotter"),
         dropout=model_cfg.get("dropout", 0.1),
         activation=model_cfg.get("activation", "relu"),
