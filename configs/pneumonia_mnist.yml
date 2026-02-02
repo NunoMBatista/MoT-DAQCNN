@@ -24,6 +24,7 @@ optim:
   weight_decay: 0.0
   epochs: 10
   grad_clip: 1.0
+  patience: 5
 
 misc:
   seed: 0

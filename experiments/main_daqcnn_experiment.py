@@ -130,10 +130,15 @@ def main():
     weight_decay = float(optim_cfg.get("weight_decay", 0.0))
     epochs = optim_cfg.get("epochs", 1)
     grad_clip = optim_cfg.get("grad_clip", 0.0)
+    patience = optim_cfg.get("patience", None)
 
     optimizer = Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     log_every = cfg.get("misc", {}).get("log_every", 50)
+
+    # Early stopping variables
+    best_val_loss = float('inf')
+    epochs_without_improvement = 0
 
     for epoch in range(1, epochs + 1):
         t0 = time.time()
@@ -146,6 +151,17 @@ def main():
             f"Epoch {epoch}/{epochs} | train_loss={train_loss:.4f} acc={train_acc:.4f} | "
             f"val_loss={val_loss:.4f} acc={val_acc:.4f} | {dt:.1f}s"
         )
+
+        # Early stopping check
+        if patience is not None:
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= patience:
+                    print(f"Early stopping triggered after {epoch} epochs (patience={patience})")
+                    break
 
     test_loss, test_acc = evaluate(model, test_loader, device)
     print(f"Test | loss={test_loss:.4f} acc={test_acc:.4f}")
