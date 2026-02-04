@@ -1,12 +1,12 @@
 dataset:
-  name: path_mnist
+  name: derma_mnist
   data_root: ./data
-  batch_size: 4
+  batch_size: 16
   num_workers: 0
   download: true
 
 model:
-  num_classes: 9
+  num_classes: 7
   in_channels: 3
   kernel_size: 2
   stride: 1
@@ -23,7 +23,7 @@ model:
 optim:
   lr: 1e-3
   weight_decay: 0.0
-  epochs: 1
+  epochs: 5
   grad_clip: 1.0
   patience: 10
   use_scheduler: true

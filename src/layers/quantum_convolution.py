@@ -45,6 +45,8 @@ class QuantumConv2d(nn.Module):
     ):
         super().__init__()
 
+        if in_channels not in [1, 3]:
+            raise ValueError(f"in_channels must be 1 (grayscale) or 3 (RGB), got {in_channels}")
         self.in_channels = in_channels
 
         self.kernel_size: int
@@ -111,30 +113,33 @@ class QuantumConv2d(nn.Module):
         if C != self.in_channels:
             raise ValueError(f"Expected {self.in_channels} channels, got {C}")
 
-        # Normalize inputs to [0, pi]
-        x = self._normalize_inputs(x)
-
-        # Extract patches of size (ks*ks) from input
-        patches = self.unfold(x)  # (B, C*ks*ks, n_patches)
-        # The number of patches is the last dimension
-        n_patches = patches.shape[-1]
-
-        # reshape to (B*n_patches, n_qubits)
-        patches = patches.transpose(1, 2).reshape(-1, self.n_qubits)
-
         # Compute output spatial dimensions
         h_out = (H - self.kernel_size) // self.stride + 1
         w_out = (W - self.kernel_size) // self.stride + 1
 
-        # Apply quantum kernel layer
-
-        q_out = self.quantum_kernel(patches)  # (B*n_patches, num_kernels * n_qubits)
-
-        # Reshape back to (B, out_channels, h_out, w_out) group outputs by image and by patch
-        q_out = q_out.reshape(B, n_patches, self.num_kernels * self.n_qubits)
-
-        # Transpose to (B, out_channels, n_patches) move channels ahead of patches
-        q_out = q_out.transpose(1, 2)  # (B, out_channels, n_patches)
-
-        # Reshape to (B, out_channels, h_out, w_out) map the n_patches into spacial h_out w_out
-        return q_out.reshape(B, self.out_channels, h_out, w_out)
+        if C == 1:
+            # Grayscale: process as before
+            x = self._normalize_inputs(x)
+            patches = self.unfold(x)  # (B, C*ks*ks, n_patches)
+            n_patches = patches.shape[-1]
+            patches = patches.transpose(1, 2).reshape(-1, self.n_qubits)
+            q_out = self.quantum_kernel(patches)  # (B*n_patches, num_kernels * n_qubits)
+            q_out = q_out.reshape(B, n_patches, self.num_kernels * self.n_qubits)
+            q_out = q_out.transpose(1, 2)  # (B, out_channels, n_patches)
+            return q_out.reshape(B, self.out_channels, h_out, w_out)
+        else:
+            # RGB: process each channel separately and concatenate
+            channel_outputs = []
+            for c in range(C):
+                x_c = x[:, c:c+1, :, :]  # (B, 1, H, W)
+                x_c = self._normalize_inputs(x_c)
+                patches = self.unfold(x_c)  # (B, 1*ks*ks, n_patches)
+                n_patches = patches.shape[-1]
+                patches = patches.transpose(1, 2).reshape(-1, self.n_qubits)
+                q_out = self.quantum_kernel(patches)  # (B*n_patches, num_kernels * n_qubits)
+                q_out = q_out.reshape(B, n_patches, self.num_kernels * self.n_qubits)
+                q_out = q_out.transpose(1, 2)  # (B, out_channels, n_patches)
+                q_out = q_out.reshape(B, self.out_channels, h_out, w_out)
+                channel_outputs.append(q_out)
+            # Concatenate along channel dimension
+            return torch.cat(channel_outputs, dim=1)  # (B, out_channels*C, h_out, w_out)

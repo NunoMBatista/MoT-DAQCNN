@@ -42,6 +42,7 @@ def load_model_from_checkpoint(checkpoint_path: str, device: str = "cpu") -> tup
         quantum_device=model_cfg.get("quantum_device", "default.qubit"),
         quantum_device_kwargs=model_cfg.get("quantum_device_kwargs", None),
         classical_device=device,
+        in_channels=model_cfg.get("in_channels", 1),
     )
 
     # Load state dict

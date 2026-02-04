@@ -87,6 +87,8 @@ class DatasetSelectionModal(ModalScreen):
             yield Label("Select Dataset:", id="dataset-title")
             yield Button("Pneumonia MNIST", id="pneumonia_mnist", variant="primary")
             yield Button("Breast MNIST", id="breast_mnist", variant="primary")
+            yield Button("Path MNIST", id="path_mnist", variant="primary")
+            yield Button("Derma MNIST", id="derma_mnist", variant="primary")
             yield Button("Cancel", id="cancel", variant="error")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

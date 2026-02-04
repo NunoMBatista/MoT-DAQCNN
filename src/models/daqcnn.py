@@ -44,10 +44,12 @@ class DAQCNN(nn.Module):
         quantum_device: str = "default.qubit",
         quantum_device_kwargs=None,
         classical_device=None,
+        in_channels: int = 1,
     ):
         super().__init__()
 
         self.quantum_convolutional_layer = QuantumConv2d(
+            in_channels=in_channels,
             kernel_size=kernel_size,
             stride=stride,
             kernel_topology_names=kernel_topology_names,
@@ -57,10 +59,14 @@ class DAQCNN(nn.Module):
             quantum_device=quantum_device,
             quantum_device_kwargs=quantum_device_kwargs,
         )
+        self.in_channels = in_channels
         # Backward compatibility alias
         self.quantum = self.quantum_convolutional_layer
 
         out_ch = self.quantum_convolutional_layer.out_channels
+        # For RGB, the quantum layer outputs 3x more channels
+        if in_channels == 3:
+            out_ch *= 3
 
         # Select activation function
         act_fn = nn.GELU() if activation.lower() == "gelu" else nn.ReLU()
