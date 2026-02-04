@@ -140,6 +140,7 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     # Early stopping variables
     best_val_loss = float("inf")
     epochs_without_improvement = 0
+    best_model_state = None
 
     epoch_pbar = tqdm(range(1, epochs + 1), desc=f"Seed {seed}", leave=True)
     for epoch in epoch_pbar:
@@ -171,25 +172,57 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
                 f"{dt:.1f}s"
             )
 
-        # Early stopping check
-        if patience is not None:
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+        # Save best model
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_model_state = model.state_dict()
+            if patience is not None:
                 epochs_without_improvement = 0
-            else:
-                epochs_without_improvement += 1
-                if epochs_without_improvement >= patience:
-                    if verbose:
-                        print(
-                            f"Early stopping triggered after {epoch} epochs (patience={patience})"
-                        )
-                    break
+        elif patience is not None:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= patience:
+                if verbose:
+                    print(
+                        f"Early stopping triggered after {epoch} epochs (patience={patience})"
+                    )
+                break
 
         # Step the scheduler if enabled
         if scheduler is not None:
             scheduler.step()
 
     epoch_pbar.close()
+
+    # Save final model
+    final_model_path = os.path.join(output_dir, f"final_model_seed_{seed}.pt")
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "config": cfg,
+            "seed": seed,
+            "num_classes": num_classes,
+        },
+        final_model_path,
+    )
+    if verbose:
+        print(f"Final model saved to: {final_model_path}")
+
+    # Save best model
+    if best_model_state is not None:
+        best_model_path = os.path.join(output_dir, f"best_model_seed_{seed}.pt")
+        torch.save(
+            {
+                "model_state_dict": best_model_state,
+                "config": cfg,
+                "seed": seed,
+                "num_classes": num_classes,
+                "best_val_loss": best_val_loss,
+            },
+            best_model_path,
+        )
+        if verbose:
+            print(f"Best model saved to: {best_model_path}")
 
     # Test evaluation with full metrics
     if verbose:
