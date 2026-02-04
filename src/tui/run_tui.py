@@ -11,20 +11,31 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-import torch
-import yaml
+import subprocess
+import tempfile
+
 import matplotlib
 import matplotlib.pyplot as plt
-import tempfile
-import subprocess
+import torch
+import yaml
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Footer, Header, Label, ListView, ListItem, ProgressBar, Static, Tree
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Label,
+    ListItem,
+    ListView,
+    ProgressBar,
+    Static,
+    Tree,
+)
 
 # Use non-interactive backend for matplotlib
-matplotlib.use('Agg')
+matplotlib.use("Agg")
 
 from src.utils.data import get_dataloaders
 from src.utils.evaluate import compute_metrics
@@ -146,25 +157,25 @@ class ImageSelectionModal(ModalScreen):
             class_0_labels = []
             class_1_images = []
             class_1_labels = []
-            
+
             for imgs, lbls in train_loader:
                 for img, lbl in zip(imgs, lbls):
-                    label_val = int(lbl.item()) if hasattr(lbl, 'item') else int(lbl)
-                    
+                    label_val = int(lbl.item()) if hasattr(lbl, "item") else int(lbl)
+
                     if label_val == 0 and len(class_0_images) < 10:
                         class_0_images.append(img)
                         class_0_labels.append(lbl)
                     elif label_val == 1 and len(class_1_images) < 10:
                         class_1_images.append(img)
                         class_1_labels.append(lbl)
-                    
+
                     # Stop when we have 10 from each class
                     if len(class_0_images) >= 10 and len(class_1_images) >= 10:
                         break
-                
+
                 if len(class_0_images) >= 10 and len(class_1_images) >= 10:
                     break
-            
+
             # Combine images from both classes
             self.images = class_0_images + class_1_images
             self.labels = class_0_labels + class_1_labels
@@ -186,13 +197,13 @@ class ImageSelectionModal(ModalScreen):
 
         list_view = self.query_one("#image-list", ListView)
         list_view.clear()
-        
+
         for i, label in enumerate(self.labels):
             # Handle both tensor and scalar labels
-            label_val = int(label.item()) if hasattr(label, 'item') else int(label)
+            label_val = int(label.item()) if hasattr(label, "item") else int(label)
             list_item = ListItem(Label(f"Image {i + 1}: Label={label_val}"))
             list_view.append(list_item)
-        
+
         # Set initial selection
         if self.current_idx < len(self.images):
             list_view.index = self.current_idx
@@ -213,15 +224,15 @@ class ImageSelectionModal(ModalScreen):
                 # Get current selection from ListView
                 list_view = self.query_one("#image-list", ListView)
                 self.current_idx = list_view.index if list_view.index is not None else 0
-                
+
                 img = self.images[self.current_idx]
                 # Ensure img is a tensor
                 if not isinstance(img, torch.Tensor):
                     img = torch.tensor(img)
-                
+
                 label = self.labels[self.current_idx]
-                label_val = int(label.item()) if hasattr(label, 'item') else int(label)
-                
+                label_val = int(label.item()) if hasattr(label, "item") else int(label)
+
                 self.dismiss(
                     {
                         "image": img,
@@ -236,15 +247,15 @@ class ImageSelectionModal(ModalScreen):
             # Get current selection from ListView
             list_view = self.query_one("#image-list", ListView)
             self.current_idx = list_view.index if list_view.index is not None else 0
-            
+
             img = self.images[self.current_idx]
             # Ensure img is a tensor
             if not isinstance(img, torch.Tensor):
                 img = torch.tensor(img)
-            
+
             label = self.labels[self.current_idx]
-            label_val = int(label.item()) if hasattr(label, 'item') else int(label)
-            
+            label_val = int(label.item()) if hasattr(label, "item") else int(label)
+
             self.dismiss(
                 {
                     "image": img,
@@ -267,35 +278,38 @@ class ImageSelectionModal(ModalScreen):
         if not isinstance(img, torch.Tensor):
             img = torch.tensor(img)
         img_np = img.squeeze().cpu().numpy()
-        
+
         label = self.labels[self.current_idx]
-        label_val = int(label.item()) if hasattr(label, 'item') else int(label)
+        label_val = int(label.item()) if hasattr(label, "item") else int(label)
 
         # Plot the image using matplotlib and save to temp file
         try:
             # Create a temporary file
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
             temp_path = temp_file.name
             temp_file.close()
-            
+
             # Create and save the plot
             plt.figure(figsize=(8, 8))
-            plt.imshow(img_np, cmap='gray')
-            plt.title(f'Image {self.current_idx + 1} - Label: {label_val}\nShape: {img_np.shape}', fontsize=14)
-            plt.colorbar(label='Intensity')
-            plt.axis('off')
+            plt.imshow(img_np, cmap="gray")
+            plt.title(
+                f"Image {self.current_idx + 1} - Label: {label_val}\nShape: {img_np.shape}",
+                fontsize=14,
+            )
+            plt.colorbar(label="Intensity")
+            plt.axis("off")
             plt.tight_layout()
-            plt.savefig(temp_path, dpi=100, bbox_inches='tight')
+            plt.savefig(temp_path, dpi=100, bbox_inches="tight")
             plt.close()
-            
+
             # Open with system default viewer (non-blocking)
-            if sys.platform == 'darwin':  # macOS
-                subprocess.Popen(['open', temp_path])
-            elif sys.platform == 'win32':  # Windows
-                subprocess.Popen(['start', temp_path], shell=True)
+            if sys.platform == "darwin":  # macOS
+                subprocess.Popen(["open", temp_path])
+            elif sys.platform == "win32":  # Windows
+                subprocess.Popen(["start", temp_path], shell=True)
             else:  # Linux and others
-                subprocess.Popen(['xdg-open', temp_path])
-            
+                subprocess.Popen(["xdg-open", temp_path])
+
             # Show stats in notification
             info = f"Image {self.current_idx + 1}\n"
             info += f"Label: {label_val}\n"
@@ -321,12 +335,18 @@ class ResultsModal(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="results-modal"):
-            with VerticalScroll():
+            with VerticalScroll(id="results-scroll"):
                 yield Static(self.results_text, id="results-text")
             if self.predictions_data is not None:
                 with Horizontal():
-                    yield Button("View Correct Predictions", id="view-correct", variant="success")
-                    yield Button("View Incorrect Predictions", id="view-incorrect", variant="error")
+                    yield Button(
+                        "View Correct Predictions", id="view-correct", variant="success"
+                    )
+                    yield Button(
+                        "View Incorrect Predictions",
+                        id="view-incorrect",
+                        variant="error",
+                    )
             yield Label("[ESC/q] Close", id="results-help")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -354,16 +374,21 @@ class PredictionResultsModal(ModalScreen):
         with Container(id="predictions-modal"):
             yield Label(self.title, id="predictions-title")
             yield ListView(id="predictions-list")
-            yield Label("[↑↓/Click] Select | [i] Preview Image | [ESC] Close", id="predictions-help")
+            yield Label(
+                "[↑↓/Click] Select | [i] Preview Image | [ESC] Close",
+                id="predictions-help",
+            )
             yield Button("Close", id="close", variant="primary")
 
     def on_mount(self) -> None:
         """Populate the predictions list."""
         list_view = self.query_one("#predictions-list", ListView)
-        
+
         for i, (img, true_label, pred_label, prob) in enumerate(self.predictions):
             list_item = ListItem(
-                Label(f"Image {i+1}: True={true_label}, Pred={pred_label}, Prob={prob:.3f}")
+                Label(
+                    f"Image {i + 1}: True={true_label}, Pred={pred_label}, Prob={prob:.3f}"
+                )
             )
             list_view.append(list_item)
 
@@ -381,7 +406,7 @@ class PredictionResultsModal(ModalScreen):
         self.current_idx = list_view.index if list_view.index is not None else 0
 
         img, true_label, pred_label, prob = self.predictions[self.current_idx]
-        
+
         # Ensure img is a tensor and convert to numpy
         if not isinstance(img, torch.Tensor):
             img = torch.tensor(img)
@@ -389,28 +414,28 @@ class PredictionResultsModal(ModalScreen):
 
         # Plot the image
         try:
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
             temp_path = temp_file.name
             temp_file.close()
-            
+
             plt.figure(figsize=(8, 8))
-            plt.imshow(img_np, cmap='gray')
-            title = f'Image {self.current_idx + 1}\nTrue: {true_label}, Predicted: {pred_label}\nProbability: {prob:.3f}'
+            plt.imshow(img_np, cmap="gray")
+            title = f"Image {self.current_idx + 1}\nTrue: {true_label}, Predicted: {pred_label}\nProbability: {prob:.3f}"
             plt.title(title, fontsize=14)
-            plt.colorbar(label='Intensity')
-            plt.axis('off')
+            plt.colorbar(label="Intensity")
+            plt.axis("off")
             plt.tight_layout()
-            plt.savefig(temp_path, dpi=100, bbox_inches='tight')
+            plt.savefig(temp_path, dpi=100, bbox_inches="tight")
             plt.close()
-            
+
             # Open with system viewer
-            if sys.platform == 'darwin':
-                subprocess.Popen(['open', temp_path])
-            elif sys.platform == 'win32':
-                subprocess.Popen(['start', temp_path], shell=True)
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", temp_path])
+            elif sys.platform == "win32":
+                subprocess.Popen(["start", temp_path], shell=True)
             else:
-                subprocess.Popen(['xdg-open', temp_path])
-            
+                subprocess.Popen(["xdg-open", temp_path])
+
             self.app.notify(f"Viewing image {self.current_idx + 1}", title="Preview")
         except Exception as e:
             self.app.notify(f"Error displaying image: {str(e)}", severity="error")
@@ -444,12 +469,12 @@ class ProgressModal(ModalScreen):
         percent = (current / self.total * 100) if self.total > 0 else 0
         filled = int(percent / 2)  # 50 chars = 100%
         bar = "█" * filled + "░" * (50 - filled)
-        
+
         progress_text = f"[{bar}] {percent:.1f}% ({current}/{self.total})"
-        
+
         try:
             self.query_one("#progress-bar", Static).update(progress_text)
-            
+
             if status:
                 self.query_one("#progress-status", Label).update(status)
         except Exception:
@@ -526,6 +551,12 @@ class DAQCNNTestUI(App):
         height: 1fr;
         border: solid $primary;
         padding: 1;
+    }
+
+    #results-scroll {
+        width: 100%;
+        height: 1fr;
+        border: solid $accent;
     }
 
     #config-text, #results-text {
@@ -650,16 +681,32 @@ class DAQCNNTestUI(App):
             info_text += f"[bold cyan]Test Metrics:[/bold cyan]\n"
             if "test_acc" in metrics:
                 acc = metrics["test_acc"].get("mean", "N/A")
-                info_text += f"  Accuracy: {acc:.4f}\n" if isinstance(acc, float) else f"  Accuracy: {acc}\n"
+                info_text += (
+                    f"  Accuracy: {acc:.4f}\n"
+                    if isinstance(acc, float)
+                    else f"  Accuracy: {acc}\n"
+                )
             if "test_auc" in metrics:
                 auc = metrics["test_auc"].get("mean", "N/A")
-                info_text += f"  AUC/ROC: {auc:.4f}\n" if isinstance(auc, float) else f"  AUC/ROC: {auc}\n"
+                info_text += (
+                    f"  AUC/ROC: {auc:.4f}\n"
+                    if isinstance(auc, float)
+                    else f"  AUC/ROC: {auc}\n"
+                )
             if "test_f1" in metrics:
                 f1 = metrics["test_f1"].get("mean", "N/A")
-                info_text += f"  F1 Score: {f1:.4f}\n" if isinstance(f1, float) else f"  F1 Score: {f1}\n"
+                info_text += (
+                    f"  F1 Score: {f1:.4f}\n"
+                    if isinstance(f1, float)
+                    else f"  F1 Score: {f1}\n"
+                )
             if "test_recall" in metrics:
                 recall = metrics["test_recall"].get("mean", "N/A")
-                info_text += f"  Recall: {recall:.4f}\n" if isinstance(recall, float) else f"  Recall: {recall}\n"
+                info_text += (
+                    f"  Recall: {recall:.4f}\n"
+                    if isinstance(recall, float)
+                    else f"  Recall: {recall}\n"
+                )
             info_text += "\n"
 
         info_text += "[dim]Press 'i' for full config[/dim]"
@@ -672,24 +719,22 @@ class DAQCNNTestUI(App):
 
         ckpt_path = self.selected_checkpoint["path"]
         run_info = self.selected_checkpoint["run"]
-        
+
         # Load checkpoint to get the complete config including seed
         try:
             checkpoint = torch.load(ckpt_path, map_location="cpu")
             full_config = checkpoint.get("config", {})
             seed = checkpoint.get("seed", "N/A")
-            
+
             # Build comprehensive config display
             config_text = "[bold cyan]Model Configuration[/bold cyan]\n"
             config_text += "=" * 60 + "\n\n"
             config_text += f"[bold]Seed:[/bold] {seed}\n\n"
-            
+
             # Display full config as YAML
-            config_str = yaml.dump(
-                full_config, default_flow_style=False, indent=2
-            )
+            config_str = yaml.dump(full_config, default_flow_style=False, indent=2)
             config_text += config_str
-            
+
             self.push_screen(ConfigModal(config_text))
         except Exception as e:
             # Fallback to just the config file if checkpoint loading fails
@@ -777,11 +822,11 @@ class DAQCNNTestUI(App):
                     all_logits.append(logits.cpu())
                     all_labels.append(labels.cpu())
                     all_images.extend(list(imgs_cpu))
-                    
+
                     # Update progress
                     progress_modal.update_progress(
                         batch_idx + 1,
-                        f"Processing batch {batch_idx + 1}/{total_batches}"
+                        f"Processing batch {batch_idx + 1}/{total_batches}",
                     )
                     self.refresh()
 
@@ -792,8 +837,8 @@ class DAQCNNTestUI(App):
             all_labels = torch.cat(all_labels, dim=0)
 
             metrics = compute_metrics(all_logits, all_labels)
-            cm = metrics['confusion_matrix']
-            
+            cm = metrics["confusion_matrix"]
+
             # Get predictions and probabilities
             preds = all_logits.argmax(dim=1).numpy()
             probs = torch.softmax(all_logits, dim=1)
@@ -801,10 +846,10 @@ class DAQCNNTestUI(App):
 
             # Prepare predictions data
             predictions_data = {
-                'images': all_images,
-                'true_labels': labels_np,
-                'pred_labels': preds,
-                'probs': probs.numpy()
+                "images": all_images,
+                "true_labels": labels_np,
+                "pred_labels": preds,
+                "probs": probs.numpy(),
             }
 
             # Format results with confusion matrix
@@ -815,32 +860,36 @@ class DAQCNNTestUI(App):
             results += f"[bold]AUC:[/bold]      {metrics['auc']:.4f}\n"
             results += f"[bold]F1:[/bold]       {metrics['f1']:.4f}\n"
             results += f"[bold]Recall:[/bold]   {metrics['recall']:.4f}\n\n"
-            
+
             # Add confusion matrix
             results += "[bold]Confusion Matrix:[/bold]\n"
             results += "          Predicted\n"
             results += "         Class 0  Class 1\n"
             results += f"Actual 0   {cm[0][0]:4d}     {cm[0][1]:4d}\n"
             results += f"       1   {cm[1][0]:4d}     {cm[1][1]:4d}\n\n"
-            
+
             # Add summary
             correct = (preds == labels_np).sum()
             incorrect = (preds != labels_np).sum()
             results += f"[bold]Correct predictions:[/bold] {correct}/{len(labels_np)}\n"
-            results += f"[bold]Incorrect predictions:[/bold] {incorrect}/{len(labels_np)}\n\n"
+            results += (
+                f"[bold]Incorrect predictions:[/bold] {incorrect}/{len(labels_np)}\n\n"
+            )
             results += "[dim]Click buttons below to view predictions[/dim]"
 
             # Show results and handle button clicks
             def handle_results(action):
                 if action and isinstance(action, dict):
-                    if action['action'] == 'view-correct':
+                    if action["action"] == "view-correct":
                         self.show_predictions(predictions_data, correct_only=True)
-                    elif action['action'] == 'view-incorrect':
+                    elif action["action"] == "view-incorrect":
                         self.show_predictions(predictions_data, correct_only=False)
 
             self.push_screen(
-                ResultsModal(results, confusion_matrix=cm, predictions_data=predictions_data),
-                handle_results
+                ResultsModal(
+                    results, confusion_matrix=cm, predictions_data=predictions_data
+                ),
+                handle_results,
             )
             self.notify("Evaluation complete!", severity="information")
 
@@ -849,28 +898,30 @@ class DAQCNNTestUI(App):
 
     def show_predictions(self, predictions_data: dict, correct_only: bool) -> None:
         """Show a modal with prediction results."""
-        images = predictions_data['images']
-        true_labels = predictions_data['true_labels']
-        pred_labels = predictions_data['pred_labels']
-        probs = predictions_data['probs']
-        
+        images = predictions_data["images"]
+        true_labels = predictions_data["true_labels"]
+        pred_labels = predictions_data["pred_labels"]
+        probs = predictions_data["probs"]
+
         # Filter predictions
         predictions = []
         for i in range(len(images)):
-            is_correct = (true_labels[i] == pred_labels[i])
+            is_correct = true_labels[i] == pred_labels[i]
             if correct_only == is_correct:
                 # Get max probability for predicted class
                 max_prob = probs[i][pred_labels[i]]
-                predictions.append((
-                    images[i],
-                    int(true_labels[i]),
-                    int(pred_labels[i]),
-                    float(max_prob)
-                ))
-        
+                predictions.append(
+                    (
+                        images[i],
+                        int(true_labels[i]),
+                        int(pred_labels[i]),
+                        float(max_prob),
+                    )
+                )
+
         title = "Correct Predictions" if correct_only else "Incorrect Predictions"
         title += f" ({len(predictions)} images)"
-        
+
         self.push_screen(PredictionResultsModal(title, predictions))
 
     def test_single_image(self, dataset_name: str, image_data: dict) -> None:
