@@ -16,12 +16,12 @@ DATASET = "pneumonia_mnist"  # "pneumonia_mnist" or "breast_mnist"
 IMAGE_INDEX = 0  # Index of image to visualize from the dataset
 KERNEL_NAMES = [
     "kings",
+    "horizontal",
+    "ring",
     "cross",
-    "vertical",
-    "u_shape",
 ]  # Available: kings, horizontal, vertical, u_shape (2x2) or kings, horizontal, vertical, cross, ring (3x3)
 KERNEL_SIZE = 3  # 2 for 2x2 or 3 for 3x3
-STRIDE = 1  # Stride for convolution (use kernel_size for no overlap)
+STRIDE = 2  # Stride for convolution (use kernel_size for no overlap)
 SCALING_FACTOR = 1000.0  # Interaction strength for Rydberg Hamiltonian
 EVOLUTION_TIME = 6.28  # Time interval for quantum evolution
 

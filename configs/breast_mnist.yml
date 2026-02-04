@@ -20,11 +20,14 @@ model:
   classical_device: auto # auto, cuda, or cpu - auto detects GPU availability
 
 optim:
-  lr: 3e-4
-  weight_decay: 1e-06
+  lr: 1e-3
+  weight_decay: 0.0
   epochs: 10
   grad_clip: 1.0
   patience: 5
+  use_scheduler: false
+  scheduler_T_max: 10
+  scheduler_eta_min: 0.0
 
 misc:
   seed: 0
