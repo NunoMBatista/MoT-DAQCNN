@@ -42,19 +42,22 @@ class QuantumConv2d(nn.Module):
         mode="trotter",
         quantum_device="default.qubit",
         quantum_device_kwargs=None,
+        interface="torch",
+        use_jit=False,
     ):
         super().__init__()
 
         if in_channels not in [1, 3]:
-            raise ValueError(f"in_channels must be 1 (grayscale) or 3 (RGB), got {in_channels}")
+            raise ValueError(
+                f"in_channels must be 1 (grayscale) or 3 (RGB), got {in_channels}"
+            )
         self.in_channels = in_channels
-
-        self.kernel_size: int
-        self.kernel_size = kernel_size
-        self.stride = stride
 
         if kernel_size is None:
             raise ValueError("QuantumConv2d requires a kernel_size (e.g., 2 or 3).")
+
+        self.kernel_size: int = kernel_size
+        self.stride = stride
         self.n_qubits = kernel_size * kernel_size
 
         # This just checks if I want specific kernel names or not
@@ -81,6 +84,8 @@ class QuantumConv2d(nn.Module):
             kernel_topology_names=default_names,
             quantum_device=quantum_device,
             quantum_device_kwargs=quantum_device_kwargs,
+            interface=interface,
+            use_jit=use_jit,
         )
 
         self.num_kernels = (
@@ -123,7 +128,9 @@ class QuantumConv2d(nn.Module):
             patches = self.unfold(x)  # (B, C*ks*ks, n_patches)
             n_patches = patches.shape[-1]
             patches = patches.transpose(1, 2).reshape(-1, self.n_qubits)
-            q_out = self.quantum_kernel(patches)  # (B*n_patches, num_kernels * n_qubits)
+            q_out = self.quantum_kernel(
+                patches
+            )  # (B*n_patches, num_kernels * n_qubits)
             q_out = q_out.reshape(B, n_patches, self.num_kernels * self.n_qubits)
             q_out = q_out.transpose(1, 2)  # (B, out_channels, n_patches)
             return q_out.reshape(B, self.out_channels, h_out, w_out)
@@ -131,15 +138,19 @@ class QuantumConv2d(nn.Module):
             # RGB: process each channel separately and concatenate
             channel_outputs = []
             for c in range(C):
-                x_c = x[:, c:c+1, :, :]  # (B, 1, H, W)
+                x_c = x[:, c : c + 1, :, :]  # (B, 1, H, W)
                 x_c = self._normalize_inputs(x_c)
                 patches = self.unfold(x_c)  # (B, 1*ks*ks, n_patches)
                 n_patches = patches.shape[-1]
                 patches = patches.transpose(1, 2).reshape(-1, self.n_qubits)
-                q_out = self.quantum_kernel(patches)  # (B*n_patches, num_kernels * n_qubits)
+                q_out = self.quantum_kernel(
+                    patches
+                )  # (B*n_patches, num_kernels * n_qubits)
                 q_out = q_out.reshape(B, n_patches, self.num_kernels * self.n_qubits)
                 q_out = q_out.transpose(1, 2)  # (B, out_channels, n_patches)
                 q_out = q_out.reshape(B, self.out_channels, h_out, w_out)
                 channel_outputs.append(q_out)
             # Concatenate along channel dimension
-            return torch.cat(channel_outputs, dim=1)  # (B, out_channels*C, h_out, w_out)
+            return torch.cat(
+                channel_outputs, dim=1
+            )  # (B, out_channels*C, h_out, w_out)

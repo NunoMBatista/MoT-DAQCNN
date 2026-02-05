@@ -111,6 +111,7 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
         quantum_device_kwargs=model_cfg.get("quantum_device_kwargs", None),
         classical_device=device,
         in_channels=model_cfg.get("in_channels", 1),
+        interface=model_cfg.get("interface", "torch"),
     )
     model.to(device)
     if verbose:

@@ -9,6 +9,14 @@ import src.physics.evolution as evo
 import src.physics.hamiltonian as phys
 import src.physics.kernel_topologies as topologies
 
+try:
+    import jax
+    import jax.numpy as jnp
+
+    JAX_AVAILABLE = True
+except ImportError:
+    JAX_AVAILABLE = False
+
 
 class DAQKLayer(nn.Module):
     """
@@ -39,6 +47,8 @@ class DAQKLayer(nn.Module):
         kernel_topology_names=None,
         quantum_device="default.qubit",
         quantum_device_kwargs=None,
+        interface="torch",
+        use_jit=False,
     ):
         super().__init__()
 
@@ -46,6 +56,8 @@ class DAQKLayer(nn.Module):
         self.wires = list(range(n_qubits))
         self.mode = mode
         self.evolution_time = evolution_time
+        self.interface = interface
+        self.use_jit = use_jit
 
         # Default to single kings kernel to preserve previous single-output behavior.
         names = ("kings",)
@@ -66,6 +78,8 @@ class DAQKLayer(nn.Module):
             evolution_time,
             quantum_device,
             quantum_device_kwargs or {},
+            interface,
+            use_jit,
         )
 
     def _build_kernels(
@@ -75,13 +89,15 @@ class DAQKLayer(nn.Module):
         evolution_time,
         quantum_device,
         quantum_device_kwargs,
+        interface,
+        use_jit,
     ):
         """Create one Hamiltonian/QNode per topology and cache them."""
         self.hamiltonians = []
         self.devices = []
         self.kernel_circuits = []
 
-        def make_circuit(H, n_qubits, wires, mode, evo_time):
+        def make_circuit(H, n_qubits, wires, mode, evo_time, iface):
             def _circuit(inputs):
                 for i in range(n_qubits):
                     qml.RY(inputs[..., i], wires=i)
@@ -92,6 +108,7 @@ class DAQKLayer(nn.Module):
                     time_interval=[0, evo_time],
                     mode=mode,
                     dt=0.05,
+                    interface=iface,
                 )
 
                 return [qml.expval(qml.PauliZ(i)) for i in wires]
@@ -112,15 +129,25 @@ class DAQKLayer(nn.Module):
             )
 
             circuit = make_circuit(
-                hamiltonian, self.n_qubits, self.wires, self.mode, evolution_time
+                hamiltonian,
+                self.n_qubits,
+                self.wires,
+                self.mode,
+                evolution_time,
+                interface,
             )
 
             qnode = qml.QNode(
                 circuit,
                 dev,
-                interface="torch" if self.mode != "exact" else "autograd",
-                diff_method=None,  # We don't need to train the kernels
+                interface=interface,
+                diff_method=None,
             )
+
+            if interface == "jax" and JAX_AVAILABLE and use_jit:
+                import jax as jax_module
+
+                qnode = jax_module.jit(qnode)
 
             self.hamiltonians.append(hamiltonian)
             self.devices.append(dev)
@@ -134,27 +161,32 @@ class DAQKLayer(nn.Module):
         Returns:
             Tensor of shape (batch, num_kernels * n_qubits).
         """
-        batch_size = x.shape[0]  # This is every patch from a batch (batch * n_patches)
-        # print(x.shape)
-        per_kernel = []  # This will store the outputs from each kernel
+        per_kernel = []
 
-        # For each kernel topology
         for kernel_circuit in self.kernel_circuits:
-            # Use numpy inputs for autograd interface to avoid mixed backend issues
+            if self.interface == "jax" and JAX_AVAILABLE:
+                import jax.numpy as jnp_module
 
-            if self.mode == "exact":
-                circuit_output = kernel_circuit(x.detach().cpu().numpy())
+                x_jax = jnp_module.array(x.detach().cpu().numpy())
+                circuit_output = kernel_circuit(x_jax)
                 circuit_output = np.array(circuit_output)
-
                 out = torch.as_tensor(circuit_output, device=x.device, dtype=x.dtype)
                 per_kernel.append(out)
-
-            elif self.mode == "trotter":
-                circuit_output = kernel_circuit(
-                    x
-                )  # gets list of length n_qubits with (B,) tensors
-                # circuit_output is a list of length n_qubits with (B,) tensors
-                out = torch.stack(circuit_output, dim=1)  # (B, n_qubits)
+            elif self.interface == "autograd":
+                circuit_output = kernel_circuit(x.detach().cpu().numpy())
+                circuit_output = np.array(circuit_output)
+                out = torch.as_tensor(circuit_output, device=x.device, dtype=x.dtype)
+                per_kernel.append(out)
+            else:  # torch
+                if self.mode == "exact":
+                    circuit_output = kernel_circuit(x.detach().cpu().numpy())
+                    circuit_output = np.array(circuit_output)
+                    out = torch.as_tensor(
+                        circuit_output, device=x.device, dtype=x.dtype
+                    )
+                else:
+                    circuit_output = kernel_circuit(x)
+                    out = torch.stack(circuit_output, dim=1)
                 per_kernel.append(out)
 
         return torch.cat(per_kernel, dim=1)

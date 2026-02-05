@@ -20,6 +20,7 @@ class DAQCNN(nn.Module):
         quantum_device: Pennylane device name (e.g., "default.qubit", "lightning.gpu").
         quantum_device_kwargs: Extra kwargs for the quantum device (e.g., shots/batch_size).
         classical_device: Torch device to place the full model (e.g., "cuda" or "cpu").
+        interface: Interface for quantum execution ("torch", "autograd", "jax").
 
     Notes:
         - The classical head mirrors the paper: Conv-BN-ReLU -> MaxPool -> Conv-ReLU -> Dropout ->
@@ -45,6 +46,8 @@ class DAQCNN(nn.Module):
         quantum_device_kwargs=None,
         classical_device=None,
         in_channels: int = 1,
+        interface: str = "torch",
+        use_jit: bool = False,
     ):
         super().__init__()
 
@@ -58,6 +61,8 @@ class DAQCNN(nn.Module):
             mode=mode,
             quantum_device=quantum_device,
             quantum_device_kwargs=quantum_device_kwargs,
+            interface=interface,
+            use_jit=use_jit,
         )
         self.in_channels = in_channels
         # Backward compatibility alias
