@@ -50,13 +50,13 @@ KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
 # KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "cross", "ring"]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
-SCALING_FACTOR = 1000.0
+SCALING_FACTOR = 1
 
 # Evolution time for quantum dynamics
-EVOLUTION_TIME = 6.28
+EVOLUTION_TIME = 0.2
 
 # Batch size for processing (adjust based on your memory)
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 
 # Which splits to process
 SPLITS = ["train", "val", "test"]
