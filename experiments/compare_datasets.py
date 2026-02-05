@@ -71,6 +71,11 @@ DATASETS_TO_COMPARE = [
         "name": "pneumonia_mnist__augmented_cnn_k2_s2_c16_seed42.npz",
         "label": "Classical + CNN",
     },
+    {
+        "type": "quantum",
+        "name": "pneumonia_mnist__augmented_resnet_layer1_pca_c16_h14_w14.npz",
+        "label": "Classical + RESNET",
+    },
 ]
 
 # Which split to use for comparison (usually "test" for final evaluation)

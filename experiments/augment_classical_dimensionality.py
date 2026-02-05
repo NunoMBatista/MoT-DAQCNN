@@ -8,10 +8,11 @@ dimensionality as the quantum-transformed data using random feature expansion.
 This helps verify whether any improvements from quantum features are due to
 the quantum transformation itself, or just from having more features.
 
-Three methods are available:
+Four methods are available:
     1. Random Fourier Features (RFF): Approximates an RBF kernel
     2. Random Matrix Projection: Simple random linear projection
     3. Random CNN: Random convolutional kernels (non-trained)
+    4. ResNet: Frozen early layers of pretrained ResNet-18 with PCA/MaxPool reduction
 
 Usage:
     python experiments/augment_classical_dimensionality.py
@@ -27,7 +28,9 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
-from torchvision import transforms
+import torch.nn.functional as F
+from sklearn.decomposition import PCA
+from torchvision import models, transforms
 from tqdm import tqdm
 
 # Make sure we can import from src/
@@ -53,11 +56,12 @@ TARGET_CHANNELS = 16  # num_kernels * kernel_size^2 (e.g., 4 topologies * 4 qubi
 TARGET_H = 14  # (28 - kernel_size) // stride + 1
 TARGET_W = 14
 
-# Projection method: "rff", "random", or "cnn"
+# Projection method: "rff", "random", "cnn", or "resnet"
 #   - "rff": Random Fourier Features (approximates RBF kernel)
 #   - "random": Random matrix projection
 #   - "cnn": Random CNN kernels (convolution with random weights)
-PROJECTION_METHOD = "cnn"
+#   - "resnet": Frozen early layers of pretrained ResNet-18
+PROJECTION_METHOD = "resnet"
 
 # For RFF: gamma parameter for RBF kernel approximation (smaller = smoother)
 # If None, will use 1/n_features as default
@@ -67,6 +71,17 @@ RFF_GAMMA = None
 # These determine the output spatial dimensions
 CNN_KERNEL_SIZE = 2
 CNN_STRIDE = 2
+
+# For ResNet method: which layer to extract features from
+# Options: "layer1" or "layer2"
+# layer1[0].conv1 outputs 64 channels, layer2[0].conv1 outputs 128 channels
+RESNET_LAYER = "layer1"
+
+# For ResNet method: how to reduce channels to match target
+# Options: "pca" or "maxpool"
+#   - "pca": Use PCA to reduce channels (fit on train, apply to all)
+#   - "maxpool": Use adaptive max pooling across channels
+RESNET_REDUCTION = "pca"
 
 # Random seed for reproducibility
 RANDOM_SEED = 42
@@ -264,6 +279,182 @@ class RandomCNN:
             return out.cpu().numpy()
 
 
+class ResNetFeatureExtractor:
+    """
+    Frozen ResNet-18 early layer feature extractor.
+
+    Uses pretrained ResNet-18 and extracts features from early layers.
+    Since ResNet produces more channels than we need (64 or 128),
+    we reduce dimensionality using PCA or MaxPooling.
+
+    This is a strong classical baseline using learned (but frozen) features.
+    """
+
+    def __init__(
+        self,
+        target_channels,
+        target_h,
+        target_w,
+        layer="layer1",
+        reduction="pca",
+        device="cpu",
+    ):
+        self.target_channels = target_channels
+        self.target_h = target_h
+        self.target_w = target_w
+        self.layer = layer
+        self.reduction = reduction
+        self.device = device
+
+        # Load pretrained ResNet-18
+        self.resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+
+        # Freeze all weights
+        for param in self.resnet.parameters():
+            param.requires_grad = False
+
+        self.resnet.to(device)
+        self.resnet.eval()
+
+        # PCA will be fit on training data
+        self.pca = None
+        self.pca_fitted = False
+
+        # Store which layer we're using for metadata
+        if layer == "layer1":
+            self.resnet_channels = 64
+        elif layer == "layer2":
+            self.resnet_channels = 128
+        else:
+            raise ValueError(f"Unknown layer: {layer}. Use 'layer1' or 'layer2'")
+
+    def _extract_features(self, X):
+        """
+        Extract features from ResNet early layers.
+
+        Args:
+            X: numpy array of shape (N, C, H, W) with C=1 for grayscale
+        Returns:
+            features: numpy array of shape (N, resnet_channels, H', W')
+        """
+        with torch.no_grad():
+            # Convert to tensor
+            X_tensor = torch.from_numpy(X).float().to(self.device)
+
+            # ResNet expects 3 channels, so repeat grayscale to RGB
+            if X_tensor.shape[1] == 1:
+                X_tensor = X_tensor.repeat(1, 3, 1, 1)
+
+            # ResNet expects normalized ImageNet input
+            # Normalize: mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+            mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(self.device)
+            std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(self.device)
+            X_tensor = (X_tensor - mean) / std
+
+            # Forward through early layers
+            x = self.resnet.conv1(X_tensor)  # 64 channels
+            x = self.resnet.bn1(x)
+            x = self.resnet.relu(x)
+            x = self.resnet.maxpool(x)
+
+            if self.layer == "layer1":
+                x = self.resnet.layer1(x)  # Still 64 channels
+            elif self.layer == "layer2":
+                x = self.resnet.layer1(x)
+                x = self.resnet.layer2(x)  # 128 channels
+
+            return x.cpu().numpy()
+
+    def fit(self, X):
+        """
+        Fit the dimensionality reduction (PCA) on training data.
+
+        Args:
+            X: numpy array of shape (N, C, H, W)
+        """
+        if self.reduction != "pca":
+            return  # No fitting needed for maxpool
+
+        print("  Extracting ResNet features for PCA fitting...")
+        features = self._extract_features(X)  # (N, resnet_channels, H', W')
+
+        # Reshape to (N * H' * W', resnet_channels) for PCA
+        N, C, H, W = features.shape
+        features_flat = features.transpose(0, 2, 3, 1).reshape(-1, C)
+
+        print(f"  Fitting PCA: {C} channels -> {self.target_channels} channels...")
+        self.pca = PCA(n_components=self.target_channels)
+        self.pca.fit(features_flat)
+        self.pca_fitted = True
+
+        explained_var = sum(self.pca.explained_variance_ratio_) * 100
+        print(f"  PCA explained variance: {explained_var:.1f}%")
+
+    def transform(self, X):
+        """
+        Extract and reduce ResNet features.
+
+        Args:
+            X: numpy array of shape (N, C, H, W)
+        Returns:
+            Z: numpy array of shape (N, target_channels, target_h, target_w)
+        """
+        # Extract ResNet features
+        features = self._extract_features(X)  # (N, resnet_channels, H', W')
+        N, C, H, W = features.shape
+
+        if self.reduction == "pca":
+            if not self.pca_fitted or self.pca is None:
+                raise RuntimeError("PCA not fitted. Call fit() first on training data.")
+
+            # Apply PCA to reduce channels
+            # Reshape to (N * H' * W', resnet_channels)
+            features_flat = features.transpose(0, 2, 3, 1).reshape(-1, C)
+
+            # Transform (pca is guaranteed non-None here)
+            pca = self.pca
+            reduced = pca.transform(features_flat)  # (N * H' * W', target_channels)
+
+            # Reshape back to (N, target_channels, H', W')
+            reduced = reduced.reshape(N, H, W, self.target_channels)
+            reduced = reduced.transpose(0, 3, 1, 2)
+
+        elif self.reduction == "maxpool":
+            # Use adaptive pooling across channels
+            # Group channels and take max within each group
+            features_tensor = torch.from_numpy(features).float()
+
+            # Reshape: (N, resnet_channels, H, W) -> (N, target_channels, group_size, H, W)
+            group_size = C // self.target_channels
+            if C % self.target_channels != 0:
+                # Pad channels to make divisible
+                pad_size = self.target_channels - (C % self.target_channels)
+                features_tensor = F.pad(features_tensor, (0, 0, 0, 0, 0, pad_size))
+                C = features_tensor.shape[1]
+                group_size = C // self.target_channels
+
+            features_tensor = features_tensor.view(
+                N, self.target_channels, group_size, H, W
+            )
+            # Max pool across the group dimension
+            reduced = features_tensor.max(dim=2)[0]  # (N, target_channels, H, W)
+            reduced = reduced.numpy()
+
+        else:
+            raise ValueError(f"Unknown reduction: {self.reduction}")
+
+        # Resize spatial dimensions to target
+        reduced_tensor = torch.from_numpy(reduced).float()
+        reduced_tensor = F.interpolate(
+            reduced_tensor,
+            size=(self.target_h, self.target_w),
+            mode="bilinear",
+            align_corners=False,
+        )
+
+        return reduced_tensor.numpy()
+
+
 def generate_output_filename(params):
     """
     Generate a descriptive filename for the augmented dataset.
@@ -278,6 +469,17 @@ def generate_output_filename(params):
             f"s{params['cnn_stride']}_"
             f"c{params['target_channels']}_"
             f"seed{params['random_seed']}"
+            ".npz"
+        )
+    elif method == "resnet":
+        filename = (
+            f"{params['dataset_name']}__"
+            f"augmented_{method}_"
+            f"{params['resnet_layer']}_"
+            f"{params['resnet_reduction']}_"
+            f"c{params['target_channels']}_"
+            f"h{params['target_h']}_"
+            f"w{params['target_w']}"
             ".npz"
         )
     else:
@@ -402,6 +604,110 @@ def main():
         }
         if projector.b is not None:
             save_dict["projection_b"] = projector.b
+
+        np.savez_compressed(output_path, **save_dict)
+
+    elif PROJECTION_METHOD == "resnet":
+        # ResNet frozen feature extractor with dimension reduction
+        print(f"\nParameters:")
+        print(f"  Dataset:          {DATASET_NAME}")
+        print(f"  Projection:       {PROJECTION_METHOD}")
+        print(f"  ResNet layer:     {RESNET_LAYER}")
+        print(f"  Reduction method: {RESNET_REDUCTION}")
+        print(f"  Target channels:  {TARGET_CHANNELS}")
+        print(f"  Target spatial:   {TARGET_H} x {TARGET_W}")
+        print()
+
+        # Create ResNet feature extractor
+        print("Initializing ResNet feature extractor...")
+        projector = ResNetFeatureExtractor(
+            target_channels=TARGET_CHANNELS,
+            target_h=TARGET_H,
+            target_w=TARGET_W,
+            layer=RESNET_LAYER,
+            reduction=RESNET_REDUCTION,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )
+        print(f"  Using device: {projector.device}")
+        print(f"  ResNet {RESNET_LAYER} outputs {projector.resnet_channels} channels")
+
+        # Fit PCA on training data (if using PCA reduction)
+        if RESNET_REDUCTION == "pca":
+            projector.fit(X_train)
+
+        # Process all splits
+        results = {}
+
+        for split in SPLITS:
+            print(f"\n--- Processing {split} split ---")
+
+            if split == "train":
+                X, y = X_train, y_train
+            else:
+                ds = load_medmnist_dataset(DATASET_NAME, split, data_root)
+                X, y = extract_images_and_labels(ds)
+
+            print(f"  Samples: {len(X)}")
+            print(f"  Extracting ResNet features and reducing...")
+
+            # Process in batches to avoid memory issues
+            batch_size = 64
+            all_features = []
+            for i in tqdm(range(0, len(X), batch_size), desc="  Batches"):
+                batch = X[i : i + batch_size]
+                batch_features = projector.transform(batch)
+                all_features.append(batch_features)
+
+            X_out = np.concatenate(all_features, axis=0)
+
+            results[f"{split}_features"] = X_out.astype(np.float32)
+            results[f"{split}_labels"] = y
+
+            print(f"  Output shape: {X_out.shape}")
+
+        # Build metadata for ResNet
+        metadata = {
+            "dataset_name": DATASET_NAME,
+            "projection_method": PROJECTION_METHOD,
+            "resnet_layer": RESNET_LAYER,
+            "resnet_reduction": RESNET_REDUCTION,
+            "resnet_channels": projector.resnet_channels,
+            "target_channels": TARGET_CHANNELS,
+            "target_h": TARGET_H,
+            "target_w": TARGET_W,
+            "target_features": int(TARGET_CHANNELS * TARGET_H * TARGET_W),
+            "created_at": datetime.now().isoformat(),
+            "train_samples": int(len(results["train_labels"])),
+            "val_samples": int(len(results["val_labels"])),
+            "test_samples": int(len(results["test_labels"])),
+            "type": "augmented_classical",
+        }
+
+        if RESNET_REDUCTION == "pca" and projector.pca is not None:
+            metadata["pca_explained_variance"] = float(
+                sum(projector.pca.explained_variance_ratio_)
+            )
+
+        # Generate filename and save
+        output_filename = generate_output_filename(metadata)
+        output_path = output_dir / output_filename
+
+        print(f"\nSaving augmented dataset to: {output_path}")
+
+        save_dict = {
+            "train_features": results["train_features"],
+            "train_labels": results["train_labels"],
+            "val_features": results["val_features"],
+            "val_labels": results["val_labels"],
+            "test_features": results["test_features"],
+            "test_labels": results["test_labels"],
+            "metadata": json.dumps(metadata),
+        }
+
+        # Save PCA components if used
+        if RESNET_REDUCTION == "pca" and projector.pca is not None:
+            save_dict["pca_components"] = projector.pca.components_
+            save_dict["pca_mean"] = projector.pca.mean_
 
         np.savez_compressed(output_path, **save_dict)
 

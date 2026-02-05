@@ -35,19 +35,19 @@ from src.layers.quantum_convolution import QuantumConv2d
 # =============================================================================
 
 # Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist"
-DATASET_NAME = "pneumonia_mnist"
+DATASET_NAME = "derma_mnist"
 
 # Kernel size: 2 for 2x2 or 3 for 3x3
-KERNEL_SIZE = 3
+KERNEL_SIZE = 2
 
 # Stride for the convolution (use kernel_size for non-overlapping patches)
-STRIDE = 3
+STRIDE = 2
 
 # Which topologies to use
 # For 2x2: ["kings", "horizontal", "vertical", "u_shape"]
 # For 3x3: ["kings", "horizontal", "vertical", "cross", "ring"]
 KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
-KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "cross", "ring"]
+# KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "cross", "ring"]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
 SCALING_FACTOR = 1000.0
