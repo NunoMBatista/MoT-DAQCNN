@@ -179,10 +179,17 @@ def main():
     output_dir = PROJECT_ROOT / "data" / "quantum_datasets"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Load one sample to detect number of input channels
+    sample_ds = load_medmnist_dataset(DATASET_NAME, "train", data_root)
+    sample_img, _ = sample_ds[0]
+    in_channels = sample_img.shape[0]  # (C, H, W)
+    print(f"Detected {in_channels} input channel(s)")
+
     # Build the quantum convolution layer
     # This is the fixed (non-trainable) feature extractor
     print("Initializing quantum convolution layer...")
     q_conv = QuantumConv2d(
+        in_channels=in_channels,
         kernel_size=KERNEL_SIZE,
         stride=STRIDE,
         kernel_topology_names=KERNEL_TOPOLOGY_NAMES,
@@ -221,6 +228,7 @@ def main():
     # Build metadata dict (will be saved as JSON string in the npz)
     metadata = {
         "dataset_name": DATASET_NAME,
+        "in_channels": in_channels,
         "kernel_size": KERNEL_SIZE,
         "stride": STRIDE,
         "kernel_topology_names": KERNEL_TOPOLOGY_NAMES,
