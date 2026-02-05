@@ -12,6 +12,89 @@ from src.utils.evaluate import evaluate
 from src.utils.plotting import plot_confusion_matrix, plot_loss_curves, plot_roc_curve
 
 
+def get_model_metadata(model, dummy_input=None):
+    """Extract CNN head structure and parameter count from model.
+
+    Args:
+        model: The DAQCNN model
+        dummy_input: Optional dummy input to initialize LazyLinear layers
+    """
+    metadata = {
+        "total_params": 0,
+        "trainable_params": 0,
+        "head_structure": [],
+        "quantum_kernel_size": None,
+        "quantum_kernel_topologies": [],
+    }
+
+    # Extract quantum layer information if available
+    if hasattr(model, "quantum_convolutional_layer"):
+        q_layer = model.quantum_convolutional_layer
+        if hasattr(q_layer, "kernel_size"):
+            metadata["quantum_kernel_size"] = q_layer.kernel_size
+        if hasattr(q_layer, "quantum_kernel") and hasattr(
+            q_layer.quantum_kernel, "kernel_topology_names"
+        ):
+            metadata["quantum_kernel_topologies"] = list(
+                q_layer.quantum_kernel.kernel_topology_names
+            )
+
+    # Count total parameters (skip uninitialized parameters)
+    for param in model.parameters():
+        if param.is_meta:
+            # Skip uninitialized parameters
+            continue
+        try:
+            metadata["total_params"] += param.numel()
+            if param.requires_grad:
+                metadata["trainable_params"] += param.numel()
+        except ValueError:
+            # Skip uninitialized lazy parameters
+            continue
+
+    # Extract head structure
+    if hasattr(model, "head"):
+        for i, layer in enumerate(model.head):
+            layer_info = {
+                "index": i,
+                "type": layer.__class__.__name__,
+            }
+
+            # Add layer-specific details
+            if isinstance(layer, nn.Conv2d):
+                layer_info.update(
+                    {
+                        "in_channels": layer.in_channels,
+                        "out_channels": layer.out_channels,
+                        "kernel_size": layer.kernel_size,
+                        "stride": layer.stride,
+                        "padding": layer.padding,
+                    }
+                )
+            elif isinstance(layer, nn.Linear):
+                if hasattr(layer, "in_features"):
+                    layer_info["in_features"] = layer.in_features
+                if hasattr(layer, "out_features"):
+                    layer_info["out_features"] = layer.out_features
+            elif isinstance(layer, nn.LazyLinear):
+                # For LazyLinear, only out_features is known before initialization
+                if hasattr(layer, "out_features"):
+                    layer_info["out_features"] = layer.out_features
+                if hasattr(layer, "in_features") and layer.in_features is not None:
+                    layer_info["in_features"] = layer.in_features
+            elif isinstance(layer, nn.BatchNorm2d):
+                layer_info["num_features"] = layer.num_features
+            elif isinstance(layer, nn.Dropout):
+                layer_info["p"] = layer.p
+            elif isinstance(layer, nn.MaxPool2d):
+                layer_info["kernel_size"] = layer.kernel_size
+                layer_info["stride"] = layer.stride
+
+            metadata["head_structure"].append(layer_info)
+
+    return metadata
+
+
 def accuracy(logits: torch.Tensor, labels: torch.Tensor) -> float:
     preds = logits.argmax(dim=1)
     return (preds == labels).float().mean().item()
@@ -114,6 +197,7 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
         interface=model_cfg.get("interface", "torch"),
     )
     model.to(device)
+
     if verbose:
         print(f"Model built and moved to {device}\n")
 
@@ -194,6 +278,14 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
             scheduler.step()
 
     epoch_pbar.close()
+
+    # Extract model metadata (after training, LazyLinear is initialized)
+    model_metadata = get_model_metadata(model)
+
+    if verbose:
+        print(
+            f"\nModel parameters: {model_metadata['total_params']:,} total, {model_metadata['trainable_params']:,} trainable"
+        )
 
     # Save final model
     final_model_path = os.path.join(output_dir, f"final_model_seed_{seed}.pt")
@@ -290,4 +382,5 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
         "final_val_loss": val_losses[-1],
         "final_train_acc": train_accs[-1],
         "final_val_acc": val_accs[-1],
+        "model_metadata": model_metadata,
     }

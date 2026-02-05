@@ -68,6 +68,9 @@ class DAQKLayer(nn.Module):
                 "DAQKLayer: No kernel_topology_names provided, defaulting to ('kings',)"
             )
 
+        # Store the kernel topology names for metadata access
+        self.kernel_topology_names = names
+
         coord_sets = topologies.build_kernel_coordinate_sets(grid_size, names)
 
         self.num_kernels = len(coord_sets)

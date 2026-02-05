@@ -115,6 +115,10 @@ def main():
             "values": values,
         }
 
+    # Add model metadata (same for all seeds, so use first result)
+    if all_results and "model_metadata" in all_results[0]:
+        aggregate_stats["model_metadata"] = all_results[0]["model_metadata"]
+
     aggregate_stats_path = os.path.join(output_dir, "aggregate_metrics.json")
     with open(aggregate_stats_path, "w") as f:
         json.dump(aggregate_stats, f, indent=2)
@@ -125,6 +129,9 @@ def main():
     print(f"Performance Summary (n={len(seeds)} runs)")
     print(f"{'=' * 60}")
     for metric_name, stats in aggregate_stats.items():
+        # Skip model_metadata (it's not a metric)
+        if metric_name == "model_metadata":
+            continue
         print(f"{metric_name:20s}: {stats['mean']:.4f} ± {stats['std']:.4f}")
     print(f"{'=' * 60}\n")
 

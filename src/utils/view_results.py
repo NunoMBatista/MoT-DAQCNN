@@ -48,9 +48,67 @@ def view_results(output_dir):
         print_separator()
 
         for metric_name, stats in aggregate.items():
+            # Skip model_metadata (displayed separately)
+            if metric_name == "model_metadata":
+                continue
             print(f"{metric_name:25s}: {stats['mean']:.6f} ± {stats['std']:.6f}")
             print(f"{'':25s}  [min: {stats['min']:.6f}, max: {stats['max']:.6f}]")
         print()
+
+        # Display model metadata if available
+        if "model_metadata" in aggregate:
+            metadata = aggregate["model_metadata"]
+            print_separator()
+            print("Model Architecture")
+            print_separator()
+            print(f"Total parameters:      {metadata.get('total_params', 'N/A'):,}")
+            print(f"Trainable parameters:  {metadata.get('trainable_params', 'N/A'):,}")
+
+            # Display quantum kernel information
+            kernel_size = metadata.get("quantum_kernel_size")
+            kernel_topologies = metadata.get("quantum_kernel_topologies", [])
+            if kernel_size is not None:
+                print(f"Quantum kernel size:   {kernel_size}×{kernel_size}")
+            if kernel_topologies:
+                topologies_str = ", ".join(kernel_topologies)
+                print(f"Kernel topologies:     {topologies_str}")
+
+            head_structure = metadata.get("head_structure", [])
+            if head_structure:
+                conv_layers = [l for l in head_structure if l["type"] == "Conv2d"]
+                linear_layers = [
+                    l for l in head_structure if l["type"] in ["Linear", "LazyLinear"]
+                ]
+                print(f"CNN layers:            {len(conv_layers)}")
+                print(f"FC layers:             {len(linear_layers)}")
+                print(f"\nCNN Head Structure ({len(head_structure)} layers):")
+                for layer in head_structure:
+                    layer_type = layer["type"]
+                    if layer_type == "Conv2d":
+                        print(
+                            f"  [{layer['index']}] Conv2d: {layer['in_channels']}→{layer['out_channels']}, kernel={layer['kernel_size']}, stride={layer['stride']}"
+                        )
+                    elif layer_type == "Linear":
+                        print(
+                            f"  [{layer['index']}] Linear: {layer['in_features']}→{layer['out_features']}"
+                        )
+                    elif layer_type == "LazyLinear":
+                        print(
+                            f"  [{layer['index']}] LazyLinear: ?→{layer['out_features']}"
+                        )
+                    elif layer_type == "BatchNorm2d":
+                        print(
+                            f"  [{layer['index']}] BatchNorm2d: {layer['num_features']} features"
+                        )
+                    elif layer_type == "Dropout":
+                        print(f"  [{layer['index']}] Dropout: p={layer['p']}")
+                    elif layer_type == "MaxPool2d":
+                        print(
+                            f"  [{layer['index']}] MaxPool2d: kernel={layer['kernel_size']}, stride={layer['stride']}"
+                        )
+                    else:
+                        print(f"  [{layer['index']}] {layer_type}")
+            print()
 
     # Load individual results
     individual_path = os.path.join(output_dir, "individual_results.json")

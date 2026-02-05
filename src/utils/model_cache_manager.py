@@ -153,6 +153,18 @@ def scan_all_outputs(outputs_root: str = "outputs") -> list:
             with open(metrics_path, "r") as f:
                 metrics = json.load(f)
 
+        # Try to load model metadata from individual results
+        model_metadata = None
+        individual_results_path = os.path.join(run_path, "individual_results.json")
+        if os.path.exists(individual_results_path):
+            import json
+
+            with open(individual_results_path, "r") as f:
+                individual_results = json.load(f)
+                # Get model_metadata from first result (should be same for all seeds)
+                if individual_results and len(individual_results) > 0:
+                    model_metadata = individual_results[0].get("model_metadata")
+
         runs.append(
             {
                 "run_name": run_dir,
@@ -160,6 +172,7 @@ def scan_all_outputs(outputs_root: str = "outputs") -> list:
                 "checkpoints": checkpoints,
                 "config": config,
                 "metrics": metrics,
+                "model_metadata": model_metadata,
             }
         )
 

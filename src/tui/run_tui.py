@@ -37,7 +37,11 @@ from textual.widgets import (
 # Use non-interactive backend for matplotlib
 matplotlib.use("Agg")
 
-from src.utils.data import get_dataloaders
+from src.utils.data import (
+    check_model_dataset_compatibility,
+    get_dataloaders,
+    get_dataset_channels,
+)
 from src.utils.evaluate import compute_metrics
 from src.utils.model_cache_manager import load_model_from_checkpoint, scan_all_outputs
 
@@ -324,6 +328,31 @@ class ImageSelectionModal(ModalScreen):
         self.dismiss(None)
 
 
+class ErrorModal(ModalScreen):
+    """Modal to display error messages."""
+
+    BINDINGS = [("escape", "dismiss", "Close"), ("enter", "dismiss", "Close")]
+
+    def __init__(self, error_message: str, title: str = "Error"):
+        super().__init__()
+        self.error_message = error_message
+        self.title = title
+
+    def compose(self) -> ComposeResult:
+        with Container(id="error-modal"):
+            yield Label(f"[bold red]{self.title}[/bold red]", id="error-title")
+            with VerticalScroll(id="error-scroll"):
+                yield Static(self.error_message, id="error-text")
+            yield Button("OK", id="ok-button", variant="error")
+            yield Label("[Enter/ESC] Close", id="error-help")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss()
+
+    def action_dismiss(self) -> None:
+        self.dismiss()
+
+
 class ResultsModal(ModalScreen):
     """Modal to display evaluation results."""
 
@@ -510,7 +539,7 @@ class DAQCNNTestUI(App):
         padding: 1;
     }
 
-    #config-modal, #dataset-modal, #image-selection-modal, #results-modal, #progress-modal, #predictions-modal {
+    #config-modal, #dataset-modal, #image-selection-modal, #results-modal, #progress-modal, #predictions-modal, #error-modal {
         align: center middle;
         background: $surface;
         border: thick $primary;
@@ -519,7 +548,7 @@ class DAQCNNTestUI(App):
         padding: 2;
     }
 
-    #dataset-modal, #progress-modal {
+    #dataset-modal, #progress-modal, #error-modal {
         height: auto;
         width: 50%;
     }
@@ -587,6 +616,30 @@ class DAQCNNTestUI(App):
     }
 
     #progress-status {
+        text-align: center;
+        margin-top: 1;
+    }
+
+    #error-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #error-scroll {
+        width: 100%;
+        height: 1fr;
+        border: solid $error;
+        margin: 1;
+    }
+
+    #error-text {
+        width: 100%;
+        height: auto;
+        padding: 1;
+    }
+
+    #error-help {
         text-align: center;
         margin-top: 1;
     }
@@ -676,6 +729,69 @@ class DAQCNNTestUI(App):
             info_text += f"[bold]Dataset:[/bold] {dataset}\n"
             info_text += f"[bold]Epochs:[/bold] {epochs}\n"
             info_text += f"[bold]Learning Rate:[/bold] {lr}\n\n"
+
+        # Display model metadata if available
+        if run_info.get("model_metadata"):
+            metadata = run_info["model_metadata"]
+            info_text += f"[bold yellow]Model Architecture:[/bold yellow]\n"
+            total_params = metadata.get("total_params", "N/A")
+            trainable_params = metadata.get("trainable_params", "N/A")
+            if isinstance(total_params, int):
+                info_text += f"  Total params: {total_params:,}\n"
+                info_text += f"  Trainable params: {trainable_params:,}\n"
+            else:
+                info_text += f"  Total params: {total_params}\n"
+                info_text += f"  Trainable params: {trainable_params}\n"
+
+            # Display quantum kernel information
+            kernel_size = metadata.get("quantum_kernel_size")
+            kernel_topologies = metadata.get("quantum_kernel_topologies", [])
+            if kernel_size is not None:
+                info_text += f"  Quantum kernel: {kernel_size}×{kernel_size}\n"
+            if kernel_topologies:
+                topologies_str = ", ".join(kernel_topologies)
+                info_text += f"  Topologies: {topologies_str}\n"
+
+            # Display CNN head structure summary
+            head_structure = metadata.get("head_structure", [])
+            if head_structure:
+                conv_layers = [l for l in head_structure if l["type"] == "Conv2d"]
+                linear_layers = [
+                    l for l in head_structure if l["type"] in ["Linear", "LazyLinear"]
+                ]
+                info_text += f"  CNN layers: {len(conv_layers)}\n"
+                info_text += f"  FC layers: {len(linear_layers)}\n"
+
+            # Show compatible datasets
+            model_type = (
+                "RGB"
+                if total_params != "N/A" and isinstance(total_params, int)
+                else None
+            )
+            if run_info.get("config"):
+                model_in_channels = (
+                    run_info["config"].get("model", {}).get("in_channels", 1)
+                )
+                model_type_str = "RGB" if model_in_channels == 3 else "Grayscale"
+                compatible_datasets = []
+                all_datasets = [
+                    "pneumonia_mnist",
+                    "breast_mnist",
+                    "path_mnist",
+                    "derma_mnist",
+                ]
+                for ds in all_datasets:
+                    is_compat, _ = check_model_dataset_compatibility(
+                        model_in_channels, ds
+                    )
+                    if is_compat:
+                        compatible_datasets.append(ds.replace("_", " ").title())
+
+                if compatible_datasets:
+                    info_text += f"\n[bold green]Compatible datasets:[/bold green]\n"
+                    info_text += f"  {', '.join(compatible_datasets)}\n"
+
+            info_text += "\n"
 
         # Display test metrics if available
         if run_info.get("metrics"):
@@ -791,14 +907,26 @@ class DAQCNNTestUI(App):
         if not self.selected_checkpoint:
             return
 
-        self.notify(f"Loading model and testing on {dataset_name}...")
-
         try:
             # Load model
             ckpt_path = self.selected_checkpoint["path"]
             model, checkpoint = load_model_from_checkpoint(
                 ckpt_path, device=self.device
             )
+
+            # Check model/dataset compatibility
+            model_in_channels = (
+                checkpoint.get("config", {}).get("model", {}).get("in_channels", 1)
+            )
+            is_compatible, error_msg = check_model_dataset_compatibility(
+                model_in_channels, dataset_name
+            )
+
+            if not is_compatible:
+                self.push_screen(ErrorModal(error_msg, "Incompatible Dataset"))
+                return
+
+            self.notify(f"Loading model and testing on {dataset_name}...")
 
             # Load dataset
             cfg = checkpoint["config"]
@@ -931,14 +1059,26 @@ class DAQCNNTestUI(App):
         if not self.selected_checkpoint:
             return
 
-        self.notify("Loading model for inference...")
-
         try:
             # Load model
             ckpt_path = self.selected_checkpoint["path"]
             model, checkpoint = load_model_from_checkpoint(
                 ckpt_path, device=self.device
             )
+
+            # Check model/dataset compatibility
+            model_in_channels = (
+                checkpoint.get("config", {}).get("model", {}).get("in_channels", 1)
+            )
+            is_compatible, error_msg = check_model_dataset_compatibility(
+                model_in_channels, dataset_name
+            )
+
+            if not is_compatible:
+                self.push_screen(ErrorModal(error_msg, "Incompatible Dataset"))
+                return
+
+            self.notify("Loading model for inference...")
             self.notify("Running inference...", timeout=1)
 
             # Get image
