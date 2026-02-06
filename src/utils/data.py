@@ -3,21 +3,7 @@ import os
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-# Mapping from dataset name to (medmnist_flag, DatasetClass)
-DATASET_REGISTRY = {
-    "pneumonia_mnist": ("pneumoniamnist", "PneumoniaMNIST"),
-    "breast_mnist": ("breastmnist", "BreastMNIST"),
-    "path_mnist": ("pathmnist", "PathMNIST"),
-    "derma_mnist": ("dermamnist", "DermaMNIST"),
-}
-
-# Dataset channel information (RGB vs Grayscale)
-DATASET_CHANNELS = {
-    "pneumonia_mnist": 1,  # Grayscale
-    "breast_mnist": 1,  # Grayscale
-    "path_mnist": 3,  # RGB
-    "derma_mnist": 3,  # RGB
-}
+from src.config import DATA_DIR, DATASET_CHANNELS, DATASET_REGISTRY
 
 
 def get_dataset_channels(dataset_name: str) -> int:
@@ -95,7 +81,7 @@ def get_medmnist_loaders(cfg, dataset_name):
     transform = transforms.Compose([transforms.ToTensor()])
 
     def build_split(split):
-        root = cfg["dataset"].get("data_root", "./data")
+        root = cfg["dataset"].get("data_root", str(DATA_DIR))
         os.makedirs(root, exist_ok=True)
         return dataset_class(
             split=split,

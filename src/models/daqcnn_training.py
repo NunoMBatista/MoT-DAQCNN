@@ -10,6 +10,10 @@ from src.models.daqcnn import DAQCNN
 from src.utils.data import get_dataloaders
 from src.utils.evaluate import evaluate
 from src.utils.plotting import plot_confusion_matrix, plot_loss_curves, plot_roc_curve
+from src.utils.quantum_dataset_cache import (
+    find_cached_quantum_dataset,
+    load_cached_quantum_dataset,
+)
 
 
 def get_model_metadata(model, dummy_input=None):
@@ -164,10 +168,27 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     if verbose:
         print(f"Device: {device}")
 
-    # Data
-    if verbose:
-        print("Loading data...")
-    train_loader, val_loader, test_loader, n_classes = get_dataloaders(cfg)
+    # Check for a cached quantum dataset before doing anything expensive
+    using_cache = False
+    cached_path = find_cached_quantum_dataset(cfg)
+
+    if cached_path is not None:
+        if verbose:
+            print(f"Found cached quantum dataset: {cached_path}")
+            print("Skipping quantum computation, loading pre-computed features...\n")
+
+        batch_size = cfg.get("dataset", {}).get("batch_size", 32)
+        num_workers = cfg.get("dataset", {}).get("num_workers", 2)
+        train_loader, val_loader, test_loader, n_classes, cache_meta = (
+            load_cached_quantum_dataset(cached_path, batch_size, num_workers)
+        )
+        using_cache = True
+    else:
+        if verbose:
+            print("No cached quantum dataset found, will compute from scratch.\n")
+            print("Loading data...")
+        train_loader, val_loader, test_loader, n_classes = get_dataloaders(cfg)
+
     if verbose:
         print(
             f"Dataset loaded: {len(train_loader.dataset)} train, "
@@ -196,6 +217,12 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
         in_channels=model_cfg.get("in_channels", 1),
         interface=model_cfg.get("interface", "torch"),
     )
+
+    if using_cache:
+        model.bypass_quantum = True
+        if verbose:
+            print("Quantum layer bypassed (using cached features)")
+
     model.to(device)
 
     if verbose:

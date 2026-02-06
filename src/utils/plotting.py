@@ -41,8 +41,15 @@ def plot_multi_seed_loss_curves(all_train_losses, all_val_losses, save_path):
     """
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    train_losses_arr = np.array(all_train_losses)
-    val_losses_arr = np.array(all_val_losses)
+    # Early stopping can produce ragged lists — pad shorter runs with their
+    # last value so we get a rectangular array for mean/std.
+    max_len = max(len(losses) for losses in all_train_losses)
+
+    def _pad(lst, length):
+        return lst + [lst[-1]] * (length - len(lst))
+
+    train_losses_arr = np.array([_pad(losses, max_len) for losses in all_train_losses])
+    val_losses_arr = np.array([_pad(losses, max_len) for losses in all_val_losses])
 
     train_mean = train_losses_arr.mean(axis=0)
     train_std = train_losses_arr.std(axis=0)

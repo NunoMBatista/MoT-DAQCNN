@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 
 import torch
 
+from src.config import OUTPUTS_DIR
 from src.models.daqcnn import DAQCNN
 
 
@@ -109,7 +110,7 @@ def find_model_checkpoints(output_dir: str) -> Dict[str, list]:
     return checkpoints
 
 
-def scan_all_outputs(outputs_root: str = "outputs") -> list:
+def scan_all_outputs(outputs_root: Optional[str] = None) -> list:
     """
     Scan all output directories and find available model checkpoints.
 
@@ -119,6 +120,9 @@ def scan_all_outputs(outputs_root: str = "outputs") -> list:
     Returns:
         List of dictionaries, each containing run info and checkpoint paths
     """
+    if outputs_root is None:
+        outputs_root = str(OUTPUTS_DIR)
+
     runs = []
 
     if not os.path.exists(outputs_root):

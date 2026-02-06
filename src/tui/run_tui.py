@@ -7,9 +7,9 @@ Navigate through saved models and perform inference on datasets or individual im
 import os
 import sys
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.append(PROJECT_ROOT)
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+if _project_root not in sys.path:
+    sys.path.append(_project_root)
 
 import subprocess
 import tempfile
@@ -37,6 +37,7 @@ from textual.widgets import (
 # Use non-interactive backend for matplotlib
 matplotlib.use("Agg")
 
+from src.config import DATA_DIR
 from src.utils.data import (
     check_model_dataset_compatibility,
     get_dataloaders,
@@ -44,6 +45,10 @@ from src.utils.data import (
 )
 from src.utils.evaluate import compute_metrics
 from src.utils.model_cache_manager import load_model_from_checkpoint, scan_all_outputs
+from src.utils.quantum_dataset_cache import (
+    find_cached_quantum_dataset,
+    load_cached_quantum_dataset,
+)
 
 
 class ConfigModal(ModalScreen):
@@ -149,7 +154,7 @@ class ImageSelectionModal(ModalScreen):
             cfg = {
                 "dataset": {
                     "name": self.dataset_name,
-                    "data_root": "./data",
+                    "data_root": str(DATA_DIR),
                     "batch_size": 32,
                     "num_workers": 0,
                     "download": True,
@@ -928,10 +933,21 @@ class DAQCNNTestUI(App):
 
             self.notify(f"Loading model and testing on {dataset_name}...")
 
-            # Load dataset
+            # Load dataset (check for cached quantum features first)
             cfg = checkpoint["config"]
             cfg["dataset"]["name"] = dataset_name
-            _, _, test_loader, n_classes = get_dataloaders(cfg)
+
+            cached_path = find_cached_quantum_dataset(cfg)
+            if cached_path is not None:
+                self.notify("Using cached quantum features", severity="information")
+                model.bypass_quantum = True
+                batch_size = cfg["dataset"].get("batch_size", 32)
+                num_workers = cfg["dataset"].get("num_workers", 2)
+                _, _, test_loader, n_classes, _ = load_cached_quantum_dataset(
+                    cached_path, batch_size, num_workers
+                )
+            else:
+                _, _, test_loader, n_classes = get_dataloaders(cfg)
 
             # Create progress modal
             total_batches = len(test_loader)
@@ -944,14 +960,12 @@ class DAQCNNTestUI(App):
             all_images = []  # Store images for later viewing
 
             with torch.no_grad():
-                for batch_idx, (imgs, labels) in enumerate(test_loader):
-                    imgs_cpu = imgs.clone()  # Keep a copy on CPU
-                    imgs = imgs.to(self.device)
+                for batch_idx, (features, labels) in enumerate(test_loader):
+                    features = features.to(self.device)
                     labels = labels.squeeze().long().to(self.device)
-                    logits = model(imgs)
+                    logits = model(features)
                     all_logits.append(logits.cpu())
                     all_labels.append(labels.cpu())
-                    all_images.extend(list(imgs_cpu))
 
                     # Update progress
                     progress_modal.update_progress(
@@ -959,6 +973,11 @@ class DAQCNNTestUI(App):
                         f"Processing batch {batch_idx + 1}/{total_batches}",
                     )
                     self.refresh()
+
+            # Load classical images for preview (cheap for 28x28 MedMNIST)
+            _, _, classical_loader, _ = get_dataloaders(cfg)
+            for imgs, _ in classical_loader:
+                all_images.extend(list(imgs))
 
             # Close progress modal
             self.pop_screen()

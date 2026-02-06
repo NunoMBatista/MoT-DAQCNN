@@ -51,6 +51,8 @@ class DAQCNN(nn.Module):
     ):
         super().__init__()
 
+        self.bypass_quantum = False
+
         self.quantum_convolutional_layer = QuantumConv2d(
             in_channels=in_channels,
             kernel_size=kernel_size,
@@ -99,8 +101,9 @@ class DAQCNN(nn.Module):
             self.to(classical_device)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.quantum_convolutional_layer(x).float()
-        # Ensure quantum outputs live on the same device as the classical head
+        if not self.bypass_quantum:
+            x = self.quantum_convolutional_layer(x).float()
+        # Ensure inputs live on the same device as the classical head
         target_device = next(self.head.parameters()).device
         if x.device != target_device:
             x = x.to(target_device)

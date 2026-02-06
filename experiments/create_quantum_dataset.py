@@ -35,7 +35,7 @@ from src.layers.quantum_convolution import QuantumConv2d
 # =============================================================================
 
 # Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist"
-DATASET_NAME = "derma_mnist"
+DATASET_NAME = "pneumonia_mnist"
 
 # Kernel size: 2 for 2x2 or 3 for 3x3
 KERNEL_SIZE = 2
@@ -50,10 +50,10 @@ KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
 # KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "cross", "ring"]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
-SCALING_FACTOR = 1
+SCALING_FACTOR = 1000
 
 # Evolution time for quantum dynamics
-EVOLUTION_TIME = 0.2
+EVOLUTION_TIME = 6.28
 
 # Batch size for processing (adjust based on your memory)
 BATCH_SIZE = 128
@@ -202,6 +202,20 @@ def main():
     # Store the output channels info
     out_channels = q_conv.out_channels
     print(f"Quantum layer outputs {out_channels} channels per image")
+
+    # Build channel-to-kernel mapping: for each output channel, record which kernel produced it
+    n_qubits = KERNEL_SIZE * KERNEL_SIZE
+    channel_kernel_map = []
+    for topo_name in KERNEL_TOPOLOGY_NAMES:
+        for qubit_idx in range(n_qubits):
+            channel_kernel_map.append(
+                {
+                    "channel": len(channel_kernel_map),
+                    "kernel": topo_name,
+                    "qubit": qubit_idx,
+                }
+            )
+    print(f"Channel-kernel mapping: {len(channel_kernel_map)} entries")
     print()
 
     # Process each split
@@ -232,9 +246,11 @@ def main():
         "kernel_size": KERNEL_SIZE,
         "stride": STRIDE,
         "kernel_topology_names": KERNEL_TOPOLOGY_NAMES,
+        "num_kernels": len(KERNEL_TOPOLOGY_NAMES),
         "scaling_factor": SCALING_FACTOR,
         "evolution_time": EVOLUTION_TIME,
         "out_channels": out_channels,
+        "channel_kernel_map": channel_kernel_map,
         "created_at": datetime.now().isoformat(),
         "train_samples": len(results["train_labels"]),
         "val_samples": len(results["val_labels"]),
