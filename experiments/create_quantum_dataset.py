@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 create_quantum_dataset.py
 
