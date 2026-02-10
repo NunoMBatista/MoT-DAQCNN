@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 augment_classical_dimensionality.py
 
