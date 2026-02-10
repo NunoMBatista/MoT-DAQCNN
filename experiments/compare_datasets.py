@@ -45,7 +45,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 # PNEUMONIAMNIST DATASET
-DATASETS_TO_COMPARE = [
+PNEUMONIA_MNIST_DATASETS = [
     # Classical baseline
     {
         "type": "classical",
@@ -53,51 +53,123 @@ DATASETS_TO_COMPARE = [
         "label": "PneumoniaMNIST (classical)",
     },
     {
-        "type": "quantum",
+        "type": "classical",
         "name": "pneumonia_mnist__augmented_cnn_k2_s2_c16_seed42.npz",
         "label": "Classical + CNN (16, 14, 14)",
     },
     {
-        "type": "quantum",
+        "type": "classical",
         "name": "pneumonia_mnist__augmented_rff_c16_h14_w14_seed42.npz",
         "label": "Classical + RFF (16, 14, 14)",
     },
     {
-        "type": "quantum",
+        "type": "classical",
         "name": "pneumonia_mnist__augmented_cnn_k3_s3_c36_seed42.npz",
         "label": "Classical + CNN (36, 9, 9)",
     },
     {
-        "type": "quantum",
+        "type": "classical",
         "name": "pneumonia_mnist__augmented_rff_c36_h9_w9_seed42.npz",
         "label": "Classical + RFF (36, 9, 9)",
+    },
+    # 2x2 QUANTUM
+    {
+        "type": "quantum",
+        "name": "pneumonia_mnist__k2_s2_tkin_ev6.28_sc1000.npz",
+        "label": "QPM (ksize=2 knumber=1 (king))",
+    },
+    {
+        "type": "quantum",
+        "name": "pneumonia_mnist__k2_s2_thor_ev6.28_sc1000.npz",
+        "label": "QPM (ksize=2 knumber=1 (horizontal))",
     },
     {
         "type": "quantum",
         "name": "pneumonia_mnist__k2_s2_tkin-hor-ver-u_s_ev6.28_sc1000.npz",
-        "label": "PneumoniaMNIST (quantum ksize=2 knumber=4)",
+        "label": "QPM (ksize=2 knumber=4)",
+    },
+    # 3x3 QUANTUM
+    {
+        "type": "quantum",
+        "name": "pneumonia_mnist__k3_s3_tkin_ev6.28_sc1000.npz",
+        "label": "QPM (ksize=3 knumber=1 (king))",
     },
     {
         "type": "quantum",
-        "name": "pneumonia_mnist__k2_s2_tkin_ev6.28_sc1000.npz",
-        "label": "PneumoniaMNIST (quantum ksize=2 knumber=1)",
+        "name": "pneumonia_mnist__k3_s3_thor_ev6.28_sc1000.npz",
+        "label": "QPM (ksize=3 knumber=1 (horizontal))",
     },
     {
         "type": "quantum",
         "name": "pneumonia_mnist__k3_s3_tkin-hor-cro-rin_ev6.28_sc1000.npz",
-        "label": "PneumoniaMNIST (quantum ksize=3 knumber=4)",
+        "label": "QPM (ksize=3 knumber=4)",
     },
 ]
 
-# DATASETS_TO_COMPARE = [
-#    {"type": "classical", "name": "derma_mnist", "label": "DermaMNIST (Classical)"},
-#    {
-#        "type": "quantum",
-#        "name": "derma_mnist__k3_s3_tkin-hor-cro-rin_ev6.28_sc1000.npz",
-#        "label": "DermaMNIST (quantum ksize=3 knumber=4)",
-#    },
-# ]
+# BREASTMNIST DATASET
+BREAST_MNIST_DATASETS = [
+    # Classical baseline
+    {
+        "type": "classical",
+        "name": "breast_mnist",
+        "label": "BreastMNIST (classical)",
+    },
+    {
+        "type": "quantum",
+        "name": "breast_mnist__augmented_rff_c16_h14_w14_seed42.npz",
+        "label": "Classical + RFF (16, 14, 14)",
+    },
+    {
+        "type": "quantum",
+        "name": "breast_mnist__augmented_cnn_k2_s2_c16_seed42.npz",
+        "label": "Classical + CNN (16, 14, 14)",
+    },
+    {
+        "type": "quantum",
+        "name": "breast_mnist__augmented_rff_c36_h9_w9_seed42.npz",
+        "label": "Classical + RFF (36, 9, 9)",
+    },
+    {
+        "type": "quantum",
+        "name": "breast_mnist__augmented_cnn_k3_s3_c36_seed42.npz",
+        "label": "Classical + CNN (36, 9, 9)",
+    },
+    # 2x2 QUANTUM
+    {
+        "type": "quantum",
+        "name": "breast_mnist__k2_s2_tkin_ev6.28_sc1000.npz",
+        "label": "QBM (ksize=2 knumber=1 (king))",
+    },
+    {
+        "type": "quantum",
+        "name": "breast_mnist__k2_s2_thor_ev6.28_sc1000.npz",
+        "label": "QBM (ksize=2 knumber=1 (horizontal))",
+    },
+    {
+        "type": "quantum",
+        "name": "breast_mnist__k2_s2_tkin-hor-ver-u_s_ev6.28_sc1000.npz",
+        "label": "QBM (ksize=2 knumber=4)",
+    },
+    # 3x3 QUANTUM
+    {
+        "type": "quantum",
+        "name": "breast_mnist__k3_s3_tkin_ev6.28_sc1000.npz",
+        "label": "QBM (ksize=3 knumber=1 (king))",
+    },
+    {
+        "type": "quantum",
+        "name": "breast_mnist__k3_s3_thor_ev6.28_sc1000.npz",
+        "label": "QBM (ksize=3 knumber=1 (horizontal))",
+    },
+    {
+        "type": "quantum",
+        "name": "breast_mnist__k3_s3_tkin-hor-cro-rin_ev6.28_sc1000.npz",
+        "label": "QBM (ksize=3 knumber=4)",
+    },
+]
 
+DATASETS_TO_COMPARE = PNEUMONIA_MNIST_DATASETS
+DATASETS_TO_COMPARE = BREAST_MNIST_DATASETS
 
 # Which split to use for comparison (usually "test" for final evaluation)
 SPLIT = "test"
@@ -486,6 +558,34 @@ def main():
         print()
         print("If quantum features show higher values, the quantum transformation")
         print("is making the classification problem 'easier' for downstream models.")
+
+        print("-" * 82)
+        print("BEST RESULTS FOR EACH METRIC:")
+        best_fisher = max(
+            results, key=lambda r: r["fisher"] if not np.isnan(r["fisher"]) else -np.inf
+        )
+        best_silhouette = max(
+            results,
+            key=lambda r: r["silhouette"] if not np.isnan(r["silhouette"]) else -np.inf,
+        )
+        best_knn = max(
+            results,
+            key=lambda r: r["knn_acc"] if not np.isnan(r["knn_acc"]) else -np.inf,
+        )
+        best_kta = max(
+            results, key=lambda r: r["kta"] if not np.isnan(r["kta"]) else -np.inf
+        )
+        print(
+            f"  - Best Fisher's Ratio: {best_fisher['label']} ({best_fisher['fisher']:.4f})"
+        )
+        print(
+            f"  - Best Silhouette Score: {best_silhouette['label']} ({best_silhouette['silhouette']:.4f})"
+        )
+        print(
+            f"  - Best 1-NN Accuracy: {best_knn['label']} ({best_knn['knn_acc']:.4f})"
+        )
+        print(f"  - Best KTA: {best_kta['label']} ({best_kta['kta']:.4f})")
+        print("-" * 82)
 
 
 if __name__ == "__main__":

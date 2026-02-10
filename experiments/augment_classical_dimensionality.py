@@ -43,7 +43,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # =============================================================================
 
 # Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist"
-DATASET_NAME = "pneumonia_mnist"
+DATASET_NAME = "breast_mnist"
 
 # Target output shape to match quantum dataset
 # These should match the quantum dataset you want to compare against
@@ -53,14 +53,14 @@ DATASET_NAME = "pneumonia_mnist"
 #   TARGET_W = 14
 
 # 2x2 Grayscale 4 quantum kernel kernel dimensions
-TARGET_CHANNELS = 16  # num_kernels * kernel_size^2 (e.g., 4 topologies * 4 qubits = 16)
-TARGET_H = 14  # (28 - kernel_size) // stride + 1
-TARGET_W = 14
+# TARGET_CHANNELS = 16  # num_kernels * kernel_size^2 (e.g., 4 topologies * 4 qubits = 16)
+# TARGET_H = 14  # (28 - kernel_size) // stride + 1
+# TARGET_W = 14
 
 # 3x3 Grayscale 4 quantum kernel dimensions
-# TARGET_CHANNELS = 36
-# TARGET_H = 9
-# TARGET_W = 9
+TARGET_CHANNELS = 36
+TARGET_H = 9
+TARGET_W = 9
 
 # Projection method: "rff", "random", "cnn", or "resnet"
 #   - "rff": Random Fourier Features (approximates RBF kernel)
@@ -75,8 +75,8 @@ RFF_GAMMA = None
 
 # For CNN method: kernel size and stride
 # These determine the output spatial dimensions
-CNN_KERNEL_SIZE = 2
-CNN_STRIDE = 2
+CNN_KERNEL_SIZE = 3
+CNN_STRIDE = 3
 
 # For ResNet method: which layer to extract features from
 # Options: "layer1" or "layer2"

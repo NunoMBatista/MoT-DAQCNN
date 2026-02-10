@@ -34,11 +34,11 @@ from src.layers.quantum_convolution import QuantumConv2d
 # =============================================================================
 
 # Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist"
-DATASET_NAME = "pneumonia_mnist"
+DATASET_NAME = "derma_mnist"
 
-# Color space: "RGB" or "HSV" 
+# Color space: "RGB" or "HSV"
 # HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
-COLOR_SPACE = "RGB"  
+COLOR_SPACE = "HSV"
 
 # Kernel size: 2 for 2x2 or 3 for 3x3
 KERNEL_SIZE = 3
@@ -49,9 +49,9 @@ STRIDE = 3
 # Which topologies to use
 # For 2x2: ["kings", "horizontal", "vertical", "u_shape"]
 # For 3x3: ["kings", "horizontal", "vertical", "cross", "ring"]
-#KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
+# KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
 KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "cross", "ring"]
-KERNEL_TOPOLOGY_NAMES = ["kings"]
+# KERNEL_TOPOLOGY_NAMES = ["kings"]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
 SCALING_FACTOR = 1000
@@ -121,11 +121,11 @@ def generate_output_filename(params):
         f"ev{params['evolution_time']:.2f}_"
         f"sc{params['scaling_factor']:.0f}"
     )
-    
+
     # Add color space suffix if HSV
-    if params.get('color_space', 'RGB') == 'HSV':
+    if params.get("color_space", "RGB") == "HSV":
         filename += "_hsv"
-    
+
     filename += ".npz"
     return filename
 
@@ -133,22 +133,48 @@ def generate_output_filename(params):
 def rgb_to_hsv_tensor(rgb_tensor):
     """
     Convert RGB tensor to HSV.
-    
+
     Args:
         rgb_tensor: torch.Tensor of shape (B, 3, H, W) with values in [0, 1]
-    
+
     Returns:
         hsv_tensor: torch.Tensor of shape (B, 3, H, W)
                     H in [0, 1], S in [0, 1], V in [0, 1]
     """
-    from torchvision.transforms.functional import rgb_to_hsv
-    return rgb_to_hsv(rgb_tensor)
+    from torchvision.transforms import functional as F
+    from PIL import Image
+    
+    batch_size = rgb_tensor.shape[0]
+    hsv_batch = []
+    
+    for i in range(batch_size):
+        # Convert tensor to PIL Image
+        pil_img = F.to_pil_image(rgb_tensor[i])
+        
+        # Convert RGB to HSV using PIL
+        pil_hsv = pil_img.convert('HSV')
+        
+        # Convert back to tensor
+        hsv_tensor_single = F.to_tensor(pil_hsv)
+        
+        # PIL HSV has H in [0, 255], S in [0, 255], V in [0, 255]
+        # Normalize to [0, 1]
+        hsv_tensor_single = hsv_tensor_single / 255.0
+        
+        hsv_batch.append(hsv_tensor_single)
+    
+    # Stack back to (B, 3, H, W)
+    hsv = torch.stack(hsv_batch, dim=0)
+    
+    return hsv
 
 
-def process_dataset_through_quantum(dataset, q_conv, batch_size, color_space="RGB", desc="Processing"):
+def process_dataset_through_quantum(
+    dataset, q_conv, batch_size, color_space="RGB", desc="Processing"
+):
     """
     Run all images in a dataset through the quantum convolution layer.
-    
+
     Args:
         dataset: Dataset to process
         q_conv: Quantum convolution layer (or None if using HSV with classical H,S)
@@ -176,22 +202,27 @@ def process_dataset_through_quantum(dataset, q_conv, batch_size, color_space="RG
             if color_space == "HSV" and images.shape[1] == 3:
                 # Convert RGB to HSV
                 hsv_images = rgb_to_hsv_tensor(images)  # (B, 3, H, W)
-                
+
                 # Extract V channel for quantum processing
                 v_channel = hsv_images[:, 2:3, :, :]  # (B, 1, H, W)
-                
+
                 # Process V channel through quantum kernels
                 q_out_v = q_conv(v_channel)  # (B, out_channels, H_out, W_out)
-                
+
                 # Downsample H and S channels to match quantum output spatial dimensions
                 h_out = q_out_v.shape[2]
                 w_out = q_out_v.shape[3]
-                
+
                 # Use average pooling to downsample H and S channels
                 from torch.nn.functional import adaptive_avg_pool2d
-                h_channel = adaptive_avg_pool2d(hsv_images[:, 0:1, :, :], (h_out, w_out))
-                s_channel = adaptive_avg_pool2d(hsv_images[:, 1:2, :, :], (h_out, w_out))
-                
+
+                h_channel = adaptive_avg_pool2d(
+                    hsv_images[:, 0:1, :, :], (h_out, w_out)
+                )
+                s_channel = adaptive_avg_pool2d(
+                    hsv_images[:, 1:2, :, :], (h_out, w_out)
+                )
+
                 # Concatenate: [H, S, quantum-V]
                 q_out = torch.cat([h_channel, s_channel, q_out_v], dim=1)
             else:
@@ -266,12 +297,14 @@ def main():
 
     # Store the output channels info
     quantum_out_channels = q_conv.out_channels
-    
+
     # For HSV, we add 2 classical channels (H and S)
     if COLOR_SPACE == "HSV" and in_channels == 3:
         out_channels = 2 + quantum_out_channels  # H, S, + quantum V
         print(f"Quantum layer outputs {quantum_out_channels} channels for V channel")
-        print(f"Total output: {out_channels} channels (2 classical H,S + {quantum_out_channels} quantum V)")
+        print(
+            f"Total output: {out_channels} channels (2 classical H,S + {quantum_out_channels} quantum V)"
+        )
     else:
         out_channels = quantum_out_channels
         print(f"Quantum layer outputs {out_channels} channels per image")
