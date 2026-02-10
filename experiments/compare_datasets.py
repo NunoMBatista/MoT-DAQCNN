@@ -176,24 +176,24 @@ DERMA_MNIST_DATASETS = [
         "label": "DermaMNIST (classical)",
     },
     {
-        "type": "quantum",
-        "name": "derma_mnist__augmented_rff_c16_h14_w14_seed42.npz",
-        "label": "Classical + RFF (16, 14, 14)",
+        "type": "classical",
+        "name": "derma_mnist__augmented_rff_c18_h14_w14_seed42.npz",
+        "label": "Classical + RFF (18, 14, 14)",
     },
     {
-        "type": "quantum",
-        "name": "derma_mnist__augmented_cnn_k2_s2_c16_seed42.npz",
-        "label": "Classical + CNN (16, 14, 14)",
+        "type": "classical",
+        "name": "derma_mnist__augmented_cnn_k2_s2_c18_seed42.npz",
+        "label": "Classical + CNN (18, 14, 14)",
     },
     {
-        "type": "quantum",
-        "name": "derma_mnist__augmented_rff_c36_h9_w9_seed42.npz",
-        "label": "Classical + RFF (36, 9, 9)",
+        "type": "classical",
+        "name": "derma_mnist__augmented_rff_c38_h9_w9_seed42.npz",
+        "label": "Classical + RFF (38, 9, 9)",
     },
     {
-        "type": "quantum",
-        "name": "derma_mnist__augmented_cnn_k3_s3_c36_seed42.npz",
-        "label": "Classical + CNN (36, 9, 9)",
+        "type": "classical",
+        "name": "derma_mnist__augmented_cnn_k3_s3_c38_seed42.npz",
+        "label": "Classical + CNN (38, 9, 9)",
     },
     # 2x2 QUANTUM
     {
@@ -214,8 +214,8 @@ DERMA_MNIST_DATASETS = [
     # 3x3 QUANTUM
     {
         "type": "quantum",
-        "name": "derma_mnist__k3_s3_tkin_ev6.28_sc1000.npz",
-        "label": "QDM-RGB (ksize=3 knumber=1 (king))",
+        "name": "derma_mnist__k3_s3_tkin-hor-cro-rin_ev6.28_sc1000.npz",
+        "label": "QDM-RGB (ksize=3 knumber=4)",
     },
     {
         "type": "quantum",
