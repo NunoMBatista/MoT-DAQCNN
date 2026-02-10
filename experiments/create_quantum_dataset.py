@@ -37,17 +37,22 @@ from src.layers.quantum_convolution import QuantumConv2d
 # Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist"
 DATASET_NAME = "pneumonia_mnist"
 
+# Color space: "RGB" or "HSV" 
+# HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
+COLOR_SPACE = "RGB"  
+
 # Kernel size: 2 for 2x2 or 3 for 3x3
-KERNEL_SIZE = 2
+KERNEL_SIZE = 3
 
 # Stride for the convolution (use kernel_size for non-overlapping patches)
-STRIDE = 2
+STRIDE = 3
 
 # Which topologies to use
 # For 2x2: ["kings", "horizontal", "vertical", "u_shape"]
 # For 3x3: ["kings", "horizontal", "vertical", "cross", "ring"]
-KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
-# KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "cross", "ring"]
+#KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
+KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "cross", "ring"]
+KERNEL_TOPOLOGY_NAMES = ["kings"]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
 SCALING_FACTOR = 1000
@@ -104,7 +109,7 @@ def load_medmnist_dataset(dataset_name, split, data_root):
 def generate_output_filename(params):
     """
     Generate a descriptive filename for the quantum dataset.
-    Format: {dataset}__k{kernel}_s{stride}_t{topologies}_ev{evo}_sc{scale}.npz
+    Format: {dataset}__k{kernel}_s{stride}_t{topologies}_ev{evo}_sc{scale}[_hsv].npz
     """
     # Shorten topology names for filename
     topo_short = "-".join([t[:3] for t in params["kernel_topology_names"]])
@@ -116,14 +121,41 @@ def generate_output_filename(params):
         f"t{topo_short}_"
         f"ev{params['evolution_time']:.2f}_"
         f"sc{params['scaling_factor']:.0f}"
-        ".npz"
     )
+    
+    # Add color space suffix if HSV
+    if params.get('color_space', 'RGB') == 'HSV':
+        filename += "_hsv"
+    
+    filename += ".npz"
     return filename
 
 
-def process_dataset_through_quantum(dataset, q_conv, batch_size, desc="Processing"):
+def rgb_to_hsv_tensor(rgb_tensor):
+    """
+    Convert RGB tensor to HSV.
+    
+    Args:
+        rgb_tensor: torch.Tensor of shape (B, 3, H, W) with values in [0, 1]
+    
+    Returns:
+        hsv_tensor: torch.Tensor of shape (B, 3, H, W)
+                    H in [0, 1], S in [0, 1], V in [0, 1]
+    """
+    from torchvision.transforms.functional import rgb_to_hsv
+    return rgb_to_hsv(rgb_tensor)
+
+
+def process_dataset_through_quantum(dataset, q_conv, batch_size, color_space="RGB", desc="Processing"):
     """
     Run all images in a dataset through the quantum convolution layer.
+    
+    Args:
+        dataset: Dataset to process
+        q_conv: Quantum convolution layer (or None if using HSV with classical H,S)
+        batch_size: Batch size for processing
+        color_space: "RGB" or "HSV"
+        desc: Progress bar description
 
     Returns:
         quantum_features: np.array of shape (N, out_channels, H_out, W_out)
@@ -142,7 +174,30 @@ def process_dataset_through_quantum(dataset, q_conv, batch_size, desc="Processin
     for images, labels in tqdm(loader, desc=desc):
         # images: (B, C, H, W), labels: (B, 1) or (B,)
         with torch.no_grad():
-            q_out = q_conv(images)  # (B, out_channels, H_out, W_out)
+            if color_space == "HSV" and images.shape[1] == 3:
+                # Convert RGB to HSV
+                hsv_images = rgb_to_hsv_tensor(images)  # (B, 3, H, W)
+                
+                # Extract V channel for quantum processing
+                v_channel = hsv_images[:, 2:3, :, :]  # (B, 1, H, W)
+                
+                # Process V channel through quantum kernels
+                q_out_v = q_conv(v_channel)  # (B, out_channels, H_out, W_out)
+                
+                # Downsample H and S channels to match quantum output spatial dimensions
+                h_out = q_out_v.shape[2]
+                w_out = q_out_v.shape[3]
+                
+                # Use average pooling to downsample H and S channels
+                from torch.nn.functional import adaptive_avg_pool2d
+                h_channel = adaptive_avg_pool2d(hsv_images[:, 0:1, :, :], (h_out, w_out))
+                s_channel = adaptive_avg_pool2d(hsv_images[:, 1:2, :, :], (h_out, w_out))
+                
+                # Concatenate: [H, S, quantum-V]
+                q_out = torch.cat([h_channel, s_channel, q_out_v], dim=1)
+            else:
+                # RGB: process through quantum kernels normally
+                q_out = q_conv(images)  # (B, out_channels, H_out, W_out)
 
         all_features.append(q_out.cpu().numpy())
 
@@ -166,6 +221,7 @@ def main():
     # Print current parameters
     print(f"\nParameters:")
     print(f"  Dataset:          {DATASET_NAME}")
+    print(f"  Color space:      {COLOR_SPACE}")
     print(f"  Kernel size:      {KERNEL_SIZE}x{KERNEL_SIZE}")
     print(f"  Stride:           {STRIDE}")
     print(f"  Topologies:       {KERNEL_TOPOLOGY_NAMES}")
@@ -185,11 +241,21 @@ def main():
     in_channels = sample_img.shape[0]  # (C, H, W)
     print(f"Detected {in_channels} input channel(s)")
 
+    # Determine quantum processing channels based on color space
+    if COLOR_SPACE == "HSV" and in_channels == 3:
+        # For HSV, only process V channel with quantum kernels
+        quantum_in_channels = 1
+        print(f"Using HSV: processing only V channel with quantum kernels")
+        print(f"H and S channels will be passed classically")
+    else:
+        # For RGB or grayscale, process all channels
+        quantum_in_channels = in_channels
+
     # Build the quantum convolution layer
     # This is the fixed (non-trainable) feature extractor
     print("Initializing quantum convolution layer...")
     q_conv = QuantumConv2d(
-        in_channels=in_channels,
+        in_channels=quantum_in_channels,
         kernel_size=KERNEL_SIZE,
         stride=STRIDE,
         kernel_topology_names=KERNEL_TOPOLOGY_NAMES,
@@ -200,8 +266,16 @@ def main():
     )
 
     # Store the output channels info
-    out_channels = q_conv.out_channels
-    print(f"Quantum layer outputs {out_channels} channels per image")
+    quantum_out_channels = q_conv.out_channels
+    
+    # For HSV, we add 2 classical channels (H and S)
+    if COLOR_SPACE == "HSV" and in_channels == 3:
+        out_channels = 2 + quantum_out_channels  # H, S, + quantum V
+        print(f"Quantum layer outputs {quantum_out_channels} channels for V channel")
+        print(f"Total output: {out_channels} channels (2 classical H,S + {quantum_out_channels} quantum V)")
+    else:
+        out_channels = quantum_out_channels
+        print(f"Quantum layer outputs {out_channels} channels per image")
 
     # Build channel-to-kernel mapping: for each output channel, record which kernel produced it
     n_qubits = KERNEL_SIZE * KERNEL_SIZE
@@ -230,7 +304,7 @@ def main():
 
         # Process through quantum layer
         features, labels = process_dataset_through_quantum(
-            ds, q_conv, BATCH_SIZE, desc=f"  {split}"
+            ds, q_conv, BATCH_SIZE, color_space=COLOR_SPACE, desc=f"  {split}"
         )
 
         results[f"{split}_features"] = features
@@ -243,6 +317,7 @@ def main():
     metadata = {
         "dataset_name": DATASET_NAME,
         "in_channels": in_channels,
+        "color_space": COLOR_SPACE,
         "kernel_size": KERNEL_SIZE,
         "stride": STRIDE,
         "kernel_topology_names": KERNEL_TOPOLOGY_NAMES,
@@ -250,6 +325,7 @@ def main():
         "scaling_factor": SCALING_FACTOR,
         "evolution_time": EVOLUTION_TIME,
         "out_channels": out_channels,
+        "quantum_out_channels": quantum_out_channels,
         "channel_kernel_map": channel_kernel_map,
         "created_at": datetime.now().isoformat(),
         "train_samples": len(results["train_labels"]),

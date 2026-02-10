@@ -52,16 +52,23 @@ DATASET_NAME = "pneumonia_mnist"
 #   TARGET_CHANNELS = 16
 #   TARGET_H = 14
 #   TARGET_W = 14
+
+# 2x2 Grayscale 4 quantum kernel kernel dimensions
 TARGET_CHANNELS = 16  # num_kernels * kernel_size^2 (e.g., 4 topologies * 4 qubits = 16)
 TARGET_H = 14  # (28 - kernel_size) // stride + 1
 TARGET_W = 14
+
+# 3x3 Grayscale 4 quantum kernel dimensions
+# TARGET_CHANNELS = 36
+# TARGET_H = 9
+# TARGET_W = 9
 
 # Projection method: "rff", "random", "cnn", or "resnet"
 #   - "rff": Random Fourier Features (approximates RBF kernel)
 #   - "random": Random matrix projection
 #   - "cnn": Random CNN kernels (convolution with random weights)
 #   - "resnet": Frozen early layers of pretrained ResNet-18
-PROJECTION_METHOD = "resnet"
+PROJECTION_METHOD = "cnn"
 
 # For RFF: gamma parameter for RBF kernel approximation (smaller = smoother)
 # If None, will use 1/n_features as default

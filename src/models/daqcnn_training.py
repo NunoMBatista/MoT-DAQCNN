@@ -198,25 +198,39 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     # Model
     model_cfg = cfg.get("model", {})
     num_classes = model_cfg.get("num_classes", n_classes)
+    
+    # When using cache, override the expected quantum output channels
+    # This is needed for HSV datasets where output structure differs
+    override_quantum_out_channels = None
+    if using_cache and cache_meta:
+        override_quantum_out_channels = cache_meta.get("out_channels")
 
     if verbose:
         print("Building model...")
-    model = DAQCNN(
-        num_classes=num_classes,
-        kernel_size=model_cfg.get("kernel_size", 2),
-        stride=model_cfg.get("stride", 1),
-        kernel_topology_names=model_cfg.get("kernel_topology_names", None),
-        scaling_factor=model_cfg.get("scaling_factor", 1.0),
-        evolution_time=model_cfg.get("evolution_time", 0.2),
-        mode=model_cfg.get("mode", "trotter"),
-        dropout=model_cfg.get("dropout", 0.1),
-        activation=model_cfg.get("activation", "relu"),
-        quantum_device=model_cfg.get("quantum_device", "default.qubit"),
-        quantum_device_kwargs=model_cfg.get("quantum_device_kwargs", None),
-        classical_device=device,
-        in_channels=model_cfg.get("in_channels", 1),
-        interface=model_cfg.get("interface", "torch"),
-    )
+    
+    # Build model kwargs
+    model_kwargs = {
+        "num_classes": num_classes,
+        "kernel_size": model_cfg.get("kernel_size", 2),
+        "stride": model_cfg.get("stride", 1),
+        "kernel_topology_names": model_cfg.get("kernel_topology_names", None),
+        "scaling_factor": model_cfg.get("scaling_factor", 1.0),
+        "evolution_time": model_cfg.get("evolution_time", 0.2),
+        "mode": model_cfg.get("mode", "trotter"),
+        "dropout": model_cfg.get("dropout", 0.1),
+        "activation": model_cfg.get("activation", "relu"),
+        "quantum_device": model_cfg.get("quantum_device", "default.qubit"),
+        "quantum_device_kwargs": model_cfg.get("quantum_device_kwargs", None),
+        "classical_device": device,
+        "in_channels": model_cfg.get("in_channels", 1),
+        "interface": model_cfg.get("interface", "torch"),
+    }
+    
+    # Add override if using cached data
+    if override_quantum_out_channels is not None:
+        model_kwargs["override_quantum_out_channels"] = override_quantum_out_channels
+    
+    model = DAQCNN(**model_kwargs)
 
     if using_cache:
         model.bypass_quantum = True

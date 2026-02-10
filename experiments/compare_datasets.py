@@ -10,6 +10,7 @@ Metrics computed:
     - Fisher's Ratio: measures class separability (higher = more separable)
     - Silhouette Score: clustering quality metric (-1 to 1, higher = better)
     - 1-NN Accuracy: leave-one-out nearest neighbor accuracy
+    - KTA (Kernel-Target Alignment): alignment between feature kernel and class structure (-1 to 1, higher = better)
 
 Usage:
     python experiments/compare_datasets.py
@@ -43,6 +44,8 @@ if str(PROJECT_ROOT) not in sys.path:
 #   - "name": dataset name (for classical) or path to .npz file (for quantum)
 #   - "label": human-readable label for the output table (optional)
 
+
+# PNEUMONIAMNIST DATASET
 DATASETS_TO_COMPARE = [
     # Classical baseline
     {
@@ -50,7 +53,26 @@ DATASETS_TO_COMPARE = [
         "name": "pneumonia_mnist",
         "label": "PneumoniaMNIST (classical)",
     },
-    # Example quantum dataset (uncomment and update path after running create_quantum_dataset.py)
+    {
+        "type": "quantum",
+        "name": "pneumonia_mnist__augmented_cnn_k2_s2_c16_seed42.npz",
+        "label": "Classical + CNN (16, 14, 14)",
+    },
+    {
+        "type": "quantum",
+        "name": "pneumonia_mnist__augmented_rff_c16_h14_w14_seed42.npz",
+        "label": "Classical + RFF (16, 14, 14)",
+    },
+    {
+        "type": "quantum",
+        "name": "pneumonia_mnist__augmented_cnn_k3_s3_c36_seed42.npz",
+        "label": "Classical + CNN (36, 9, 9)",
+    },
+    {
+        "type": "quantum",
+        "name": "pneumonia_mnist__augmented_rff_c36_h9_w9_seed42.npz",
+        "label": "Classical + RFF (36, 9, 9)",
+    },
     {
         "type": "quantum",
         "name": "pneumonia_mnist__k2_s2_tkin-hor-ver-u_s_ev6.28_sc1000.npz",
@@ -63,20 +85,20 @@ DATASETS_TO_COMPARE = [
     },
     {
         "type": "quantum",
-        "name": "pneumonia_mnist__augmented_rff_c16_h14_w14_seed42.npz",
-        "label": "Classical + RFF",
-    },
-    {
-        "type": "quantum",
-        "name": "pneumonia_mnist__augmented_cnn_k2_s2_c16_seed42.npz",
-        "label": "Classical + CNN",
-    },
-    {
-        "type": "quantum",
-        "name": "pneumonia_mnist__augmented_resnet_layer1_pca_c16_h14_w14.npz",
-        "label": "Classical + RESNET",
+        "name": "pneumonia_mnist__k3_s3_tkin-hor-cro-rin_ev6.28_sc1000.npz",
+        "label": "PneumoniaMNIST (quantum ksize=3 knumber=4)",
     },
 ]
+
+# DATASETS_TO_COMPARE = [
+#    {"type": "classical", "name": "derma_mnist", "label": "DermaMNIST (Classical)"},
+#    {
+#        "type": "quantum",
+#        "name": "derma_mnist__k3_s3_tkin-hor-cro-rin_ev6.28_sc1000.npz",
+#        "label": "DermaMNIST (quantum ksize=3 knumber=4)",
+#    },
+# ]
+
 
 # Which split to use for comparison (usually "test" for final evaluation)
 SPLIT = "test"
@@ -191,6 +213,63 @@ def compute_1nn_accuracy(X, y, cv_folds=5, max_samples=5000):
         return np.mean(scores)
     except ValueError:
         return np.nan
+
+
+def compute_kta(X, y, max_samples=10000):
+    """
+    Compute Kernel-Target Alignment (KTA).
+
+    KTA measures how well the kernel (similarity matrix) computed from features
+    aligns with the ideal kernel based on class labels. Higher values indicate
+    that the feature representation aligns well with the classification task.
+
+    KTA = <K, Y> / (||K|| * ||Y||)
+
+    where:
+        K is the kernel matrix (here, linear kernel: K = X @ X.T)
+        Y is the target kernel matrix (Y_ij = 1 if labels match, -1 otherwise)
+        <K, Y> is the Frobenius inner product
+        ||K|| is the Frobenius norm
+
+    Range: [-1, 1], higher is better.
+
+    Due to O(n^2) memory and computation, we subsample for large datasets.
+    """
+    X_flat = X.reshape(X.shape[0], -1)
+
+    # Subsample if too large (KTA is O(n^2) in memory)
+    if len(X_flat) > max_samples:
+        idx = np.random.choice(len(X_flat), max_samples, replace=False)
+        X_flat = X_flat[idx]
+        y = y[idx]
+
+    # Normalize features for numerical stability
+    X_normalized = X_flat / (np.linalg.norm(X_flat, axis=1, keepdims=True) + 1e-10)
+
+    # Compute kernel matrix K (linear kernel)
+    K = X_normalized @ X_normalized.T
+
+    # Compute target kernel Y (Y_ij = 1 if y_i == y_j, else -1)
+    n = len(y)
+    Y = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            Y[i, j] = 1.0 if y[i] == y[j] else -1.0
+
+    # Compute KTA = <K, Y> / (||K|| * ||Y||)
+    # Frobenius inner product: <K, Y> = trace(K.T @ Y) = sum(K * Y)
+    numerator = np.sum(K * Y)
+
+    # Frobenius norms
+    norm_K = np.linalg.norm(K, "fro")
+    norm_Y = np.linalg.norm(Y, "fro")
+
+    if norm_K == 0 or norm_Y == 0:
+        return np.nan
+
+    kta = numerator / (norm_K * norm_Y)
+
+    return kta
 
 
 # =============================================================================
@@ -359,6 +438,9 @@ def main():
         knn_acc = compute_1nn_accuracy(X_sub, y_sub)
         print(f"    1-NN Accuracy: {knn_acc:.4f}")
 
+        kta = compute_kta(X_sub, y_sub)
+        print(f"    KTA: {kta:.4f}")
+
         results.append(
             {
                 "label": label,
@@ -367,6 +449,7 @@ def main():
                 "fisher": fisher,
                 "silhouette": silhouette,
                 "knn_acc": knn_acc,
+                "kta": kta,
             }
         )
 
@@ -374,12 +457,14 @@ def main():
 
     # Print summary table
     if len(results) > 0:
-        print("=" * 70)
+        print("=" * 82)
         print("SUMMARY TABLE")
-        print("=" * 70)
+        print("=" * 82)
         print()
-        print(f"{'Dataset':<40} {'Fisher':>10} {'Silhouette':>12} {'1-NN Acc':>10}")
-        print("-" * 70)
+        print(
+            f"{'Dataset':<40} {'Fisher':>10} {'Silhouette':>12} {'1-NN Acc':>10} {'KTA':>10}"
+        )
+        print("-" * 82)
 
         for r in results:
             fisher_str = f"{r['fisher']:.4f}" if not np.isnan(r["fisher"]) else "N/A"
@@ -387,14 +472,18 @@ def main():
                 f"{r['silhouette']:.4f}" if not np.isnan(r["silhouette"]) else "N/A"
             )
             knn_str = f"{r['knn_acc']:.4f}" if not np.isnan(r["knn_acc"]) else "N/A"
-            print(f"{r['label']:<40} {fisher_str:>10} {sil_str:>12} {knn_str:>10}")
+            kta_str = f"{r['kta']:.4f}" if not np.isnan(r["kta"]) else "N/A"
+            print(
+                f"{r['label']:<40} {fisher_str:>10} {sil_str:>12} {knn_str:>10} {kta_str:>10}"
+            )
 
-        print("-" * 70)
+        print("-" * 82)
         print()
         print("Interpretation:")
         print("  - Fisher's Ratio: Higher = better class separation")
         print("  - Silhouette Score: Higher (max 1.0) = better clustering")
         print("  - 1-NN Accuracy: Higher = easier to classify with simple model")
+        print("  - KTA: Higher (max 1.0) = features align well with class structure")
         print()
         print("If quantum features show higher values, the quantum transformation")
         print("is making the classification problem 'easier' for downstream models.")

@@ -21,13 +21,20 @@ def _match_metadata(meta, cfg):
     the quantum-relevant parameters in the training config.
 
     We compare: dataset_name, kernel_size, stride, kernel_topology_names
-    (order-insensitive), num_kernels, scaling_factor, evolution_time.
+    (order-insensitive), num_kernels, scaling_factor, evolution_time, color_space.
     """
     model_cfg = cfg.get("model", {})
-    dataset_name = cfg.get("dataset", {}).get("name")
+    dataset_cfg = cfg.get("dataset", {})
+    dataset_name = dataset_cfg.get("name")
 
     # Dataset name
     if meta.get("dataset_name") != dataset_name:
+        return False
+    
+    # Color space (default to RGB for backward compatibility)
+    cached_color_space = meta.get("color_space", "RGB")
+    config_color_space = dataset_cfg.get("color_space", "RGB")
+    if cached_color_space != config_color_space:
         return False
 
     # Kernel size

@@ -21,6 +21,7 @@ class DAQCNN(nn.Module):
         quantum_device_kwargs: Extra kwargs for the quantum device (e.g., shots/batch_size).
         classical_device: Torch device to place the full model (e.g., "cuda" or "cpu").
         interface: Interface for quantum execution ("torch", "autograd", "jax").
+        override_quantum_out_channels: Override the quantum layer output channels (used for cached HSV datasets).
 
     Notes:
         - The classical head mirrors the paper: Conv-BN-ReLU -> MaxPool -> Conv-ReLU -> Dropout ->
@@ -48,6 +49,7 @@ class DAQCNN(nn.Module):
         in_channels: int = 1,
         interface: str = "torch",
         use_jit: bool = False,
+        override_quantum_out_channels: int = None,
     ):
         super().__init__()
 
@@ -70,10 +72,14 @@ class DAQCNN(nn.Module):
         # Backward compatibility alias
         self.quantum = self.quantum_convolutional_layer
 
-        out_ch = self.quantum_convolutional_layer.out_channels
-        # For RGB, the quantum layer outputs 3x more channels
-        if in_channels == 3:
-            out_ch *= 3
+        # Use override if provided (for cached HSV datasets), otherwise compute from quantum layer
+        if override_quantum_out_channels is not None:
+            out_ch = override_quantum_out_channels
+        else:
+            out_ch = self.quantum_convolutional_layer.out_channels
+            # For RGB, the quantum layer outputs 3x more channels
+            if in_channels == 3:
+                out_ch *= 3
 
         # Select activation function
         act_fn = nn.GELU() if activation.lower() == "gelu" else nn.ReLU()
