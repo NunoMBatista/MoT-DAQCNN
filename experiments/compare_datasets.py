@@ -198,34 +198,39 @@ DERMA_MNIST_DATASETS = [
     # 2x2 QUANTUM
     {
         "type": "quantum",
-        "name": "derma_mnist__k2_s2_tkin_ev6.28_sc1000.npz",
-        "label": "QDM (ksize=2 knumber=1 (king))",
+        "name": "derma_mnist__k2_s2_tkin_ev6.28_sc1000_hsv.npz",
+        "label": "QDM-HSV (ksize=2 knumber=1 (king))",
     },
     {
         "type": "quantum",
-        "name": "derma_mnist__k2_s2_thor_ev6.28_sc1000.npz",
-        "label": "QDM (ksize=2 knumber=1 (horizontal))",
+        "name": "derma_mnist__k2_s2_thor_ev6.28_sc1000_hsv.npz",
+        "label": "QDM-HSV (ksize=2 knumber=1 (horizontal))",
     },
     {
         "type": "quantum",
-        "name": "derma_mnist__k2_s2_tkin-hor-ver-u_s_ev6.28_sc1000.npz",
-        "label": "QDM (ksize=2 knumber=4)",
+        "name": "derma_mnist__k2_s2_tkin-hor-ver-u_s_ev6.28_sc1000_hsv.npz",
+        "label": "QDM-HSV (ksize=2 knumber=4)",
     },
     # 3x3 QUANTUM
     {
         "type": "quantum",
         "name": "derma_mnist__k3_s3_tkin_ev6.28_sc1000.npz",
-        "label": "QDM (ksize=3 knumber=1 (king))",
+        "label": "QDM-RGB (ksize=3 knumber=1 (king))",
     },
     {
         "type": "quantum",
-        "name": "derma_mnist__k3_s3_thor_ev6.28_sc1000.npz",
-        "label": "QDM (ksize=3 knumber=1 (horizontal))",
+        "name": "derma_mnist__k3_s3_tkin_ev6.28_sc1000_hsv.npz",
+        "label": "QDM-HSV (ksize=3 knumber=1 (king))",
     },
     {
         "type": "quantum",
-        "name": "derma_mnist__k3_s3_tkin-hor-cro-rin_ev6.28_sc1000.npz",
-        "label": "QDM (ksize=3 knumber=4)",
+        "name": "derma_mnist__k3_s3_thor_ev6.28_sc1000_hsv.npz",
+        "label": "QDM-HSV (ksize=3 knumber=1 (horizontal))",
+    },
+    {
+        "type": "quantum",
+        "name": "derma_mnist__k3_s3_tkin-hor-cro-rin_ev6.28_sc1000_hsv.npz",
+        "label": "QDM-HSV (ksize=3 knumber=4)",
     },
 ]
 
