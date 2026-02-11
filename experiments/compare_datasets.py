@@ -54,7 +54,7 @@ PNEUMONIA_MNIST_DATASETS = [
         "label": "PneumoniaMNIST (classical)",
     },
     {
-        "type": "classical",
+        "type": "quantum",
         "name": "pneumonia_mnist__augmented_cnn_k2_s2_c16_seed42.npz",
         "label": "Classical + CNN (16, 14, 14)",
     },
@@ -182,6 +182,11 @@ DERMA_MNIST_DATASETS = [
         "grayscale": True,
         "label": "DermaMNIST (classical grayscale)",
     },
+    {
+        "type": "quantum",
+        "name": "derma_mnist__augmented_cnn_k3_s3_c38_seed42.npz",
+        "label": "Classical + CNN",
+    },
     # INSERT AUGMENTATIONS HERE (38 AND 18 CHANNELS, PASTE DIRECTLY FROM STDOUT OR YOU'LL HAVE PROBLEMS BRAH)
     # 2x2 QUANTUM
     {
@@ -248,10 +253,11 @@ TISSUE_MNIST_DATASETS = [
 ]
 
 
-DATASETS_TO_COMPARE = PNEUMONIA_MNIST_DATASETS
-DATASETS_TO_COMPARE = BREAST_MNIST_DATASETS
-DATASETS_TO_COMPARE = DERMA_MNIST_DATASETS
 DATASETS_TO_COMPARE = PATH_MNIST_DATASETS
+DATASETS_TO_COMPARE = DERMA_MNIST_DATASETS
+DATASETS_TO_COMPARE = TISSUE_MNIST_DATASETS
+DATASETS_TO_COMPARE = BREAST_MNIST_DATASETS
+DATASETS_TO_COMPARE = PNEUMONIA_MNIST_DATASETS
 
 # Which split to use for comparison (usually "test" for final evaluation)
 SPLIT = "test"

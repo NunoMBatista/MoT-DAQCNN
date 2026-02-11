@@ -28,6 +28,11 @@ KERNEL_SIZE = 2  # 2 for 2x2 or 3 for 3x3
 STRIDE = 2  # Stride for convolution (use kernel_size for no overlap)
 SCALING_FACTOR = 1000.0  # Interaction strength for Rydberg Hamiltonian
 EVOLUTION_TIME = 6.28  # Time interval for quantum evolution
+
+# Paper's parameters (probably too weak?)
+SCALING_FACTOR = 1
+EVOLUTION_TIME = 0.2
+
 COMBINE_RGB = True  # If True, stack R/G/B outputs into one RGB image per cell
 
 

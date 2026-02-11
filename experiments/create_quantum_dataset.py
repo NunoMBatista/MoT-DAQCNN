@@ -35,7 +35,7 @@ from src.utils.color_conversion import rgb_to_grayscale_tensor, rgb_to_hsv_tenso
 # =============================================================================
 
 # Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist", "tissue_mnist"
-DATASET_NAME = "path_mnist"
+DATASET_NAME = "tissue_mnist"
 
 # Color space: "RGB", "HSV", or "GRAYSCALE"
 # HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
@@ -62,7 +62,7 @@ SCALING_FACTOR = 1000
 EVOLUTION_TIME = 6.28
 
 # Batch size for processing (adjust based on your memory)
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 
 # Which splits to process
 SPLITS = ["train", "val", "test"]

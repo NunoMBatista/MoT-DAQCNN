@@ -43,7 +43,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # =============================================================================
 
 # Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist", "tissue_mnist"
-DATASET_NAME = "derma_mnist"
+DATASET_NAME = "pneumonia_mnist"
 
 # Target output shape to match quantum dataset
 # These should match the quantum dataset you want to compare against
