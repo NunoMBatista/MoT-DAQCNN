@@ -40,8 +40,8 @@ from src.utils.color_conversion import rgb_to_grayscale_numpy
 # =============================================================================
 
 # Each entry is a dict with:
-#   - "type": "classical" or "quantum"
-#   - "name": dataset name (for classical) or path to .npz file (for quantum)
+#   - "type": "classical", "classical_augmented", or "quantum"
+#   - "name": dataset name (for classical) or path to .npz file (for augmented/quantum)
 #   - "label": human-readable label for the output table (optional)
 
 
@@ -54,22 +54,22 @@ PNEUMONIA_MNIST_DATASETS = [
         "label": "PneumoniaMNIST (classical)",
     },
     {
-        "type": "quantum",
+        "type": "classical_augmented",
         "name": "pneumonia_mnist__augmented_cnn_k2_s2_c16_seed42.npz",
         "label": "Classical + CNN (16, 14, 14)",
     },
     {
-        "type": "classical",
+        "type": "classical_augmented",
         "name": "pneumonia_mnist__augmented_rff_c16_h14_w14_seed42.npz",
         "label": "Classical + RFF (16, 14, 14)",
     },
     {
-        "type": "classical",
+        "type": "classical_augmented",
         "name": "pneumonia_mnist__augmented_cnn_k3_s3_c36_seed42.npz",
         "label": "Classical + CNN (36, 9, 9)",
     },
     {
-        "type": "classical",
+        "type": "classical_augmented",
         "name": "pneumonia_mnist__augmented_rff_c36_h9_w9_seed42.npz",
         "label": "Classical + RFF (36, 9, 9)",
     },
@@ -116,22 +116,22 @@ BREAST_MNIST_DATASETS = [
         "label": "BreastMNIST (classical)",
     },
     {
-        "type": "classical",
+        "type": "classical_augmented",
         "name": "breast_mnist__augmented_rff_c16_h14_w14_seed42.npz",
         "label": "Classical + RFF (16, 14, 14)",
     },
     {
-        "type": "classical",
+        "type": "classical_augmented",
         "name": "breast_mnist__augmented_cnn_k2_s2_c16_seed42.npz",
         "label": "Classical + CNN (16, 14, 14)",
     },
     {
-        "type": "classical",
+        "type": "classical_augmented",
         "name": "breast_mnist__augmented_rff_c36_h9_w9_seed42.npz",
         "label": "Classical + RFF (36, 9, 9)",
     },
     {
-        "type": "classical",
+        "type": "classical_augmented",
         "name": "breast_mnist__augmented_cnn_k3_s3_c36_seed42.npz",
         "label": "Classical + CNN (36, 9, 9)",
     },
@@ -182,43 +182,13 @@ DERMA_MNIST_DATASETS = [
         "grayscale": True,
         "label": "DermaMNIST (classical grayscale)",
     },
-    {
-        "type": "quantum",
-        "name": "derma_mnist__augmented_cnn_k3_s3_c38_seed42.npz",
-        "label": "Classical + CNN",
-    },
     # INSERT AUGMENTATIONS HERE (38 AND 18 CHANNELS, PASTE DIRECTLY FROM STDOUT OR YOU'LL HAVE PROBLEMS BRAH)
     # 2x2 QUANTUM
-    {
-        "type": "quantum",
-        "name": "derma_mnist__k2_s2_tkin_ev6.28_sc1000_hsv.npz",
-        "label": "QDM-HSV (ksize=2 knumber=1 (king))",
-    },
-    {
-        "type": "quantum",
-        "name": "derma_mnist__k2_s2_thor_ev6.28_sc1000_hsv.npz",
-        "label": "QDM-HSV (ksize=2 knumber=1 (horizontal))",
-    },
-    {
-        "type": "quantum",
-        "name": "derma_mnist__k2_s2_tkin-hor-ver-u_s_ev6.28_sc1000_hsv.npz",
-        "label": "QDM-HSV (ksize=2 knumber=4)",
-    },
     # 3x3 QUANTUM
     {
         "type": "quantum",
         "name": "derma_mnist__k3_s3_tkin-hor-cro-rin_ev6.28_sc1000.npz",
         "label": "QDM-RGB (ksize=3 knumber=4)",
-    },
-    {
-        "type": "quantum",
-        "name": "derma_mnist__k3_s3_tkin_ev6.28_sc1000_hsv.npz",
-        "label": "QDM-HSV (ksize=3 knumber=1 (king))",
-    },
-    {
-        "type": "quantum",
-        "name": "derma_mnist__k3_s3_thor_ev6.28_sc1000_hsv.npz",
-        "label": "QDM-HSV (ksize=3 knumber=1 (horizontal))",
     },
     {
         "type": "quantum",
@@ -256,8 +226,8 @@ TISSUE_MNIST_DATASETS = [
 DATASETS_TO_COMPARE = PATH_MNIST_DATASETS
 DATASETS_TO_COMPARE = DERMA_MNIST_DATASETS
 DATASETS_TO_COMPARE = TISSUE_MNIST_DATASETS
-DATASETS_TO_COMPARE = BREAST_MNIST_DATASETS
 DATASETS_TO_COMPARE = PNEUMONIA_MNIST_DATASETS
+DATASETS_TO_COMPARE = BREAST_MNIST_DATASETS
 
 # Which split to use for comparison (usually "test" for final evaluation)
 SPLIT = "test"
@@ -516,6 +486,29 @@ def load_dataset(config, split, data_root, quantum_datasets_dir):
         metadata = {"type": "classical", "name": name}
         if grayscale:
             metadata["grayscale"] = True
+    elif dtype == "classical_augmented":
+        # Load from classical_datasets directory
+        classical_datasets_dir = data_root / "classical_datasets"
+        if os.path.isabs(name):
+            npz_path = Path(name)
+        else:
+            npz_path = classical_datasets_dir / name
+
+        if not npz_path.exists():
+            raise FileNotFoundError(
+                f"Classical augmented dataset not found: {npz_path}"
+            )
+
+        X, y = load_quantum_dataset(npz_path, split)
+
+        # Try to load metadata
+        json_path = npz_path.with_suffix(".json")
+        if json_path.exists():
+            with open(json_path) as f:
+                metadata = json.load(f)
+            metadata["type"] = "classical_augmented"
+        else:
+            metadata = {"type": "classical_augmented", "name": name}
     elif dtype == "quantum":
         # Check if name is absolute path or relative to quantum_datasets dir
         if os.path.isabs(name):

@@ -53,14 +53,16 @@ DATASET_NAME = "pneumonia_mnist"
 #   TARGET_W = 14
 
 # 2x2 Grayscale 4 quantum kernel kernel dimensions
-# TARGET_CHANNELS = 16 # 18 FOR HSV # num_kernels * kernel_size^2 (e.g., 4 topologies * 4 qubits = 16)
-# TARGET_H = 14  # (28 - kernel_size) // stride + 1
-# TARGET_W = 14
+TARGET_CHANNELS = (
+    16  # 18 FOR HSV # num_kernels * kernel_size^2 (e.g., 4 topologies * 4 qubits = 16)
+)
+TARGET_H = 14  # (28 - kernel_size) // stride + 1
+TARGET_W = 14
 
 # 3x3 Grayscale 4 quantum kernel dimensions
-TARGET_CHANNELS = 36  # 38 FOR HSV
-TARGET_H = 9
-TARGET_W = 9
+# TARGET_CHANNELS = 36  # 38 FOR HSV
+# TARGET_H = 9
+# TARGET_W = 9
 
 # Projection method: "rff", "random", "cnn", or "resnet"
 #   - "rff": Random Fourier Features (approximates RBF kernel)
@@ -75,8 +77,8 @@ RFF_GAMMA = None
 
 # For CNN method: kernel size and stride
 # These determine the output spatial dimensions
-CNN_KERNEL_SIZE = 3
-CNN_STRIDE = 3
+CNN_KERNEL_SIZE = 2
+CNN_STRIDE = 2
 
 # For ResNet method: which layer to extract features from
 # Options: "layer1" or "layer2"
@@ -509,9 +511,7 @@ def main():
 
     # Setup paths
     data_root = PROJECT_ROOT / "data"
-    output_dir = (
-        PROJECT_ROOT / "data" / "quantum_datasets"
-    )  # Same dir for easy comparison
+    output_dir = PROJECT_ROOT / "data" / "classical_datasets"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # First, load training data to determine input dimensions

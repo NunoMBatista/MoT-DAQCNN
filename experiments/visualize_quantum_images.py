@@ -15,7 +15,7 @@ from src.config import DATASET_REGISTRY
 from src.layers.quantum_convolution import QuantumConv2d
 from src.utils.color_conversion import rgb_to_grayscale_tensor, rgb_to_hsv_tensor
 
-DATASET = "path_mnist"  # Any key from DATASET_REGISTRY
+DATASET = "pneumonia_mnist"  # Any key from DATASET_REGISTRY
 IMAGE_INDEX = 0  # Index of image to visualize from the dataset
 COLOR_SPACE = "RGB"  # "RGB", "HSV", or "GRAYSCALE" - color space for quantum processing
 KERNEL_NAMES = [
@@ -30,8 +30,8 @@ SCALING_FACTOR = 1000.0  # Interaction strength for Rydberg Hamiltonian
 EVOLUTION_TIME = 6.28  # Time interval for quantum evolution
 
 # Paper's parameters (probably too weak?)
-SCALING_FACTOR = 1
-EVOLUTION_TIME = 0.2
+# SCALING_FACTOR = 1
+# EVOLUTION_TIME = 0.2
 
 COMBINE_RGB = True  # If True, stack R/G/B outputs into one RGB image per cell
 
