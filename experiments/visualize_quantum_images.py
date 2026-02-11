@@ -35,6 +35,7 @@ EVOLUTION_TIME = 6.28  # Time interval for quantum evolution
 # SCALING_FACTOR = 1
 # EVOLUTION_TIME = 0.2
 
+
 COMBINE_RGB = True  # If True, stack R/G/B outputs into one RGB image per cell
 
 
