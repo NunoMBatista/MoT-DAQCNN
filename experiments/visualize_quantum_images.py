@@ -21,9 +21,11 @@ COLOR_SPACE = "RGB"  # "RGB", "HSV", or "GRAYSCALE" - color space for quantum pr
 KERNEL_NAMES = [
     "kings",
     "horizontal",
-    "ring",
     "cross",
+    "ring",
 ]  # Available: kings, horizontal, vertical, u_shape (2x2) or kings, horizontal, vertical, cross, ring (3x3)
+KERNEL_NAMES = ["kings", "horizontal", "vertical", "u_shape"]  # 2x2 KERNELS
+
 KERNEL_SIZE = 2  # 2 for 2x2 or 3 for 3x3
 STRIDE = 2  # Stride for convolution (use kernel_size for no overlap)
 SCALING_FACTOR = 1000.0  # Interaction strength for Rydberg Hamiltonian

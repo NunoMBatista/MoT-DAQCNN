@@ -97,6 +97,9 @@ def build_kernel_coordinate_sets(grid_size: int, names=None) -> List[np.ndarray]
         if n in kernel_map:
             kernel_set.append(kernel_map[n])
         else:
-            kernel_set.append(kernel_map.get("kings"))
+            raise ValueError(
+                f"Kernel '{n}' not found for grid_size={grid_size}. "
+                f"Available kernels: {list(kernel_map.keys())}"
+            )
 
     return kernel_set
