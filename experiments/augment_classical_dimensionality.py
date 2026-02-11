@@ -60,16 +60,16 @@ TARGET_H = 14  # (28 - kernel_size) // stride + 1
 TARGET_W = 14
 
 # 3x3 Grayscale 4 quantum kernel dimensions
-# TARGET_CHANNELS = 36  # 38 FOR HSV
-# TARGET_H = 9
-# TARGET_W = 9
+TARGET_CHANNELS = 36  # 38 FOR HSV
+TARGET_H = 9
+TARGET_W = 9
 
 # Projection method: "rff", "random", "cnn", or "resnet"
 #   - "rff": Random Fourier Features (approximates RBF kernel)
 #   - "random": Random matrix projection
 #   - "cnn": Random CNN kernels (convolution with random weights)
 #   - "resnet": Frozen early layers of pretrained ResNet-18
-PROJECTION_METHOD = "cnn"
+PROJECTION_METHOD = "rff"
 
 # For RFF: gamma parameter for RBF kernel approximation (smaller = smoother)
 # If None, will use 1/n_features as default
@@ -77,8 +77,8 @@ RFF_GAMMA = None
 
 # For CNN method: kernel size and stride
 # These determine the output spatial dimensions
-CNN_KERNEL_SIZE = 2
-CNN_STRIDE = 2
+CNN_KERNEL_SIZE = 3
+CNN_STRIDE = 3
 
 # For ResNet method: which layer to extract features from
 # Options: "layer1" or "layer2"
