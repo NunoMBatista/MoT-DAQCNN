@@ -28,17 +28,19 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from src.layers.quantum_convolution import QuantumConv2d
+from src.utils.color_conversion import rgb_to_grayscale_tensor, rgb_to_hsv_tensor
 
 # =============================================================================
 # PARAMETERS - Edit these to configure the quantum dataset generation
 # =============================================================================
 
-# Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist"
-DATASET_NAME = "derma_mnist"
+# Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist", "tissue_mnist"
+DATASET_NAME = "path_mnist"
 
-# Color space: "RGB" or "HSV"
+# Color space: "RGB", "HSV", or "GRAYSCALE"
 # HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
-COLOR_SPACE = "HSV"
+# GRAYSCALE: RGB is converted to single grayscale channel
+COLOR_SPACE = "GRAYSCALE"
 
 # Kernel size: 2 for 2x2 or 3 for 3x3
 KERNEL_SIZE = 3
@@ -51,7 +53,7 @@ STRIDE = 3
 # For 3x3: ["kings", "horizontal", "vertical", "cross", "ring"]
 # KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
 KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "cross", "ring"]
-# KERNEL_TOPOLOGY_NAMES = ["kings"]
+KERNEL_TOPOLOGY_NAMES = ["kings"]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
 SCALING_FACTOR = 1000
@@ -80,6 +82,7 @@ def load_medmnist_dataset(dataset_name, split, data_root):
         "breast_mnist": "BreastMNIST",
         "path_mnist": "PathMNIST",
         "derma_mnist": "DermaMNIST",
+        "tissue_mnist": "TissueMNIST",
     }
 
     if dataset_name not in name_to_class:
@@ -122,51 +125,15 @@ def generate_output_filename(params):
         f"sc{params['scaling_factor']:.0f}"
     )
 
-    # Add color space suffix if HSV
-    if params.get("color_space", "RGB") == "HSV":
+    # Add color space suffix
+    color_space = params.get("color_space", "RGB")
+    if color_space == "HSV":
         filename += "_hsv"
+    elif color_space == "GRAYSCALE":
+        filename += "_gray"
 
     filename += ".npz"
     return filename
-
-
-def rgb_to_hsv_tensor(rgb_tensor):
-    """
-    Convert RGB tensor to HSV.
-
-    Args:
-        rgb_tensor: torch.Tensor of shape (B, 3, H, W) with values in [0, 1]
-
-    Returns:
-        hsv_tensor: torch.Tensor of shape (B, 3, H, W)
-                    H in [0, 1], S in [0, 1], V in [0, 1]
-    """
-    from torchvision.transforms import functional as F
-    from PIL import Image
-    
-    batch_size = rgb_tensor.shape[0]
-    hsv_batch = []
-    
-    for i in range(batch_size):
-        # Convert tensor to PIL Image
-        pil_img = F.to_pil_image(rgb_tensor[i])
-        
-        # Convert RGB to HSV using PIL
-        pil_hsv = pil_img.convert('HSV')
-        
-        # Convert back to tensor
-        hsv_tensor_single = F.to_tensor(pil_hsv)
-        
-        # PIL HSV has H in [0, 255], S in [0, 255], V in [0, 255]
-        # Normalize to [0, 1]
-        hsv_tensor_single = hsv_tensor_single / 255.0
-        
-        hsv_batch.append(hsv_tensor_single)
-    
-    # Stack back to (B, 3, H, W)
-    hsv = torch.stack(hsv_batch, dim=0)
-    
-    return hsv
 
 
 def process_dataset_through_quantum(
@@ -179,7 +146,7 @@ def process_dataset_through_quantum(
         dataset: Dataset to process
         q_conv: Quantum convolution layer (or None if using HSV with classical H,S)
         batch_size: Batch size for processing
-        color_space: "RGB" or "HSV"
+        color_space: "RGB", "HSV", or "GRAYSCALE"
         desc: Progress bar description
 
     Returns:
@@ -225,6 +192,11 @@ def process_dataset_through_quantum(
 
                 # Concatenate: [H, S, quantum-V]
                 q_out = torch.cat([h_channel, s_channel, q_out_v], dim=1)
+            elif color_space == "GRAYSCALE" and images.shape[1] == 3:
+                # Convert RGB to grayscale
+                gray_images = rgb_to_grayscale_tensor(images)  # (B, 1, H, W)
+                # Process grayscale through quantum kernels
+                q_out = q_conv(gray_images)  # (B, out_channels, H_out, W_out)
             else:
                 # RGB: process through quantum kernels normally
                 q_out = q_conv(images)  # (B, out_channels, H_out, W_out)
@@ -277,8 +249,12 @@ def main():
         quantum_in_channels = 1
         print(f"Using HSV: processing only V channel with quantum kernels")
         print(f"H and S channels will be passed classically")
+    elif COLOR_SPACE == "GRAYSCALE" and in_channels == 3:
+        # For GRAYSCALE, convert RGB to single channel
+        quantum_in_channels = 1
+        print(f"Using GRAYSCALE: converting RGB to grayscale for quantum processing")
     else:
-        # For RGB or grayscale, process all channels
+        # For RGB or already grayscale, process all channels
         quantum_in_channels = in_channels
 
     # Build the quantum convolution layer

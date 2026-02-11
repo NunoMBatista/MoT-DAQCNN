@@ -24,6 +24,7 @@ DATASET_REGISTRY = {
     "breast_mnist": ("breastmnist", "BreastMNIST"),
     "path_mnist": ("pathmnist", "PathMNIST"),
     "derma_mnist": ("dermamnist", "DermaMNIST"),
+    "tissue_mnist": ("tissuemnist", "TissueMNIST"),
 }
 
 # Dataset channel information (RGB vs Grayscale)
@@ -32,4 +33,5 @@ DATASET_CHANNELS = {
     "breast_mnist": 1,  # Grayscale
     "path_mnist": 3,  # RGB
     "derma_mnist": 3,  # RGB
+    "tissue_mnist": 1,  # Grayscale
 }

@@ -33,6 +33,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
+from src.utils.color_conversion import rgb_to_grayscale_numpy
 
 # =============================================================================
 # CONFIGURATION - Edit this list to specify which datasets to compare
@@ -115,22 +116,22 @@ BREAST_MNIST_DATASETS = [
         "label": "BreastMNIST (classical)",
     },
     {
-        "type": "quantum",
+        "type": "classical",
         "name": "breast_mnist__augmented_rff_c16_h14_w14_seed42.npz",
         "label": "Classical + RFF (16, 14, 14)",
     },
     {
-        "type": "quantum",
+        "type": "classical",
         "name": "breast_mnist__augmented_cnn_k2_s2_c16_seed42.npz",
         "label": "Classical + CNN (16, 14, 14)",
     },
     {
-        "type": "quantum",
+        "type": "classical",
         "name": "breast_mnist__augmented_rff_c36_h9_w9_seed42.npz",
         "label": "Classical + RFF (36, 9, 9)",
     },
     {
-        "type": "quantum",
+        "type": "classical",
         "name": "breast_mnist__augmented_cnn_k3_s3_c36_seed42.npz",
         "label": "Classical + CNN (36, 9, 9)",
     },
@@ -177,24 +178,11 @@ DERMA_MNIST_DATASETS = [
     },
     {
         "type": "classical",
-        "name": "derma_mnist__augmented_rff_c18_h14_w14_seed42.npz",
-        "label": "Classical + RFF (18, 14, 14)",
+        "name": "derma_mnist",
+        "grayscale": True,
+        "label": "DermaMNIST (classical grayscale)",
     },
-    {
-        "type": "classical",
-        "name": "derma_mnist__augmented_cnn_k2_s2_c18_seed42.npz",
-        "label": "Classical + CNN (18, 14, 14)",
-    },
-    {
-        "type": "classical",
-        "name": "derma_mnist__augmented_rff_c38_h9_w9_seed42.npz",
-        "label": "Classical + RFF (38, 9, 9)",
-    },
-    {
-        "type": "classical",
-        "name": "derma_mnist__augmented_cnn_k3_s3_c38_seed42.npz",
-        "label": "Classical + CNN (38, 9, 9)",
-    },
+    # INSERT AUGMENTATIONS HERE (38 AND 18 CHANNELS, PASTE DIRECTLY FROM STDOUT OR YOU'LL HAVE PROBLEMS BRAH)
     # 2x2 QUANTUM
     {
         "type": "quantum",
@@ -234,9 +222,36 @@ DERMA_MNIST_DATASETS = [
     },
 ]
 
+PATH_MNIST_DATASETS = [
+    # Classical baseline
+    {
+        "type": "classical",
+        "name": "path_mnist",
+        "label": "PathMNIST (classical)",
+    },
+    {
+        "type": "classical",
+        "name": "path_mnist",
+        "grayscale": True,
+        "label": "PathMNIST (classical grayscale)",
+    },
+    # 2x2 QUANTUM
+]
+
+TISSUE_MNIST_DATASETS = [
+    # Classical baseline
+    {
+        "type": "classical",
+        "name": "tissue_mnist",
+        "label": "TissueMNIST (classical)",
+    },
+]
+
+
 DATASETS_TO_COMPARE = PNEUMONIA_MNIST_DATASETS
 DATASETS_TO_COMPARE = BREAST_MNIST_DATASETS
 DATASETS_TO_COMPARE = DERMA_MNIST_DATASETS
+DATASETS_TO_COMPARE = PATH_MNIST_DATASETS
 
 # Which split to use for comparison (usually "test" for final evaluation)
 SPLIT = "test"
@@ -415,7 +430,7 @@ def compute_kta(X, y, max_samples=10000):
 # =============================================================================
 
 
-def load_classical_dataset(dataset_name, split, data_root):
+def load_classical_dataset(dataset_name, split, data_root, grayscale=False):
     """Load a classical MedMNIST dataset and return (features, labels)."""
 
     name_to_class = {
@@ -423,6 +438,7 @@ def load_classical_dataset(dataset_name, split, data_root):
         "breast_mnist": "BreastMNIST",
         "path_mnist": "PathMNIST",
         "derma_mnist": "DermaMNIST",
+        "tissue_mnist": "TissueMNIST",
     }
 
     if dataset_name not in name_to_class:
@@ -449,7 +465,13 @@ def load_classical_dataset(dataset_name, split, data_root):
     images = []
     labels = []
     for img, lbl in ds:
-        images.append(img.numpy())
+        img_np = img.numpy()
+
+        # Convert to grayscale if requested
+        if grayscale and img_np.shape[0] == 3:
+            img_np = rgb_to_grayscale_numpy(img_np)
+
+        images.append(img_np)
         lbl_val = lbl.item() if hasattr(lbl, "item") else lbl[0]
         labels.append(lbl_val)
 
@@ -481,10 +503,13 @@ def load_dataset(config, split, data_root, quantum_datasets_dir):
 
     dtype = config["type"]
     name = config["name"]
+    grayscale = config.get("grayscale", False)
 
     if dtype == "classical":
-        X, y = load_classical_dataset(name, split, data_root)
+        X, y = load_classical_dataset(name, split, data_root, grayscale=grayscale)
         metadata = {"type": "classical", "name": name}
+        if grayscale:
+            metadata["grayscale"] = True
     elif dtype == "quantum":
         # Check if name is absolute path or relative to quantum_datasets dir
         if os.path.isabs(name):

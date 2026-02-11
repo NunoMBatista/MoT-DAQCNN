@@ -1,0 +1,36 @@
+dataset:
+  name: derma_mnist
+  data_root: ./data
+  batch_size: 16
+  num_workers: 0
+  download: true
+  color_space: GRAYSCALE  # RGB, HSV, or GRAYSCALE - when GRAYSCALE, RGB is converted to single channel
+
+model:
+  num_classes: 7
+  in_channels: 3
+  kernel_size: 2
+  stride: 1
+  kernel_topology_names: ["square"]
+  scaling_factor: 1.0
+  evolution_time: 0.2
+  mode: trotter
+  dropout: 0.1
+  activation: relu
+  quantum_device: default.qubit
+  quantum_device_kwargs: {}
+  classical_device: cpu
+
+optim:
+  lr: 1e-3
+  weight_decay: 0.0
+  epochs: 5
+  grad_clip: 1.0
+  patience: 10
+  use_scheduler: true
+  scheduler_T_max: 5
+  scheduler_eta_min: 1e-5
+
+misc:
+  seed: 42
+  log_every: 50

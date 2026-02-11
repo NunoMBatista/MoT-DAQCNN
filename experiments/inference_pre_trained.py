@@ -71,7 +71,13 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        choices=["pneumonia_mnist", "breast_mnist"],
+        choices=[
+            "pneumonia_mnist",
+            "breast_mnist",
+            "path_mnist",
+            "derma_mnist",
+            "tissue_mnist",
+        ],
         required=True,
         help="Dataset to evaluate on",
     )

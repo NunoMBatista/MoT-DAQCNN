@@ -42,7 +42,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # PARAMETERS - Edit these to configure the augmented dataset generation
 # =============================================================================
 
-# Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist"
+# Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist", "tissue_mnist"
 DATASET_NAME = "derma_mnist"
 
 # Target output shape to match quantum dataset
@@ -53,12 +53,12 @@ DATASET_NAME = "derma_mnist"
 #   TARGET_W = 14
 
 # 2x2 Grayscale 4 quantum kernel kernel dimensions
-#TARGET_CHANNELS = 16 # 18 FOR HSV # num_kernels * kernel_size^2 (e.g., 4 topologies * 4 qubits = 16)
-#TARGET_H = 14  # (28 - kernel_size) // stride + 1
-#TARGET_W = 14
+# TARGET_CHANNELS = 16 # 18 FOR HSV # num_kernels * kernel_size^2 (e.g., 4 topologies * 4 qubits = 16)
+# TARGET_H = 14  # (28 - kernel_size) // stride + 1
+# TARGET_W = 14
 
 # 3x3 Grayscale 4 quantum kernel dimensions
-TARGET_CHANNELS = 36 # 38 FOR HSV
+TARGET_CHANNELS = 36  # 38 FOR HSV
 TARGET_H = 9
 TARGET_W = 9
 
@@ -109,6 +109,7 @@ def load_medmnist_dataset(dataset_name, split, data_root):
         "breast_mnist": "BreastMNIST",
         "path_mnist": "PathMNIST",
         "derma_mnist": "DermaMNIST",
+        "tissue_mnist": "TissueMNIST",
     }
 
     if dataset_name not in name_to_class:

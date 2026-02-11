@@ -1,6 +1,7 @@
 import os
 
-from torch.utils.data import DataLoader
+import torch
+from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
 
 from src.config import DATA_DIR, DATASET_CHANNELS, DATASET_REGISTRY
@@ -51,8 +52,11 @@ def get_medmnist_loaders(cfg, dataset_name):
     """Generic loader for any MedMNIST dataset.
 
     Args:
-        cfg: Configuration dict with dataset.data_root, batch_size, num_workers, download
+        cfg: Configuration dict with dataset.data_root, batch_size, num_workers, download, subset_percent
         dataset_name: Name of dataset from DATASET_REGISTRY keys
+
+    Config options:
+        subset_percent: Optional percentage (0-100) to use only a subset of train/val data
 
     Returns:
         (train_loader, val_loader, test_loader, n_classes)
@@ -93,6 +97,23 @@ def get_medmnist_loaders(cfg, dataset_name):
     train_ds = build_split("train")
     val_ds = build_split("val")
     test_ds = build_split("test")
+
+    subset_percent = cfg["dataset"].get("subset_percent", None)
+    if subset_percent is not None:
+        if not (0 < subset_percent <= 100):
+            raise ValueError(
+                f"subset_percent must be between 0 and 100, got {subset_percent}"
+            )
+
+        train_size = int(len(train_ds) * subset_percent / 100.0)
+        val_size = int(len(val_ds) * subset_percent / 100.0)
+
+        torch.manual_seed(cfg.get("misc", {}).get("seed", 42))
+        train_indices = torch.randperm(len(train_ds))[:train_size].tolist()
+        val_indices = torch.randperm(len(val_ds))[:val_size].tolist()
+
+        train_ds = Subset(train_ds, train_indices)
+        val_ds = Subset(val_ds, val_indices)
 
     batch_size = cfg["dataset"].get("batch_size", 32)
     num_workers = cfg["dataset"].get("num_workers", 2)

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from torchvision import transforms
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -12,9 +13,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.config import DATASET_REGISTRY
 from src.layers.quantum_convolution import QuantumConv2d
+from src.utils.color_conversion import rgb_to_grayscale_tensor, rgb_to_hsv_tensor
 
 DATASET = "path_mnist"  # Any key from DATASET_REGISTRY
 IMAGE_INDEX = 0  # Index of image to visualize from the dataset
+COLOR_SPACE = "RGB"  # "RGB", "HSV", or "GRAYSCALE" - color space for quantum processing
 KERNEL_NAMES = [
     "kings",
     "horizontal",
@@ -87,12 +90,34 @@ def main():
     in_channels = image.shape[0]  # 1 for grayscale, 3 for RGB
     print(
         f"Selected image {IMAGE_INDEX} with label {label.item()}, "
-        f"channels={in_channels}"
+        f"channels={in_channels}, color_space={COLOR_SPACE}"
     )
+
+    # Convert color space if needed
+    original_image = image.clone()
+    image_batch = image.unsqueeze(0)
+
+    # Determine quantum input channels based on color space
+    if COLOR_SPACE == "HSV" and in_channels == 3:
+        print(f"Converting to HSV color space...")
+        hsv_image = rgb_to_hsv_tensor(image_batch)
+        v_channel = hsv_image[:, 2:3, :, :]
+        quantum_input = v_channel
+        quantum_in_channels = 1
+        print(f"Processing V channel only (quantum input: 1 channel)")
+    elif COLOR_SPACE == "GRAYSCALE" and in_channels == 3:
+        print(f"Converting to grayscale...")
+        gray_image = rgb_to_grayscale_tensor(image_batch)
+        quantum_input = gray_image
+        quantum_in_channels = 1
+        print(f"Processing grayscale (quantum input: 1 channel)")
+    else:
+        quantum_input = image_batch
+        quantum_in_channels = in_channels
 
     print(f"Initializing quantum convolution with kernels: {KERNEL_NAMES}")
     q_conv = QuantumConv2d(
-        in_channels=in_channels,
+        in_channels=quantum_in_channels,
         kernel_size=KERNEL_SIZE,
         kernel_topology_names=KERNEL_NAMES,
         stride=STRIDE,
@@ -103,14 +128,29 @@ def main():
     )
 
     print("Processing image through quantum kernels...")
-    image_batch = image.unsqueeze(0)
-    quantum_output = q_conv(image_batch)
+    quantum_output = q_conv(quantum_input)
     print(f"Quantum processing complete! Output shape: {quantum_output.shape}")
 
     num_kernels = len(KERNEL_NAMES)
     n_qubits = KERNEL_SIZE * KERNEL_SIZE
     out_channels = num_kernels * n_qubits  # channels produced per color channel
     quantum_channels = quantum_output.squeeze(0).detach()
+
+    # For HSV mode, reconstruct full output with H, S channels
+    if COLOR_SPACE == "HSV" and in_channels == 3:
+        from torch.nn.functional import adaptive_avg_pool2d
+
+        hsv_image = rgb_to_hsv_tensor(image_batch)
+        h_out = quantum_channels.shape[1]
+        w_out = quantum_channels.shape[2]
+        h_channel = adaptive_avg_pool2d(hsv_image[:, 0:1, :, :], (h_out, w_out))
+        s_channel = adaptive_avg_pool2d(hsv_image[:, 1:2, :, :], (h_out, w_out))
+        # Quantum channels are V-processed, prepend H and S
+        quantum_channels = torch.cat(
+            [h_channel.squeeze(0), s_channel.squeeze(0), quantum_channels], dim=0
+        )
+        in_channels = 3  # Treat as 3-channel output for visualization
+        out_channels = quantum_channels.shape[0] - 2  # Subtract H and S
 
     # ------------------------------------------------------------------ #
     # For RGB the output layout after torch.cat in QuantumConv2d is:
@@ -128,7 +168,11 @@ def main():
     if combine:
         total_kernel_rows = num_kernels
     else:
-        total_kernel_rows = in_channels * num_kernels
+        # For HSV with H,S prepended, handle specially
+        if COLOR_SPACE == "HSV" and in_channels == 3:
+            total_kernel_rows = num_kernels  # Only V channel kernels
+        else:
+            total_kernel_rows = in_channels * num_kernels
     total_rows = 1 + total_kernel_rows  # 1 for the original image row
 
     fig, axes = plt.subplots(
@@ -143,19 +187,20 @@ def main():
     for i in range(n_qubits):
         ax = axes[0, i]
         if i == 0:
-            if in_channels == 1:
-                ax.imshow(image.squeeze().numpy(), cmap="gray")
+            if original_image.shape[0] == 1:
+                ax.imshow(original_image.squeeze().numpy(), cmap="gray")
             else:
                 # (C, H, W) -> (H, W, C)
-                ax.imshow(image.permute(1, 2, 0).numpy())
-            ax.set_title(f"Original\n(Label: {label.item()})")
+                ax.imshow(original_image.permute(1, 2, 0).numpy())
+            title = f"Original ({COLOR_SPACE})\n(Label: {label.item()})"
+            ax.set_title(title)
         else:
             ax.axis("off")
         ax.set_xticks([])
         ax.set_yticks([])
 
     # --- Quantum output rows ---
-    if combine:
+    if combine and COLOR_SPACE != "GRAYSCALE":
         # One row per kernel; each cell is an RGB image built from the 3
         # color-channel outputs for that (kernel, qubit).
         for k_idx in range(num_kernels):
@@ -181,41 +226,71 @@ def main():
                 ax.set_xticks([])
                 ax.set_yticks([])
     else:
-        # Separate rows per (color_channel, kernel)
+        # Grayscale or separate color channels mode
         row = 1
-        for c_idx in range(in_channels):
-            color_offset = c_idx * out_channels
+
+        if COLOR_SPACE == "GRAYSCALE" or quantum_in_channels == 1:
+            # Single-channel processing (grayscale or already grayscale dataset)
             for k_idx in range(num_kernels):
                 for q_idx in range(n_qubits):
-                    channel_idx = color_offset + k_idx * n_qubits + q_idx
+                    channel_idx = k_idx * n_qubits + q_idx
                     ax = axes[row, q_idx]
-                    ax.imshow(
-                        quantum_channels[channel_idx].cpu().numpy(), cmap="viridis"
-                    )
+                    ax.imshow(quantum_channels[channel_idx].cpu().numpy(), cmap="gray")
 
-                    # Row label: "kings" or "R · kings"
                     if q_idx == 0:
-                        prefix = f"{color_names[c_idx]} · " if in_channels > 1 else ""
                         ax.set_ylabel(
-                            f"{prefix}{KERNEL_NAMES[k_idx]}",
+                            KERNEL_NAMES[k_idx],
                             rotation=0,
                             ha="right",
                             va="center",
                         )
 
-                    # Column header on the very first kernel row only
                     if row == 1:
                         ax.set_title(f"Qubit {q_idx}")
 
                     ax.set_xticks([])
                     ax.set_yticks([])
                 row += 1
+        else:
+            # Separate rows per (color_channel, kernel)
+            for c_idx in range(in_channels):
+                color_offset = c_idx * out_channels
+                for k_idx in range(num_kernels):
+                    for q_idx in range(n_qubits):
+                        channel_idx = color_offset + k_idx * n_qubits + q_idx
+                        ax = axes[row, q_idx]
+                        ax.imshow(
+                            quantum_channels[channel_idx].cpu().numpy(), cmap="viridis"
+                        )
+
+                        # Row label: "kings" or "R · kings"
+                        if q_idx == 0:
+                            prefix = (
+                                f"{color_names[c_idx]} · " if in_channels > 1 else ""
+                            )
+                            ax.set_ylabel(
+                                f"{prefix}{KERNEL_NAMES[k_idx]}",
+                                rotation=0,
+                                ha="right",
+                                va="center",
+                            )
+
+                        # Column header on the very first kernel row only
+                        if row == 1:
+                            ax.set_title(f"Qubit {q_idx}")
+
+                        ax.set_xticks([])
+                        ax.set_yticks([])
+                    row += 1
 
     print("Creating visualization...")
     plt.tight_layout()
 
+    color_suffix = "" if COLOR_SPACE == "RGB" else f"_{COLOR_SPACE.lower()}"
     output_path = (
-        PROJECT_ROOT / "outputs" / f"quantum_viz_{DATASET}_img{IMAGE_INDEX}.png"
+        PROJECT_ROOT
+        / "outputs"
+        / f"quantum_viz_{DATASET}_img{IMAGE_INDEX}{color_suffix}.png"
     )
     os.makedirs(output_path.parent, exist_ok=True)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
@@ -224,8 +299,16 @@ def main():
     # --- Kernel similarity heatmap ---
     if num_kernels > 1:
         print("Computing kernel similarity...")
+        # For HSV, use only quantum-processed channels (skip H, S)
+        if COLOR_SPACE == "HSV" and original_image.shape[0] == 3:
+            similarity_channels = quantum_channels[2:]  # Skip H, S channels
+            similarity_in_channels = 1  # Only V channel was quantum-processed
+        else:
+            similarity_channels = quantum_channels
+            similarity_in_channels = quantum_in_channels
+
         similarities = compute_kernel_similarity(
-            quantum_channels, num_kernels, n_qubits, in_channels
+            similarity_channels, num_kernels, n_qubits, similarity_in_channels
         )
         all_identical = similarities.max() == 0.0
 
@@ -266,7 +349,7 @@ def main():
         similarity_path = (
             PROJECT_ROOT
             / "outputs"
-            / f"kernel_similarity_{DATASET}_img{IMAGE_INDEX}.png"
+            / f"kernel_similarity_{DATASET}_img{IMAGE_INDEX}{color_suffix}.png"
         )
         plt.savefig(similarity_path, dpi=150, bbox_inches="tight")
         print(f"Saved: {similarity_path}")
