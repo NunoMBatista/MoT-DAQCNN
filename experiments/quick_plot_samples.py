@@ -124,7 +124,7 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="breast_mnist",
+        default="tissue_mnist",
         choices=list(DATASET_REGISTRY.keys()),
         help="Dataset to load",
     )
