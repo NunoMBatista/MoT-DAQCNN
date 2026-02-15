@@ -1,5 +1,3 @@
-# Implementation Specification: Approach 1 (Gumbel-Softmax Dynamic Router)
-
 ## 1. System Overview
 **Goal:** Implement a single-stage Quantum Analog CNN where a lightweight "Router" network dynamically selects which quantum kernel to execute for a given input patch.
 **Mechanism:** Use the Gumbel-Softmax reparameterization trick to allow backpropagation through the discrete "Kernel Selection" decision.

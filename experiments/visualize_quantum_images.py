@@ -17,7 +17,9 @@ from src.utils.color_conversion import rgb_to_grayscale_tensor, rgb_to_hsv_tenso
 
 DATASET = "pneumonia_mnist"  # Any key from DATASET_REGISTRY
 IMAGE_INDEX = 0  # Index of image to visualize from the dataset
-COLOR_SPACE = "RGB"  # "RGB", "HSV", or "GRAYSCALE" - color space for quantum processing
+COLOR_SPACE = (
+    "GRAYSCALE"  # "RGB", "HSV", or "GRAYSCALE" - color space for quantum processing
+)
 KERNEL_NAMES = [
     "kings",
     "horizontal",
@@ -28,8 +30,8 @@ KERNEL_NAMES = ["kings", "horizontal", "vertical", "u_shape"]  # 2x2 KERNELS
 
 KERNEL_SIZE = 2  # 2 for 2x2 or 3 for 3x3
 STRIDE = 2  # Stride for convolution (use kernel_size for no overlap)
-SCALING_FACTOR = 1000.0  # Interaction strength for Rydberg Hamiltonian
-EVOLUTION_TIME = 6.28  # Time interval for quantum evolution
+SCALING_FACTOR = 1  # Interaction strength for Rydberg Hamiltonian
+EVOLUTION_TIME = 3.14  # Time interval for quantum evolution
 
 # Paper's parameters (probably too weak?)
 # SCALING_FACTOR = 1

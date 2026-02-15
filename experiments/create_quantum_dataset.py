@@ -56,7 +56,7 @@ KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "cross", "ring"]
 KERNEL_TOPOLOGY_NAMES = ["kings"]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
-SCALING_FACTOR = 1000
+SCALING_FACTOR = 1
 
 # Evolution time for quantum dynamics
 EVOLUTION_TIME = 6.28

@@ -23,9 +23,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from sklearn.metrics import silhouette_score
-from sklearn.model_selection import cross_val_score
-from sklearn.neighbors import KNeighborsClassifier
 from torchvision import transforms
 
 # Make sure we can import from src/
@@ -34,6 +31,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from src.utils.color_conversion import rgb_to_grayscale_numpy
+from src.utils.evaluate import (
+    compute_1nn_accuracy,
+    compute_fishers_ratio,
+    compute_kta,
+    compute_silhouette,
+)
 
 # =============================================================================
 # CONFIGURATION - Edit this list to specify which datasets to compare
@@ -220,21 +223,27 @@ TISSUE_MNIST_DATASETS = [
         "name": "tissue_mnist",
         "label": "TissueMNIST (classical)",
     },
+    # 3x3 QUANTUM
+    {
+        "type": "quantum",
+        "name": "tissue_mnist__k3_s3_tkin_ev6.28_sc1000_gray.npz",
+        "label": "QTM (ksize=3 knumber=1 (king))",
+    },
 ]
 
 
 DATASETS_TO_COMPARE = PATH_MNIST_DATASETS
 DATASETS_TO_COMPARE = DERMA_MNIST_DATASETS
-DATASETS_TO_COMPARE = TISSUE_MNIST_DATASETS
 DATASETS_TO_COMPARE = BREAST_MNIST_DATASETS
 DATASETS_TO_COMPARE = PNEUMONIA_MNIST_DATASETS
+DATASETS_TO_COMPARE = TISSUE_MNIST_DATASETS
 
 # Which split to use for comparison (usually "test" for final evaluation)
 SPLIT = "test"
 
 # Max samples to use (set to None to use all samples)
 # Using a subset can speed up computation significantly
-MAX_SAMPLES = 5000
+MAX_SAMPLES = 10000
 
 
 # =============================================================================
@@ -242,163 +251,7 @@ MAX_SAMPLES = 5000
 # =============================================================================
 
 
-def compute_fishers_ratio(X, y):
-    """
-    Compute Fisher's Discriminant Ratio for multi-class data.
-
-    Fisher's ratio measures how well-separated the classes are:
-        FR = (between-class variance) / (within-class variance)
-
-    Higher values indicate better class separability.
-
-    For multi-class, we compute the average pairwise Fisher's ratio.
-    """
-    classes = np.unique(y)
-    n_classes = len(classes)
-
-    if n_classes < 2:
-        return 0.0
-
-    # Flatten features if needed (e.g., images to vectors)
-    X_flat = X.reshape(X.shape[0], -1)
-
-    # Compute class means and overall mean
-    class_means = {}
-    class_vars = {}
-
-    for c in classes:
-        mask = y == c
-        X_c = X_flat[mask]
-        class_means[c] = np.mean(X_c, axis=0)
-        # Within-class variance (average variance across features)
-        class_vars[c] = np.var(X_c, axis=0) + 1e-10  # Small epsilon for stability
-
-    # Compute pairwise Fisher's ratio and average
-    ratios = []
-    for i, c1 in enumerate(classes):
-        for c2 in classes[i + 1 :]:
-            # Between-class: squared difference of means
-            between = (class_means[c1] - class_means[c2]) ** 2
-            # Within-class: sum of variances
-            within = class_vars[c1] + class_vars[c2]
-            # Fisher's ratio per feature, then average across features
-            fr = np.mean(between / within)
-            ratios.append(fr)
-
-    return np.mean(ratios)
-
-
-def compute_silhouette(X, y, max_samples=5000):
-    """
-    Compute silhouette score.
-
-    Silhouette score measures how similar samples are to their own cluster
-    vs other clusters. Range: [-1, 1], higher is better.
-
-    We subsample if dataset is large (silhouette is O(n^2)).
-    """
-    X_flat = X.reshape(X.shape[0], -1)
-
-    # Subsample if too large
-    if len(X_flat) > max_samples:
-        idx = np.random.choice(len(X_flat), max_samples, replace=False)
-        X_flat = X_flat[idx]
-        y = y[idx]
-
-    # Need at least 2 classes and 2 samples per class
-    classes, counts = np.unique(y, return_counts=True)
-    if len(classes) < 2 or np.min(counts) < 2:
-        return np.nan
-
-    try:
-        score = silhouette_score(X_flat, y)
-    except ValueError:
-        score = np.nan
-
-    return score
-
-
-def compute_1nn_accuracy(X, y, cv_folds=5, max_samples=5000):
-    """
-    Compute 1-Nearest Neighbor accuracy using cross-validation.
-
-    1-NN accuracy gives a non-parametric estimate of how easily
-    a simple classifier can separate the classes.
-    """
-    X_flat = X.reshape(X.shape[0], -1)
-
-    # Subsample if too large
-    if len(X_flat) > max_samples:
-        idx = np.random.choice(len(X_flat), max_samples, replace=False)
-        X_flat = X_flat[idx]
-        y = y[idx]
-
-    # Use 1-NN classifier
-    knn = KNeighborsClassifier(n_neighbors=1)
-
-    # Cross-validation
-    try:
-        scores = cross_val_score(knn, X_flat, y, cv=cv_folds, scoring="accuracy")
-        return np.mean(scores)
-    except ValueError:
-        return np.nan
-
-
-def compute_kta(X, y, max_samples=10000):
-    """
-    Compute Kernel-Target Alignment (KTA).
-
-    KTA measures how well the kernel (similarity matrix) computed from features
-    aligns with the ideal kernel based on class labels. Higher values indicate
-    that the feature representation aligns well with the classification task.
-
-    KTA = <K, Y> / (||K|| * ||Y||)
-
-    where:
-        K is the kernel matrix (here, linear kernel: K = X @ X.T)
-        Y is the target kernel matrix (Y_ij = 1 if labels match, -1 otherwise)
-        <K, Y> is the Frobenius inner product
-        ||K|| is the Frobenius norm
-
-    Range: [-1, 1], higher is better.
-
-    Due to O(n^2) memory and computation, we subsample for large datasets.
-    """
-    X_flat = X.reshape(X.shape[0], -1)
-
-    # Subsample if too large (KTA is O(n^2) in memory)
-    if len(X_flat) > max_samples:
-        idx = np.random.choice(len(X_flat), max_samples, replace=False)
-        X_flat = X_flat[idx]
-        y = y[idx]
-
-    # Normalize features for numerical stability
-    X_normalized = X_flat / (np.linalg.norm(X_flat, axis=1, keepdims=True) + 1e-10)
-
-    # Compute kernel matrix K (linear kernel)
-    K = X_normalized @ X_normalized.T
-
-    # Compute target kernel Y (Y_ij = 1 if y_i == y_j, else -1)
-    n = len(y)
-    Y = np.zeros((n, n))
-    for i in range(n):
-        for j in range(n):
-            Y[i, j] = 1.0 if y[i] == y[j] else -1.0
-
-    # Compute KTA = <K, Y> / (||K|| * ||Y||)
-    # Frobenius inner product: <K, Y> = trace(K.T @ Y) = sum(K * Y)
-    numerator = np.sum(K * Y)
-
-    # Frobenius norms
-    norm_K = np.linalg.norm(K, "fro")
-    norm_Y = np.linalg.norm(Y, "fro")
-
-    if norm_K == 0 or norm_Y == 0:
-        return np.nan
-
-    kta = numerator / (norm_K * norm_Y)
-
-    return kta
+# Metric functions are now imported from src.utils.evaluate
 
 
 # =============================================================================
