@@ -42,7 +42,7 @@ from src.utils.evaluate import (
 # =============================================================================
 
 # Dataset selection
-DATASET_NAME = "tissue_mnist"  # Options: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist", "tissue_mnist"
+DATASET_NAME = "pneumonia_mnist"  # Options: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist", "tissue_mnist"
 
 # Metric to optimize: "1-nn", "kta", "silhouette", "fdr"
 OPTIMIZATION_METRIC = "kta"
@@ -50,14 +50,23 @@ OPTIMIZATION_METRIC = "kta"
 # Grid search ranges
 # [0.01, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0]
 EVOLUTION_TIME_RANGE = [
+    0.001,
     0.01,
+    0.1,
     0.2,
     0.5,
     1.0,
+    1.2,
+    1.5,
+    1.7,
     2.0,
+    2.2,
     2.5,
     3.14,
     6.28,
+    7,
+    8,
+    10,
 ]  # Time parameter for quantum evolution
 SCALING_FACTOR_RANGE = [
     1,
@@ -75,14 +84,17 @@ SCALING_FACTOR_RANGE = [1]
 KERNEL_SIZE = 3  # 2 or 3
 STRIDE = 3  # Convolution stride
 KERNEL_TOPOLOGY_NAMES = [
-    "kings"
+    "kings",
+    "horizontal",
+    "cross",
+    "ring",
 ]  # Options for 2x2: ["kings", "horizontal", "vertical", "u_shape"]
 # Options for 3x3: ["kings", "horizontal", "vertical", "cross", "ring"]
 
 # Sampling configuration
-NUM_SAMPLES = 160  # Total number of samples to use for evaluation
+NUM_SAMPLES = 200  # Total number of samples to use for evaluation
 BALANCED_SAMPLING = True  # If True, sample equally from each class
-SAMPLES_PER_CLASS = 20  # Only used if BALANCED_SAMPLING is True
+SAMPLES_PER_CLASS = 100  # Only used if BALANCED_SAMPLING is True
 
 # Other settings
 BATCH_SIZE = 32  # Batch size for processing through quantum kernels

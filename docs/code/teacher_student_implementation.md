@@ -22,16 +22,17 @@ To avoid ambiguity regarding feature map dimensions and hardware constraints:
 **Goal:** Train a heavy model to discover which kernel topology ($K_A$ or $K_B$) minimizes classification error for each specific image patch.
 
 ### 1.0 Using Cached Quantum Datasets (IMPORTANT)
-**Before running the quantum layer, check if a cached dataset exists:**
+**The project already has quantum dataset caching utilities in `src/utils/quantum_dataset_cache.py`:**
 - **Cache Location:** `data/quantum_datasets/`
 - **Metadata Files:** Each `.npz` file has an accompanying `.json` metadata file
-- **Match Criteria:** A cached dataset can be used if ALL of the following match the config:
-  - `kernel_size` (e.g., 2 or 3)
-  - `stride` (e.g., 1, 2, or 3)
-  - `kernel_topology_names` (e.g., ["kings", "horizontal"])
-  - `scaling_factor` (e.g., 1000)
-  - `evolution_time` (e.g., 6.28)
-  - `dataset_name` (e.g., "pneumonia_mnist")
+
+**Existing Functions to Use:**
+- `find_cached_quantum_dataset(cfg)` - Searches for matching cached dataset
+  - Matches: `dataset_name`, `kernel_size`, `stride`, `kernel_topology_names`, `scaling_factor`, `evolution_time`, `color_space`
+  - Returns path to `.npz` file or `None` if not found
+- `load_cached_quantum_dataset(npz_path, batch_size, num_workers)` - Loads cached dataset
+  - Returns: `(train_loader, val_loader, test_loader, n_classes, metadata)`
+  - The `metadata` dict is already parsed from the JSON string in the `.npz` file
 
 **Channel-to-Kernel Mapping in Cached Datasets:**
 - Each cached `.npz` file contains a `metadata` field (JSON string)
@@ -43,11 +44,10 @@ To avoid ambiguity regarding feature map dimensions and hardware constraints:
   - Group B (Kernel "horizontal") = channels 9-17
 
 **Implementation Strategy:**
-1. Parse config file to extract kernel parameters
-2. Search `data/quantum_datasets/` for matching `.json` metadata files
-3. If match found: Load `.npz` file and extract `channel_kernel_map` from metadata
-4. Use `channel_kernel_map` to identify which channels belong to which kernel group
-5. If no match: Run `create_quantum_dataset.py` to generate and cache the dataset first
+1. Use `find_cached_quantum_dataset(cfg)` to search for matching dataset
+2. If found: Use `load_cached_quantum_dataset(npz_path)` to get loaders and metadata
+3. Extract `channel_kernel_map` from metadata to build kernel-to-channels mapping
+4. If not found: Error and instruct user to run `experiments/create_quantum_dataset.py` first
 
 ### 1.1 Architecture
 - **Input:** Single Image sliced into $N_{patches}$. Tensor: `(N_patches, 1, 3, 3)`.
@@ -167,6 +167,14 @@ We must assemble the disparate hardware outputs into a single tensor for the fin
 - **Look at existing files** (`src/models/daqcnn.py`, `src/models/daqcnn_training.py`) to match the code style
 - Use PyTorch conventions (nn.Module, forward(), etc.)
 
+### IMPORTANT: Use Existing Utilities
+- **DO NOT create a new quantum dataset loader!** 
+- The project already has `src/utils/quantum_dataset_cache.py` with:
+  - `find_cached_quantum_dataset(cfg)` - finds matching cached datasets
+  - `load_cached_quantum_dataset(npz_path)` - loads features, labels, and metadata
+- **You only need to create** a small helper function to parse `channel_kernel_map` from the metadata
+- See the "Using Cached Quantum Datasets" section above for details
+
 ### Configuration & Integration
 - **Config File Integration:**
   - Add a new field to YAML configs: `model.architecture: "original"` or `"TS-MoE"`
@@ -196,20 +204,30 @@ We must assemble the disparate hardware outputs into a single tensor for the fin
   5. If not found: Either raise error asking user to run `create_quantum_dataset.py` OR auto-generate and cache
 
 - **Channel Mapping Usage:**
-  ```python
-  # Example: Extract channel groups from metadata
-  metadata = json.loads(npz_data['metadata'])
-  channel_kernel_map = metadata['channel_kernel_map']
+  - **Using Existing Cached Dataset Utilities:**
+    ```python
+    from src.utils.quantum_dataset_cache import find_cached_quantum_dataset, load_cached_quantum_dataset
   
-  # Build reverse mapping: kernel_name -> list of channel indices
-  kernel_to_channels = {}
-  for entry in channel_kernel_map:
-      kernel_name = entry['kernel']
-      channel_idx = entry['channel']
-      if kernel_name not in kernel_to_channels:
-          kernel_to_channels[kernel_name] = []
-      kernel_to_channels[kernel_name].append(channel_idx)
-  ```
+    # Find matching cached dataset
+    npz_path = find_cached_quantum_dataset(config)
+    if npz_path is None:
+        raise FileNotFoundError("No cached quantum dataset found. Run create_quantum_dataset.py first.")
+  
+    # Load dataset and metadata
+    train_loader, val_loader, test_loader, n_classes, metadata = load_cached_quantum_dataset(npz_path, batch_size=32)
+  
+    # Extract channel-to-kernel mapping
+    channel_kernel_map = metadata['channel_kernel_map']
+  
+    # Build reverse mapping: kernel_name -> list of channel indices
+    kernel_to_channels = {}
+    for entry in channel_kernel_map:
+        kernel_name = entry['kernel']
+        channel_idx = entry['channel']
+        if kernel_name not in kernel_to_channels:
+            kernel_to_channels[kernel_name] = []
+        kernel_to_channels[kernel_name].append(channel_idx)
+    ```
 
 ### Implementation Phases
 **Recommend implementing in this order:**
@@ -279,7 +297,8 @@ We must assemble the disparate hardware outputs into a single tensor for the fin
 - [ ] **Step 0.1:** Read existing code in `src/models/daqcnn.py` and `src/models/daqcnn_training.py` to understand project conventions
 - [ ] **Step 0.2:** Review a config file (e.g., `configs/pneumonia_mnist.yml`) to understand the structure
 - [ ] **Step 0.3:** Check if quantum datasets exist in `data/quantum_datasets/` - if not, run `experiments/create_quantum_dataset.py` first
-- [ ] **Step 0.4:** Create a test config file (e.g., `configs/ts_moe_test.yml`) with `architecture: "TS-MoE"` for development
+- [ ] **Step 0.4:** Review existing `src/utils/quantum_dataset_cache.py` to understand how cached datasets are loaded
+- [ ] **Step 0.5:** Create a test config file (e.g., `configs/ts_moe_test.yml`) with `architecture: "TS-MoE"` for development
 
 ### Phase 1: Core Components (Teacher Model)
 
@@ -289,15 +308,17 @@ We must assemble the disparate hardware outputs into a single tensor for the fin
   - [ ] Output: `(batch, num_patches, M)` - M weights per patch
   - [ ] Test with dummy data to verify shape transformations
 
-- [ ] **Step 1.2:** Create `src/utils/quantum_dataset_loader.py`
-  - [ ] Function to search for matching cached datasets given config parameters
-  - [ ] Function to load `.npz` and extract `channel_kernel_map`
-  - [ ] Function to build `kernel_to_channels` dictionary (reverse mapping)
-  - [ ] Test with existing cached datasets
+- [ ] **Step 1.2:** Create utility function for kernel-to-channels mapping
+  - [ ] Create `src/utils/kernel_mapping.py` with function `build_kernel_to_channels_map(channel_kernel_map)`
+  - [ ] Converts list of `{"channel": idx, "kernel": name, "qubit": q}` into dict: `{"kernel_name": [channel_indices]}`
+  - [ ] This works with metadata already loaded by existing `quantum_dataset_cache.py`
+  - [ ] Test with real `channel_kernel_map` from a cached dataset
 
 - [ ] **Step 1.3:** Create `src/models/teacher_moe.py`
   - [ ] Implement `TeacherMoE` class (inherits from `nn.Module`)
-  - [ ] Constructor loads cached quantum dataset or creates quantum layer
+  - [ ] Constructor uses `find_cached_quantum_dataset(config)` to locate cached data
+  - [ ] Uses `load_cached_quantum_dataset()` to load features and metadata
+  - [ ] Extracts `channel_kernel_map` from metadata and builds kernel-to-channels mapping
   - [ ] Forward pass: quantum features → grouped SE → weighted features → classification head
   - [ ] Add method to extract alpha weights for distillation
   - [ ] Test forward pass with dummy images
