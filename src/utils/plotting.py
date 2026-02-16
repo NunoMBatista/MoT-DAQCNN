@@ -5,6 +5,90 @@ import numpy as np
 import seaborn as sns
 from sklearn.metrics import auc, roc_curve
 
+# ---------------------------------------------------------------------------
+# TS-MoE specific plotting
+# ---------------------------------------------------------------------------
+
+
+def plot_alpha_histogram(alpha_values, kernel_name, epoch, save_path, num_bins=20):
+    """Plot distribution of alpha routing weights for a single kernel.
+
+    Used during teacher training to verify that the SE block learns decisive
+    routing. A successful teacher will show a bimodal distribution with peaks
+    at 0.0 and 1.0 by the final epoch.
+
+    Args:
+        alpha_values: 1-D numpy array or tensor of alpha values for one kernel
+            across all patches in the dataset. Values in [0, 1].
+        kernel_name: Name of the kernel topology (e.g., "kings").
+        epoch: Current training epoch (for the title).
+        save_path: Where to save the PNG.
+        num_bins: Number of histogram bins.
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    if hasattr(alpha_values, "numpy"):
+        alpha_values = alpha_values.numpy()
+    alpha_values = np.asarray(alpha_values).ravel()
+
+    plt.figure(figsize=(8, 5))
+    plt.hist(
+        alpha_values,
+        bins=num_bins,
+        range=(0.0, 1.0),
+        edgecolor="black",
+        alpha=0.7,
+        color="steelblue",
+    )
+
+    # Reference lines
+    plt.axvline(0.0, color="red", linestyle="--", linewidth=1, alpha=0.6)
+    plt.axvline(0.5, color="gray", linestyle="--", linewidth=1, alpha=0.6)
+    plt.axvline(1.0, color="green", linestyle="--", linewidth=1, alpha=0.6)
+
+    plt.xlabel("Alpha value", fontsize=12)
+    plt.ylabel("Number of patches", fontsize=12)
+    plt.title(f"Alpha distribution — {kernel_name} (epoch {epoch})", fontsize=13)
+    plt.xlim(-0.05, 1.05)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+
+
+def plot_routing_ratio_over_epochs(routing_history, kernel_names, save_path):
+    """Plot how the global routing ratio for each kernel evolves over epochs.
+
+    Args:
+        routing_history: List of dicts (one per epoch), each mapping
+            kernel_name -> fraction of patches routed to that kernel.
+        kernel_names: Ordered list of kernel names.
+        save_path: Where to save the PNG.
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    epochs = range(1, len(routing_history) + 1)
+    plt.figure(figsize=(10, 6))
+
+    for name in kernel_names:
+        values = [r[name] for r in routing_history]
+        plt.plot(epochs, values, marker="o", markersize=3, linewidth=2, label=name)
+
+    plt.xlabel("Epoch", fontsize=12)
+    plt.ylabel("Fraction of patches", fontsize=12)
+    plt.title("Global routing ratio per kernel", fontsize=14)
+    plt.legend(fontsize=10)
+    plt.ylim(-0.05, 1.05)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+
+
+# ---------------------------------------------------------------------------
+# Standard plotting functions
+# ---------------------------------------------------------------------------
+
 
 def plot_loss_curves(train_losses, val_losses, save_path):
     """Plot training and validation loss curves.
