@@ -774,30 +774,30 @@ This ensures you're building ON TOP of existing code, not replacing it!
 
 ### Phase 2: Student/Gatekeeper
 
-- [ ] **Step 2.1:** Create `src/models/student_gatekeeper.py`
-  - [ ] Implement lightweight CNN (3-5 layers, <5k parameters)
-  - [ ] Input: raw image patches `(batch, 1, kernel_size, kernel_size)`
-  - [ ] Output: logits for M kernel classes
+- [x] **Step 2.1:** Create `src/models/student_gatekeeper.py`
+  - [x] Implement lightweight CNN (3-5 layers, <5k parameters)
+  - [x] Input: raw image patches `(batch, 1, kernel_size, kernel_size)`
+  - [x] Output: logits for M kernel classes
   - [ ] Optional: Add classical feature extractors (variance, FFT, etc.)
-  - [ ] Test forward pass
+  - [x] Test forward pass
 
-- [ ] **Step 2.2:** Implement label generation from teacher
-  - [ ] Add method in `teacher_moe_training.py` to extract alpha values
-  - [ ] Create hard labels: `argmax(alpha)` per patch
-  - [ ] Save labels to disk for student training
-  - [ ] Test label extraction on small batch
+- [x] **Step 2.2:** Implement label generation from teacher
+  - [x] Add method in `teacher_moe_training.py` to extract alpha values
+  - [x] Create hard labels: `argmax(alpha)` per patch
+  - [x] Save labels to disk for student training
+  - [x] Test label extraction on small batch
 
-- [ ] **Step 2.3:** Create `src/models/student_training.py`
-  - [ ] Implement training loop for student
-  - [ ] Use CrossEntropyLoss with teacher labels
-  - [ ] **LOGGING REQUIREMENTS (from "Logging & Monitoring Strategy"):**
-    - [ ] Log Student Cross-Entropy Loss every epoch
-    - [ ] Log Teacher-Student Agreement Score (%) - must reach >90%
-    - [ ] Generate and save Routing Confusion Matrix (M×M, student vs teacher) to outputs/
-    - [ ] Log per-kernel prediction distribution (detect lazy bias)
-    - [ ] Log agreement score per kernel (which are hardest to predict)
-    - [ ] Log training/inference execution time
-  - [ ] Test on small dataset
+- [x] **Step 2.3:** Create `src/models/student_training.py`
+  - [x] Implement training loop for student
+  - [x] Use CrossEntropyLoss with teacher labels
+  - [x] **LOGGING REQUIREMENTS (from "Logging & Monitoring Strategy"):**
+    - [x] Log Student Cross-Entropy Loss every epoch
+    - [x] Log Teacher-Student Agreement Score (%) - must reach >90%
+    - [x] Generate and save Routing Confusion Matrix (M×M, student vs teacher) to outputs/
+    - [x] Log per-kernel prediction distribution (detect lazy bias)
+    - [x] Log agreement score per kernel (which are hardest to predict)
+    - [x] Log training/inference execution time
+  - [x] Test on small dataset
 
 ### Phase 3: Sparse Reconstruction & Final Classifier
 

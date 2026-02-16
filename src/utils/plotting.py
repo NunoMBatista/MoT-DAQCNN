@@ -10,6 +10,41 @@ from sklearn.metrics import auc, roc_curve
 # ---------------------------------------------------------------------------
 
 
+def plot_routing_confusion_matrix(cm, kernel_names, save_path):
+    """Plot the M x M routing confusion matrix (Teacher labels vs Student predictions).
+
+    Used during student distillation to verify that the Student faithfully
+    reproduces the Teacher's routing decisions. Off-diagonal mass indicates
+    disagreement; a single dominant column indicates lazy bias (Student
+    always predicts one kernel).
+
+    Args:
+        cm: Numpy array of shape (M, M). Rows are Teacher labels, columns
+            are Student predictions.
+        kernel_names: List of kernel topology names (length M), used as
+            tick labels on both axes.
+        save_path: Where to save the PNG.
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        cbar=True,
+        xticklabels=kernel_names,
+        yticklabels=kernel_names,
+    )
+    plt.xlabel("Student Prediction", fontsize=12)
+    plt.ylabel("Teacher Label", fontsize=12)
+    plt.title("Routing Confusion Matrix (Teacher vs Student)", fontsize=13)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+
+
 def plot_alpha_histogram(alpha_values, kernel_name, epoch, save_path, num_bins=20):
     """Plot distribution of alpha routing weights for a single kernel.
 

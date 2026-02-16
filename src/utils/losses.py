@@ -2,8 +2,7 @@
 Loss functions for the TS-MoE (Teacher-Student Mixture of Experts) pipeline.
 
 The key addition is entropy regularization, which pushes the SE block's
-alpha weights toward decisive (0 or 1) routing instead of wishy-washy
-uniform mixing.
+alpha weights toward decisive (0 or 1) routing instead of 0uniform mixing.
 """
 
 import torch
