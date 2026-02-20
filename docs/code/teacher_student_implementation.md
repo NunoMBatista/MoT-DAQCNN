@@ -801,45 +801,45 @@ This ensures you're building ON TOP of existing code, not replacing it!
 
 ### Phase 3: Sparse Reconstruction & Final Classifier
 
-- [ ] **Step 3.1:** Create `src/utils/sparse_reconstruction.py`
-  - [ ] Implement patch routing based on student predictions
-  - [ ] Build sparse tensor: fill selected kernel channels, zero others
-  - [ ] Use `channel_kernel_map` to identify which channels to fill
-  - [ ] Test with dummy student predictions and quantum features
+- [x] **Step 3.1:** Create `src/utils/sparse_reconstruction.py`
+  - [x] Implement patch routing based on student predictions
+  - [x] Build sparse tensor: fill selected kernel channels, zero others
+  - [x] Use `channel_kernel_map` to identify which channels to fill
+  - [x] Test with dummy student predictions and quantum features
 
-- [ ] **Step 3.2:** Optional: Implement mask channel
-  - [ ] Add (M*N + 1)-th channel indicating data presence
-  - [ ] Set to 1.0 for active channels, 0.0 for masked
-  - [ ] Test tensor shape is correct
+- [x] **Step 3.2:** Optional: Implement mask channel
+  - [x] Add (M*N + 1)-th channel indicating data presence
+  - [x] Set to 1.0 for active channels, 0.0 for masked
+  - [x] Test tensor shape is correct
 
-- [ ] **Step 3.3:** Create `src/models/final_classifier.py`
-  - [ ] New classification head (separate from teacher's head)
-  - [ ] Input: sparse tensors `(batch, M*N [+1], H, W)`
-  - [ ] Train from scratch on routed data
-  - [ ] **CRITICAL: Reuse existing evaluation utilities (NO REDUNDANCY!):**
-    - [ ] Import and use `evaluate(model, loader, device, split_name, compute_full_metrics=True)` from `src/utils/evaluate.py`
-    - [ ] Import `plot_confusion_matrix()`, `plot_roc_curve()`, `plot_loss_curves()` from `src/utils/plotting.py`
-    - [ ] Study `src/models/daqcnn_training.py` to see exactly how these functions are called
-    - [ ] DO NOT write new evaluation or plotting code - reuse what exists!
-  - [ ] **LOGGING REQUIREMENTS (from "Logging & Monitoring Strategy"):**
-    - [ ] Log Cross-Entropy Loss on sparse tensors
-    - [ ] Log Final Classifier Accuracy on validation/test
-    - [ ] Compare with Teacher Oracle Accuracy (with soft gating)
-    - [ ] Compare with Original DAQCNN Baseline Accuracy
-    - [ ] Calculate and log speedup factor vs running all kernels
-    - [ ] Log training/inference execution time (full pipeline: routing + classification)
-    - [ ] Log routing analysis (which image regions/classes use which kernels)
-    - [ ] **Log all standard DAQCNN metrics (using evaluate() and plotting functions):**
-      - [ ] Accuracy (train, validation, test) - from `evaluate()`
-      - [ ] AUC-ROC (macro-averaged) - from `evaluate()`
-      - [ ] F1 Score (macro-averaged) - from `evaluate()`
-      - [ ] Recall (macro-averaged) - from `evaluate()`
-      - [ ] Save Confusion Matrix plot - use `plot_confusion_matrix()`
-      - [ ] Save ROC Curves plot - use `plot_roc_curve()`
-      - [ ] Save probabilities and labels for analysis - from `evaluate()`
-      - [ ] Save loss curves plot - use `plot_loss_curves()`
-    - [ ] Generate summary comparison table of all three phases
-  - [ ] Test on validation set
+- [x] **Step 3.3:** Create `src/models/final_classifier.py`
+  - [x] New classification head (separate from teacher's head)
+  - [x] Input: sparse tensors `(batch, M*N [+1], H, W)`
+  - [x] Train from scratch on routed data
+  - [x] **CRITICAL: Reuse existing evaluation utilities (NO REDUNDANCY!):**
+    - [x] Import and use `evaluate(model, loader, device, split_name, compute_full_metrics=True)` from `src/utils/evaluate.py`
+    - [x] Import `plot_confusion_matrix()`, `plot_roc_curve()`, `plot_loss_curves()` from `src/utils/plotting.py`
+    - [x] Study `src/models/daqcnn_training.py` to see exactly how these functions are called
+    - [x] DO NOT write new evaluation or plotting code - reuse what exists!
+  - [x] **LOGGING REQUIREMENTS (from "Logging & Monitoring Strategy"):**
+    - [x] Log Cross-Entropy Loss on sparse tensors
+    - [x] Log Final Classifier Accuracy on validation/test
+    - [x] Compare with Teacher Oracle Accuracy (with soft gating)
+    - [x] Compare with Original DAQCNN Baseline Accuracy
+    - [x] Calculate and log speedup factor vs running all kernels
+    - [x] Log training/inference execution time (full pipeline: routing + classification)
+    - [x] Log routing analysis (which image regions/classes use which kernels)
+    - [x] **Log all standard DAQCNN metrics (using evaluate() and plotting functions):**
+      - [x] Accuracy (train, validation, test) - from `evaluate()`
+      - [x] AUC-ROC (macro-averaged) - from `evaluate()`
+      - [x] F1 Score (macro-averaged) - from `evaluate()`
+      - [x] Recall (macro-averaged) - from `evaluate()`
+      - [x] Save Confusion Matrix plot - use `plot_confusion_matrix()`
+      - [x] Save ROC Curves plot - use `plot_roc_curve()`
+      - [x] Save probabilities and labels for analysis - from `evaluate()`
+      - [x] Save loss curves plot - use `plot_loss_curves()`
+    - [x] Generate summary comparison table of all three phases
+  - [x] Test on validation set
 
 ### Phase 4: Configuration & Integration
 
@@ -872,8 +872,8 @@ This ensures you're building ON TOP of existing code, not replacing it!
 - [ ] **Step 5.1:** Unit tests
   - [x] Test grouped SE block with various M and N values
   - [x] Test quantum dataset loader with existing cached files
-  - [ ] Test sparse reconstruction logic
-  - [x] Test all models forward passes (Teacher done; Student and Final Classifier pending)
+  - [x] Test sparse reconstruction logic
+  - [x] Test all models forward passes (Teacher, Student, and Final Classifier done)
 
 - [ ] **Step 5.2:** Integration tests
   - [ ] Train teacher on quick_test dataset
@@ -952,24 +952,24 @@ This ensures you're building ON TOP of existing code, not replacing it!
   - [ ] Per-kernel prediction distribution logged (no lazy bias detected)
   - [ ] Training/inference execution time logged
 
-- [ ] **Final Classifier Logs Present:**
-  - [ ] Cross-Entropy Loss on sparse tensors logged
-  - [ ] Final Classifier Accuracy logged (validation and test)
-  - [ ] Performance comparison table generated:
-    - [ ] Final accuracy vs Teacher Oracle accuracy
-    - [ ] Final accuracy vs Original DAQCNN baseline
-  - [ ] Speedup factor calculated and logged
-  - [ ] Full pipeline execution time logged
-  - [ ] Routing analysis generated (which regions use which kernels)
-  - [ ] **All original DAQCNN metrics present (MUST be identical to baseline):**
-    - [ ] Accuracy (train, validation, test)
-    - [ ] AUC-ROC (macro-averaged)
-    - [ ] F1 Score (macro-averaged)
-    - [ ] Recall (macro-averaged)
-    - [ ] Confusion Matrix plot saved
-    - [ ] ROC Curves plot saved
-    - [ ] Probabilities and labels saved
-    - [ ] Loss curves plot saved
+- [x] **Final Classifier Logs Present:**
+  - [x] Cross-Entropy Loss on sparse tensors logged
+  - [x] Final Classifier Accuracy logged (validation and test)
+  - [x] Performance comparison table generated:
+    - [x] Final accuracy vs Teacher Oracle accuracy
+    - [x] Final accuracy vs Original DAQCNN baseline
+  - [x] Speedup factor calculated and logged
+  - [x] Full pipeline execution time logged
+  - [x] Routing analysis generated (which regions use which kernels)
+  - [x] **All original DAQCNN metrics present (MUST be identical to baseline):**
+    - [x] Accuracy (train, validation, test)
+    - [x] AUC-ROC (macro-averaged)
+    - [x] F1 Score (macro-averaged)
+    - [x] Recall (macro-averaged)
+    - [x] Confusion Matrix plot saved
+    - [x] ROC Curves plot saved
+    - [x] Probabilities and labels saved
+    - [x] Loss curves plot saved
 
 - [ ] **Output Files Verification:**
   - [ ] `outputs/ts_moe_run_<timestamp>/` directory created
