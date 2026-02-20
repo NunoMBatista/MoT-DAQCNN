@@ -24,7 +24,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from src.models.final_classifier_training import run_final_classifier_training
+from src.models.ts_moe_classification_head_training import run_final_classifier_training
 from src.models.student_training import run_student_training
 from src.models.teacher_moe_training import run_teacher_training
 
@@ -426,7 +426,7 @@ def test_final_classifier_checkpoint_loadable():
         assert ckpt["num_classes"] == num_classes
 
         # Rebuild model and load weights
-        from src.models.final_classifier import build_final_classifier_from_metadata
+        from src.models.ts_moe_classification_head import build_final_classifier_from_metadata
 
         model = build_final_classifier_from_metadata(
             ckpt["metadata"],

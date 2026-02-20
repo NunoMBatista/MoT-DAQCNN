@@ -32,8 +32,49 @@ def load_config(path: str):
         return yaml.safe_load(f)
 
 
+def run_ts_moe_for_seed(cfg, seed, output_dir, verbose=True):
+    """Run the full TS-MoE pipeline (Teacher → Student → Final Classifier)
+    for a single seed and return a results dict compatible with the
+    aggregation logic used for the original DAQCNN path."""
+
+    from experiments.train_ts_moe import run_ts_moe_pipeline
+
+    result = run_ts_moe_pipeline(cfg, seed, output_dir, verbose=verbose)
+
+    # Flatten into the same shape the aggregation code expects
+    final = result["final"]
+    summary = result["summary"]
+
+    return {
+        "seed": seed,
+        "architecture": "TS-MoE",
+        "train_losses": final.get("train_losses", []),
+        "val_losses": final.get("val_losses", []),
+        "train_accs": final.get("train_accs", []),
+        "val_accs": final.get("val_accs", []),
+        "test_loss": final.get("test_loss", 0.0),
+        "test_acc": final.get("test_acc", 0.0),
+        "test_auc": final.get("test_auc", 0.0),
+        "test_f1": final.get("test_f1", 0.0),
+        "test_recall": final.get("test_recall", 0.0),
+        "test_probs": final.get("test_probs", []),
+        "test_labels": final.get("test_labels", []),
+        "test_confusion_matrix": final.get("test_confusion_matrix", []),
+        "num_classes": final.get("num_classes", 2),
+        "final_train_loss": final.get("final_train_loss", 0.0),
+        "final_val_loss": final.get("final_val_loss", 0.0),
+        "final_train_acc": final.get("final_train_acc", 0.0),
+        "final_val_acc": final.get("final_val_acc", 0.0),
+        # Extra TS-MoE specific fields
+        "teacher_test_acc": summary.get("teacher_test_acc"),
+        "student_agreement": summary.get("student_agreement"),
+        "speedup_factor": summary.get("speedup_factor"),
+        "pipeline_time_s": summary.get("pipeline_time_s"),
+    }
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Robust DAQCNN experiment runner")
+    parser = argparse.ArgumentParser(description="Robust experiment runner")
     parser.add_argument(
         "--config",
         type=str,
@@ -44,6 +85,9 @@ def main():
 
     cfg = load_config(args.config)
 
+    # Detect architecture
+    architecture = cfg.get("model", {}).get("architecture", "original")
+
     # Get seeds - can be single value or list
     seed_spec = cfg.get("misc", {}).get("seed", 0)
     if isinstance(seed_spec, list):
@@ -51,9 +95,10 @@ def main():
     else:
         seeds = [seed_spec]
 
-    print(f"\n{'=' * 60}")
-    print(f"Robust DAQCNN Experiment")
-    print(f"{'=' * 60}")
+    print("\n" + "=" * 60)
+    print("Robust Experiment Runner")
+    print("=" * 60)
+    print(f"Architecture: {architecture}")
     print(f"Config: {args.config}")
     print(f"Seeds: {seeds}")
     print(f"Number of runs: {len(seeds)}")
@@ -62,7 +107,8 @@ def main():
     # Create output directory
     os.makedirs("outputs", exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join("outputs", f"run_{timestamp}")
+    prefix = "ts_moe" if architecture == "TS-MoE" else "run"
+    output_dir = os.path.join("outputs", f"{prefix}_{timestamp}")
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"Output directory: {output_dir}\n")
@@ -76,14 +122,19 @@ def main():
     # Run experiments for each seed
     all_results = []
     for seed in seeds:
-        result = run_single_seed(
-            cfg, seed, output_dir, verbose=(len(seeds) == 1), set_seed_fn=set_seed
-        )
+        if architecture == "TS-MoE":
+            result = run_ts_moe_for_seed(
+                cfg, seed, output_dir, verbose=(len(seeds) == 1)
+            )
+        else:
+            result = run_single_seed(
+                cfg, seed, output_dir, verbose=(len(seeds) == 1), set_seed_fn=set_seed
+            )
         all_results.append(result)
 
     # Aggregate results
     print(f"\n{'=' * 60}")
-    print(f"Summary of All Runs")
+    print(f"Summary of All Runs ({architecture})")
     print(f"{'=' * 60}\n")
 
     # Save individual results
@@ -93,17 +144,23 @@ def main():
     print(f"Individual results saved to: {individual_results_path}")
 
     # Compute and save aggregate metrics
-    metrics = {
-        "test_loss": [r["test_loss"] for r in all_results],
-        "test_acc": [r["test_acc"] for r in all_results],
-        "test_auc": [r["test_auc"] for r in all_results],
-        "test_f1": [r["test_f1"] for r in all_results],
-        "test_recall": [r["test_recall"] for r in all_results],
-        "final_train_loss": [r["final_train_loss"] for r in all_results],
-        "final_val_loss": [r["final_val_loss"] for r in all_results],
-        "final_train_acc": [r["final_train_acc"] for r in all_results],
-        "final_val_acc": [r["final_val_acc"] for r in all_results],
-    }
+    metric_keys = [
+        "test_loss",
+        "test_acc",
+        "test_auc",
+        "test_f1",
+        "test_recall",
+        "final_train_loss",
+        "final_val_loss",
+        "final_train_acc",
+        "final_val_acc",
+    ]
+
+    metrics = {}
+    for key in metric_keys:
+        values = [r.get(key) for r in all_results if r.get(key) is not None]
+        if values:
+            metrics[key] = values
 
     aggregate_stats = {}
     for metric_name, values in metrics.items():
@@ -115,9 +172,20 @@ def main():
             "values": values,
         }
 
-    # Add model metadata (same for all seeds, so use first result)
+    # Add model metadata from first result if available
     if all_results and "model_metadata" in all_results[0]:
         aggregate_stats["model_metadata"] = all_results[0]["model_metadata"]
+
+    # Add TS-MoE specific aggregate metrics
+    if architecture == "TS-MoE":
+        for key in ["teacher_test_acc", "student_agreement", "pipeline_time_s"]:
+            values = [r.get(key) for r in all_results if r.get(key) is not None]
+            if values:
+                aggregate_stats[key] = {
+                    "mean": float(np.mean(values)),
+                    "std": float(np.std(values)),
+                    "values": values,
+                }
 
     aggregate_stats_path = os.path.join(output_dir, "aggregate_metrics.json")
     with open(aggregate_stats_path, "w") as f:
@@ -129,37 +197,47 @@ def main():
     print(f"Performance Summary (n={len(seeds)} runs)")
     print(f"{'=' * 60}")
     for metric_name, stats in aggregate_stats.items():
-        # Skip model_metadata (it's not a metric)
-        if metric_name == "model_metadata":
+        # Skip non-metric entries
+        if metric_name in ("model_metadata",):
             continue
-        print(f"{metric_name:20s}: {stats['mean']:.4f} ± {stats['std']:.4f}")
+        if not isinstance(stats, dict) or "mean" not in stats:
+            continue
+        print(f"{metric_name:25s}: {stats['mean']:.4f} ± {stats['std']:.4f}")
     print(f"{'=' * 60}\n")
 
     # Plot multi-seed loss curves if multiple seeds
     if len(seeds) > 1:
-        all_train_losses = [r["train_losses"] for r in all_results]
-        all_val_losses = [r["val_losses"] for r in all_results]
-        multi_seed_plot_path = os.path.join(output_dir, "loss_curve_multi_seed.png")
-        plot_multi_seed_loss_curves(
-            all_train_losses, all_val_losses, multi_seed_plot_path
-        )
-        print(f"Multi-seed loss curve saved to: {multi_seed_plot_path}\n")
+        all_train_losses = [
+            r["train_losses"] for r in all_results if r.get("train_losses")
+        ]
+        all_val_losses = [r["val_losses"] for r in all_results if r.get("val_losses")]
+        if all_train_losses and all_val_losses:
+            multi_seed_plot_path = os.path.join(output_dir, "loss_curve_multi_seed.png")
+            plot_multi_seed_loss_curves(
+                all_train_losses, all_val_losses, multi_seed_plot_path
+            )
+            print(f"Multi-seed loss curve saved to: {multi_seed_plot_path}\n")
 
         # Plot multi-seed ROC curves
-        all_test_labels = [np.array(r["test_labels"]) for r in all_results]
-        all_test_probs = [np.array(r["test_probs"]) for r in all_results]
-        num_classes = all_results[0]["num_classes"]
-        multi_roc_plot_path = os.path.join(output_dir, "roc_curve_multi_seed.png")
-        plot_multi_seed_roc_curves(
-            all_test_labels,
-            all_test_probs,
-            multi_roc_plot_path,
-            num_classes=num_classes,
-        )
-        print(f"Multi-seed ROC curve saved to: {multi_roc_plot_path}\n")
+        all_test_labels = [
+            np.array(r["test_labels"]) for r in all_results if r.get("test_labels")
+        ]
+        all_test_probs = [
+            np.array(r["test_probs"]) for r in all_results if r.get("test_probs")
+        ]
+        if all_test_labels and all_test_probs:
+            num_classes = all_results[0].get("num_classes", 2)
+            multi_roc_plot_path = os.path.join(output_dir, "roc_curve_multi_seed.png")
+            plot_multi_seed_roc_curves(
+                all_test_labels,
+                all_test_probs,
+                multi_roc_plot_path,
+                num_classes=num_classes,
+            )
+            print(f"Multi-seed ROC curve saved to: {multi_roc_plot_path}\n")
 
     print(f"All outputs saved to: {output_dir}")
-    print(f"\nExperiment complete!")
+    print("\nExperiment complete!")
 
 
 if __name__ == "__main__":

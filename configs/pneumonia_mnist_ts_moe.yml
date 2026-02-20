@@ -1,0 +1,64 @@
+# Pneumonia MNIST with Teacher-Student Mixture-of-Topologies (TS-MoE)
+#
+# This config runs the full TS-MoE pipeline:
+#   Phase 1: Teacher with Grouped SE routing over all kernels
+#   Phase 2: Student gatekeeper distilled from Teacher
+#   Phase 3: Final classifier on sparse routed features
+
+dataset:
+  name: pneumonia_mnist
+  data_root: ./data
+  batch_size: 32
+  num_workers: 2
+  download: true
+
+model:
+  architecture: "TS-MoE"  # "original" for DAQCNN, "TS-MoE" for Teacher-Student pipeline
+  num_classes: 2
+  kernel_size: 2
+  stride: 1
+  kernel_topology_names: ["kings", "horizontal", "vertical", "square"]
+  scaling_factor: 1.0
+  evolution_time: 0.2
+  mode: trotter
+  dropout: 0.1
+  activation: relu
+  quantum_device: default.qubit
+  quantum_device_kwargs: {}
+  classical_device: auto
+
+# Teacher-Student MoE parameters
+ts_moe:
+  # Phase 1: Teacher entropy regularization
+  lambda_entropy: 0.01
+  lambda_max: 0.1
+  lambda_warmup_epochs: 5
+  se_hidden_dim: null  # auto-select based on num_kernels
+
+  # Phase 2: Student gatekeeper
+  student_hidden_dims: [32, 16]
+  student_epochs: 20
+  student_lr: 1e-3
+
+  # Phase 3: Final classifier
+  use_mask_channel: false
+  final_epochs: 15
+  final_lr: 1e-3
+
+  # Optional filtering
+  confidence_threshold: 0.0  # 0.0 = no filtering
+
+# Optimizer (used for Teacher training; Student/Final have their own lr above)
+optim:
+  lr: 1e-3
+  weight_decay: 0.0
+  epochs: 10
+  grad_clip: 1.0
+  patience: 5
+  use_scheduler: false
+  scheduler_T_max: 10
+  scheduler_eta_min: 0.0
+
+misc:
+  seed: 0
+  log_every: 50

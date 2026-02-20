@@ -710,7 +710,7 @@ This ensures you're building ON TOP of existing code, not replacing it!
 
 - [x] **Step 0.4:** Check if quantum datasets exist in `data/quantum_datasets/` - if not, run `experiments/create_quantum_dataset.py` first
 
-- [ ] **Step 0.5:** Create a test config file (e.g., `configs/ts_moe_test.yml`) with `architecture: "TS-MoE"` for development
+- [x] **Step 0.5:** Create a test config file (e.g., `configs/ts_moe_test.yml`) with `architecture: "TS-MoE"` for development
 
 ### Phase 1: Core Components (Teacher Model)
 
@@ -843,29 +843,29 @@ This ensures you're building ON TOP of existing code, not replacing it!
 
 ### Phase 4: Configuration & Integration
 
-- [ ] **Step 4.1:** Update config schema
-  - [ ] Add `model.architecture: "original"` or `"TS-MoE"` field
-  - [ ] Add `ts_moe:` section with parameters:
+- [x] **Step 4.1:** Update config schema
+  - [x] Add `model.architecture: "original"` or `"TS-MoE"` field
+  - [x] Add `ts_moe:` section with parameters:
     - `lambda_entropy`: initial entropy weight
     - `lambda_max`: maximum entropy weight
     - `lambda_anneal_epochs`: epochs to anneal lambda
     - `student_hidden_dims`: architecture for student
     - `use_mask_channel`: boolean
     - `confidence_threshold`: for low-confidence filtering
-  - [ ] Create example config: `configs/pneumonia_mnist_ts_moe.yml`
+  - [x] Create example config: `configs/pneumonia_mnist_ts_moe.yml`
 
-- [ ] **Step 4.2:** Modify `experiments/robust_test_original_daqcnn.py`
-  - [ ] Read `model.architecture` from config
-  - [ ] Add conditional: if "original" → use DAQCNN, if "TS-MoE" → use TeacherMoE
-  - [ ] Ensure both paths work with same experiment runner
-  - [ ] Test both configurations
+- [x] **Step 4.2:** Modify `experiments/robust_test_original_daqcnn.py`
+  - [x] Read `model.architecture` from config
+  - [x] Add conditional: if "original" → use DAQCNN, if "TS-MoE" → use TeacherMoE
+  - [x] Ensure both paths work with same experiment runner
+  - [x] Test both configurations
 
-- [ ] **Step 4.3:** Create unified training script
-  - [ ] `experiments/train_ts_moe.py` or integrate into existing script
-  - [ ] Phase 1: Train teacher
-  - [ ] Phase 2: Extract labels and train student
-  - [ ] Phase 3: Build sparse tensors and train final classifier
-  - [ ] Save all checkpoints appropriately
+- [x] **Step 4.3:** Create unified training script
+  - [x] `experiments/train_ts_moe.py` or integrate into existing script
+  - [x] Phase 1: Train teacher
+  - [x] Phase 2: Extract labels and train student
+  - [x] Phase 3: Build sparse tensors and train final classifier
+  - [x] Save all checkpoints appropriately
 
 ### Phase 5: Testing & Validation
 

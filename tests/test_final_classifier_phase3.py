@@ -27,11 +27,11 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from src.models.final_classifier import (
+from src.models.ts_moe_classification_head import (
     FinalClassifier,
     build_final_classifier_from_metadata,
 )
-from src.models.final_classifier_training import (
+from src.models.ts_moe_classification_head_training import (
     compute_routing_analysis,
     train_final_one_epoch,
 )

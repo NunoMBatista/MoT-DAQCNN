@@ -1,0 +1,339 @@
+"""
+Unified TS-MoE training script.
+
+Chains all three phases of the Teacher-Student Mixture-of-Topologies pipeline:
+    Phase 1: Train Teacher (Grouped SE routing on cached quantum features)
+    Phase 2: Train Student Gatekeeper (distillation from Teacher)
+    Phase 3: Train Final Classifier (on sparse routed features)
+
+Usage:
+    python experiments/train_ts_moe.py --config configs/pneumonia_mnist_ts_moe.yml
+"""
+
+import argparse
+import json
+import os
+import random
+import sys
+import time
+
+import numpy as np
+import torch
+import yaml
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+
+from src.models.student_training import run_student_training  # noqa: E402
+from src.models.teacher_moe_training import run_teacher_training  # noqa: E402
+from src.models.ts_moe_classification_head_training import (
+    run_final_classifier_training,  # noqa: E402
+)
+
+
+def set_seed(seed: int):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+
+
+def load_config(path: str):
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def run_ts_moe_pipeline(
+    cfg,
+    seed,
+    output_dir,
+    verbose=True,
+    datasets_dir=None,
+    raw_image_datasets=None,
+):
+    """Run the full TS-MoE pipeline for a single seed.
+
+    Chains Teacher → Student → Final Classifier, passing checkpoint paths
+    between phases. All outputs are saved under ``output_dir/seed_{seed}/``.
+
+    Args:
+        cfg: Loaded YAML config dict.
+        seed: Random seed.
+        output_dir: Root output directory.
+        verbose: Whether to print progress.
+        datasets_dir: Optional path to search for cached quantum datasets.
+        raw_image_datasets: Optional dict ``{"train": ds, "val": ds, "test": ds}``
+            of raw image datasets (used in tests to skip MedMNIST download).
+
+    Returns:
+        dict with results from all three phases and a summary comparison.
+    """
+    seed_dir = os.path.join(output_dir, f"seed_{seed}")
+    os.makedirs(seed_dir, exist_ok=True)
+
+    t_pipeline_start = time.time()
+
+    # ------------------------------------------------------------------
+    # Phase 1: Teacher
+    # ------------------------------------------------------------------
+    if verbose:
+        print(f"\n{'#' * 60}")
+        print(f"# Phase 1: Teacher Training (seed={seed})")
+        print(f"{'#' * 60}")
+
+    teacher_dir = os.path.join(seed_dir, "teacher")
+    os.makedirs(teacher_dir, exist_ok=True)
+
+    teacher_result = run_teacher_training(
+        cfg,
+        seed,
+        teacher_dir,
+        verbose=verbose,
+        set_seed_fn=set_seed,
+        datasets_dir=datasets_dir,
+    )
+
+    # Find the best teacher checkpoint (fall back to final)
+    teacher_best = os.path.join(teacher_dir, f"teacher_best_seed_{seed}.pt")
+    teacher_final = os.path.join(teacher_dir, f"teacher_final_seed_{seed}.pt")
+    teacher_ckpt = teacher_best if os.path.exists(teacher_best) else teacher_final
+
+    if verbose:
+        print(f"\nTeacher test accuracy: {teacher_result['test_acc']:.4f}")
+        print(f"Teacher checkpoint: {teacher_ckpt}")
+
+    # ------------------------------------------------------------------
+    # Phase 2: Student Gatekeeper
+    # ------------------------------------------------------------------
+    if verbose:
+        print(f"\n{'#' * 60}")
+        print(f"# Phase 2: Student Training (seed={seed})")
+        print(f"{'#' * 60}")
+
+    student_dir = os.path.join(seed_dir, "student")
+    os.makedirs(student_dir, exist_ok=True)
+
+    # Override student-specific hyperparameters from ts_moe config
+    student_cfg = _apply_student_overrides(cfg)
+
+    student_result = run_student_training(
+        student_cfg,
+        seed,
+        student_dir,
+        teacher_ckpt_path=teacher_ckpt,
+        verbose=verbose,
+        set_seed_fn=set_seed,
+        datasets_dir=datasets_dir,
+        raw_image_datasets=raw_image_datasets,
+    )
+
+    # Find the best student checkpoint
+    student_best = os.path.join(student_dir, f"student_best_seed_{seed}.pt")
+    student_final = os.path.join(student_dir, f"student_final_seed_{seed}.pt")
+    student_ckpt = student_best if os.path.exists(student_best) else student_final
+
+    if verbose:
+        print(f"\nStudent agreement: {student_result['agreement']:.4f}")
+        print(f"Student checkpoint: {student_ckpt}")
+
+    # ------------------------------------------------------------------
+    # Phase 3: Final Classifier
+    # ------------------------------------------------------------------
+    if verbose:
+        print(f"\n{'#' * 60}")
+        print(f"# Phase 3: Final Classifier Training (seed={seed})")
+        print(f"{'#' * 60}")
+
+    final_dir = os.path.join(seed_dir, "final_classifier")
+    os.makedirs(final_dir, exist_ok=True)
+
+    # Override final-classifier-specific hyperparameters
+    final_cfg = _apply_final_overrides(cfg)
+
+    final_result = run_final_classifier_training(
+        final_cfg,
+        seed,
+        final_dir,
+        student_ckpt_path=student_ckpt,
+        verbose=verbose,
+        set_seed_fn=set_seed,
+        datasets_dir=datasets_dir,
+        raw_image_datasets=raw_image_datasets,
+        teacher_test_acc=teacher_result["test_acc"],
+    )
+
+    pipeline_time = time.time() - t_pipeline_start
+
+    # ------------------------------------------------------------------
+    # Summary
+    # ------------------------------------------------------------------
+    summary = {
+        "seed": seed,
+        "pipeline_time_s": pipeline_time,
+        "teacher_test_acc": teacher_result["test_acc"],
+        "teacher_test_auc": teacher_result["test_auc"],
+        "teacher_test_f1": teacher_result["test_f1"],
+        "student_agreement": student_result["agreement"],
+        "final_test_acc": final_result["test_acc"],
+        "final_test_auc": final_result["test_auc"],
+        "final_test_f1": final_result["test_f1"],
+        "speedup_factor": final_result.get("comparison", {}).get("speedup_factor"),
+    }
+
+    if verbose:
+        print(f"\n{'=' * 60}")
+        print(f"TS-MoE Pipeline Summary (seed={seed})")
+        print(f"{'=' * 60}")
+        print(f"Teacher accuracy:   {summary['teacher_test_acc']:.4f}")
+        print(f"Student agreement:  {summary['student_agreement']:.4f}")
+        print(f"Final accuracy:     {summary['final_test_acc']:.4f}")
+        print(f"Speedup factor:     {summary['speedup_factor']}×")
+        print(f"Total pipeline time: {pipeline_time:.1f}s")
+        print(f"{'=' * 60}\n")
+
+    # Save summary
+    summary_path = os.path.join(seed_dir, "pipeline_summary.json")
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
+
+    return {
+        "summary": summary,
+        "teacher": teacher_result,
+        "student": student_result,
+        "final": final_result,
+    }
+
+
+def _apply_student_overrides(cfg):
+    """Apply ts_moe student overrides to a copy of the config.
+
+    The Student training reads epochs/lr from ``optim``, so we copy
+    ``ts_moe.student_epochs`` and ``ts_moe.student_lr`` into ``optim``
+    if they are present.
+    """
+    import copy
+
+    cfg = copy.deepcopy(cfg)
+    ts = cfg.get("ts_moe", {})
+
+    if "student_epochs" in ts:
+        cfg.setdefault("optim", {})["epochs"] = ts["student_epochs"]
+    if "student_lr" in ts:
+        cfg.setdefault("optim", {})["lr"] = ts["student_lr"]
+
+    return cfg
+
+
+def _apply_final_overrides(cfg):
+    """Apply ts_moe final-classifier overrides to a copy of the config.
+
+    Copies ``ts_moe.final_epochs`` and ``ts_moe.final_lr`` into ``optim``.
+    """
+    import copy
+
+    cfg = copy.deepcopy(cfg)
+    ts = cfg.get("ts_moe", {})
+
+    if "final_epochs" in ts:
+        cfg.setdefault("optim", {})["epochs"] = ts["final_epochs"]
+    if "final_lr" in ts:
+        cfg.setdefault("optim", {})["lr"] = ts["final_lr"]
+
+    return cfg
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Train a TS-MoE pipeline (Teacher → Student → Final Classifier)"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=os.path.join("configs", "pneumonia_mnist_ts_moe.yml"),
+        help="Path to YAML config file with model.architecture='TS-MoE'",
+    )
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+
+    # Validate architecture
+    arch = cfg.get("model", {}).get("architecture", "original")
+    if arch != "TS-MoE":
+        print(
+            f"Warning: model.architecture is '{arch}', expected 'TS-MoE'. "
+            f"Proceeding anyway."
+        )
+
+    # Seeds
+    seed_spec = cfg.get("misc", {}).get("seed", 0)
+    seeds = seed_spec if isinstance(seed_spec, list) else [seed_spec]
+
+    print("\n" + "=" * 60)
+    print("TS-MoE Pipeline")
+    print("=" * 60)
+    print(f"Config: {args.config}")
+    print(f"Seeds: {seeds}")
+    print(f"{'=' * 60}\n")
+
+    # Output directory
+    os.makedirs("outputs", exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join("outputs", f"ts_moe_{timestamp}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save config
+    config_save = os.path.join(output_dir, "config.yml")
+    with open(config_save, "w") as f:
+        yaml.dump(cfg, f, default_flow_style=False)
+    print(f"Config saved to: {config_save}")
+    print(f"Output directory: {output_dir}\n")
+
+    # Run pipeline for each seed
+    all_results = []
+    for seed in seeds:
+        result = run_ts_moe_pipeline(cfg, seed, output_dir, verbose=(len(seeds) == 1))
+        all_results.append(result)
+
+    # Aggregate across seeds
+    summaries = [r["summary"] for r in all_results]
+    aggregate = {}
+    for key in [
+        "teacher_test_acc",
+        "student_agreement",
+        "final_test_acc",
+        "final_test_auc",
+        "final_test_f1",
+        "pipeline_time_s",
+    ]:
+        values = [s[key] for s in summaries if s.get(key) is not None]
+        if values:
+            aggregate[key] = {
+                "mean": float(np.mean(values)),
+                "std": float(np.std(values)),
+                "values": values,
+            }
+
+    # Print aggregate
+    print(f"\n{'=' * 60}")
+    print(f"Aggregate Results ({len(seeds)} seed(s))")
+    print(f"{'=' * 60}")
+    for metric, stats in aggregate.items():
+        print(f"  {metric:25s}: {stats['mean']:.4f} ± {stats['std']:.4f}")
+    print(f"{'=' * 60}\n")
+
+    # Save aggregate
+    agg_path = os.path.join(output_dir, "aggregate_results.json")
+    with open(agg_path, "w") as f:
+        json.dump(
+            {"seeds": seeds, "aggregate": aggregate, "summaries": summaries},
+            f,
+            indent=2,
+        )
+    print(f"Aggregate results saved to: {agg_path}")
+    print(f"All outputs saved to: {output_dir}")
+    print("\nTS-MoE pipeline complete!")
+
+
+if __name__ == "__main__":
+    main()
