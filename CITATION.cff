@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the associated paper as below."
+title: "MoT-DAQC"
+authors:
+  - family-names: "Simen"
+    given-names: "Anton"
+preferred-citation:
+  type: article
+  title: "Digital-Analog Quantum Convolutional Neural Networks for Image Classification"
+  authors:
+    - family-names: "Simen"
+      given-names: "Anton"
+    - family-names: "Flores-Garrigos"
+      given-names: "Carlos"
+    - family-names: "Hegade"
+      given-names: "Narendra N."
+    - family-names: "Montalban"
+      given-names: "Iraitz"
+    - family-names: "Vives-Gilabert"
+      given-names: "Yolanda"
+    - family-names: "Michon"
+      given-names: "Eric"
+    - family-names: "Zhang"
+      given-names: "Qi"
+    - family-names: "Solano"
+      given-names: "Enrique"
+    - family-names: "Martín-Guerrero"
+      given-names: "José D."
+  journal: "Physical Review Research"
+  volume: 6
+  issue: 4
+  start: "L042060"
+  doi: "10.1103/PhysRevResearch.6.L042060"
+  date-published: 2024-12-11
+  url: "https://link.aps.org/doi/10.1103/PhysRevResearch.6.L042060"

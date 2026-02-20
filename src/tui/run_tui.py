@@ -674,12 +674,12 @@ class DAQCNNTestUI(App):
 
     def on_mount(self) -> None:
         """Initialize the app."""
-        self.title = "DAQCNN Model Testing Interface"
+        self.title = "MoT-DAQCNN Model Testing Interface"
         self.sub_title = f"Device: {self.device}"
         self.load_models()
 
     def load_models(self) -> None:
-        """Scan and load available models."""
+        """Scan and load available models (DAQCNN and TS-MoE)."""
         tree = self.query_one("#model-tree", Tree)
         tree.clear()
         tree.root.expand()
@@ -691,7 +691,11 @@ class DAQCNNTestUI(App):
             return
 
         for run in self.runs:
-            run_node = tree.root.add(run["run_name"])
+            arch = run.get("architecture", "original")
+            label = run["run_name"]
+            if arch == "TS-MoE":
+                label = f"🔀 {label} [TS-MoE]"
+            run_node = tree.root.add(label)
 
             if run["checkpoints"]["best"]:
                 best_node = run_node.add("Best Models")
@@ -724,8 +728,17 @@ class DAQCNNTestUI(App):
         ckpt_path = self.selected_checkpoint["path"]
         run_info = self.selected_checkpoint["run"]
 
+        from src.utils.model_cache_manager import detect_checkpoint_type
+
+        ckpt_type = detect_checkpoint_type(ckpt_path)
+        arch = run_info.get("architecture", "original")
+
         info_text = f"[bold]Selected:[/bold] {os.path.basename(ckpt_path)}\n"
-        info_text += f"[bold]Run:[/bold] {run_info['run_name']}\n\n"
+        info_text += f"[bold]Run:[/bold] {run_info['run_name']}\n"
+        info_text += f"[bold]Architecture:[/bold] {arch}\n"
+        if ckpt_type != "unknown":
+            info_text += f"[bold]Model Type:[/bold] {ckpt_type}\n"
+        info_text += "\n"
 
         if run_info["config"]:
             dataset = run_info["config"].get("dataset", {}).get("name", "Unknown")
@@ -832,6 +845,20 @@ class DAQCNNTestUI(App):
                 )
             info_text += "\n"
 
+        # TS-MoE pipeline summary (if available)
+        if run_info.get("pipeline_summary"):
+            ps = run_info["pipeline_summary"]
+            info_text += f"[bold magenta]TS-MoE Pipeline:[/bold magenta]\n"
+            if "teacher_test_acc" in ps:
+                info_text += f"  Teacher Acc: {ps['teacher_test_acc']:.4f}\n"
+            if "student_agreement" in ps:
+                info_text += f"  Student Agreement: {ps['student_agreement']:.4f}\n"
+            if "final_test_acc" in ps:
+                info_text += f"  Final Acc: {ps['final_test_acc']:.4f}\n"
+            if "speedup_factor" in ps:
+                info_text += f"  Speedup: {ps['speedup_factor']}×\n"
+            info_text += "\n"
+
         info_text += "[dim]Press 'i' for full config[/dim]"
         info_label.update(info_text)
 
@@ -908,46 +935,96 @@ class DAQCNNTestUI(App):
         self.push_screen(DatasetSelectionModal(), handle_dataset_choice)
 
     def test_on_dataset(self, dataset_name: str) -> None:
-        """Test model on full dataset."""
+        """Test model on full dataset.
+
+        Handles both original DAQCNN models and TS-MoE models (Teacher,
+        Final Classifier). TS-MoE Teacher and Final Classifier models
+        operate on cached quantum features rather than raw images.
+        """
         if not self.selected_checkpoint:
             return
 
         try:
+            from src.utils.model_cache_manager import detect_checkpoint_type
+
             # Load model
             ckpt_path = self.selected_checkpoint["path"]
             model, checkpoint = load_model_from_checkpoint(
                 ckpt_path, device=self.device
             )
+            ckpt_type = detect_checkpoint_type(ckpt_path)
 
-            # Check model/dataset compatibility
-            model_in_channels = (
-                checkpoint.get("config", {}).get("model", {}).get("in_channels", 1)
-            )
-            is_compatible, error_msg = check_model_dataset_compatibility(
-                model_in_channels, dataset_name
-            )
-
-            if not is_compatible:
-                self.push_screen(ErrorModal(error_msg, "Incompatible Dataset"))
+            # Student models work on patches, not full images — not
+            # directly usable for dataset-level evaluation in the TUI.
+            if ckpt_type == "student":
+                self.push_screen(
+                    ErrorModal(
+                        "Student Gatekeeper models predict per-patch routing, "
+                        "not image-level classes. Use a Teacher or Final "
+                        "Classifier checkpoint for dataset evaluation.",
+                        "Unsupported Model Type",
+                    )
+                )
                 return
 
-            self.notify(f"Loading model and testing on {dataset_name}...")
+            # Check model/dataset compatibility (skip for TS-MoE quantum models)
+            if ckpt_type in ("teacher", "final_classifier"):
+                # TS-MoE models require cached quantum features
+                cfg = checkpoint.get("config", {})
+                cfg.setdefault("dataset", {})["name"] = dataset_name
 
-            # Load dataset (check for cached quantum features first)
-            cfg = checkpoint["config"]
-            cfg["dataset"]["name"] = dataset_name
+                cached_path = find_cached_quantum_dataset(cfg)
+                if cached_path is None:
+                    self.push_screen(
+                        ErrorModal(
+                            f"No cached quantum features found for {dataset_name}. "
+                            "TS-MoE models require pre-computed quantum features.\n\n"
+                            "Run:\n  python experiments/create_quantum_dataset.py "
+                            f"--dataset {dataset_name}",
+                            "Missing Quantum Features",
+                        )
+                    )
+                    return
 
-            cached_path = find_cached_quantum_dataset(cfg)
-            if cached_path is not None:
-                self.notify("Using cached quantum features", severity="information")
-                model.bypass_quantum = True
-                batch_size = cfg["dataset"].get("batch_size", 32)
-                num_workers = cfg["dataset"].get("num_workers", 2)
+                self.notify(
+                    f"Loading TS-MoE model ({ckpt_type}) and testing on {dataset_name}..."
+                )
+
+                batch_size = cfg.get("dataset", {}).get("batch_size", 32)
+                num_workers = cfg.get("dataset", {}).get("num_workers", 2)
                 _, _, test_loader, n_classes, _ = load_cached_quantum_dataset(
                     cached_path, batch_size, num_workers
                 )
             else:
-                _, _, test_loader, n_classes = get_dataloaders(cfg)
+                # Original DAQCNN model
+                model_in_channels = (
+                    checkpoint.get("config", {}).get("model", {}).get("in_channels", 1)
+                )
+                is_compatible, error_msg = check_model_dataset_compatibility(
+                    model_in_channels, dataset_name
+                )
+
+                if not is_compatible:
+                    self.push_screen(ErrorModal(error_msg, "Incompatible Dataset"))
+                    return
+
+                self.notify(f"Loading model and testing on {dataset_name}...")
+
+                # Load dataset (check for cached quantum features first)
+                cfg = checkpoint["config"]
+                cfg["dataset"]["name"] = dataset_name
+
+                cached_path = find_cached_quantum_dataset(cfg)
+                if cached_path is not None:
+                    self.notify("Using cached quantum features", severity="information")
+                    model.bypass_quantum = True
+                    batch_size = cfg["dataset"].get("batch_size", 32)
+                    num_workers = cfg["dataset"].get("num_workers", 2)
+                    _, _, test_loader, n_classes, _ = load_cached_quantum_dataset(
+                        cached_path, batch_size, num_workers
+                    )
+                else:
+                    _, _, test_loader, n_classes = get_dataloaders(cfg)
 
             # Create progress modal
             total_batches = len(test_loader)
@@ -975,9 +1052,14 @@ class DAQCNNTestUI(App):
                     self.refresh()
 
             # Load classical images for preview (cheap for 28x28 MedMNIST)
-            _, _, classical_loader, _ = get_dataloaders(cfg)
-            for imgs, _ in classical_loader:
-                all_images.extend(list(imgs))
+            try:
+                _, _, classical_loader, _ = get_dataloaders(cfg)
+                for imgs, _ in classical_loader:
+                    all_images.extend(list(imgs))
+            except Exception:
+                # If classical images can't be loaded (e.g. dataset not
+                # downloaded), skip preview support gracefully.
+                pass
 
             # Close progress modal
             self.pop_screen()
@@ -1002,8 +1084,12 @@ class DAQCNNTestUI(App):
             }
 
             # Format results with confusion matrix
+            arch_label = (
+                f" ({ckpt_type})" if ckpt_type not in ("daqcnn", "unknown") else ""
+            )
             results = (
-                f"[bold cyan]Results on {dataset_name} (test set):[/bold cyan]\n\n"
+                f"[bold cyan]Results on {dataset_name}{arch_label} "
+                f"(test set):[/bold cyan]\n\n"
             )
             results += f"[bold]Accuracy:[/bold] {metrics['accuracy']:.4f}\n"
             results += f"[bold]AUC:[/bold]      {metrics['auc']:.4f}\n"
@@ -1012,10 +1098,16 @@ class DAQCNNTestUI(App):
 
             # Add confusion matrix
             results += "[bold]Confusion Matrix:[/bold]\n"
+            n_cls = len(cm)
+            header = "         " + "".join(f" Class {c}" for c in range(n_cls)) + "\n"
             results += "          Predicted\n"
-            results += "         Class 0  Class 1\n"
-            results += f"Actual 0   {cm[0][0]:4d}     {cm[0][1]:4d}\n"
-            results += f"       1   {cm[1][0]:4d}     {cm[1][1]:4d}\n\n"
+            results += header
+            for r in range(n_cls):
+                row_str = f"Actual {r}  " + "  ".join(
+                    f"{cm[r][c]:5d}" for c in range(n_cls)
+                )
+                results += row_str + "\n"
+            results += "\n"
 
             # Add summary
             correct = (preds == labels_np).sum()
@@ -1074,13 +1166,34 @@ class DAQCNNTestUI(App):
         self.push_screen(PredictionResultsModal(title, predictions))
 
     def test_single_image(self, dataset_name: str, image_data: dict) -> None:
-        """Test model on a single image."""
+        """Test model on a single image.
+
+        Only works for original DAQCNN models. TS-MoE Teacher and Final
+        Classifier models require pre-computed quantum features for the
+        full dataset, so single-image inference is not supported for them.
+        """
         if not self.selected_checkpoint:
             return
 
         try:
+            from src.utils.model_cache_manager import detect_checkpoint_type
+
             # Load model
             ckpt_path = self.selected_checkpoint["path"]
+            ckpt_type = detect_checkpoint_type(ckpt_path)
+
+            # TS-MoE models don't support single raw-image inference
+            if ckpt_type in ("teacher", "student", "final_classifier"):
+                self.push_screen(
+                    ErrorModal(
+                        "Single-image inference is only available for original "
+                        "DAQCNN models. TS-MoE models require pre-computed "
+                        "quantum features for the full dataset.",
+                        "Not Supported",
+                    )
+                )
+                return
+
             model, checkpoint = load_model_from_checkpoint(
                 ckpt_path, device=self.device
             )

@@ -37,7 +37,7 @@ def run_ts_moe_for_seed(cfg, seed, output_dir, verbose=True):
     for a single seed and return a results dict compatible with the
     aggregation logic used for the original DAQCNN path."""
 
-    from experiments.train_ts_moe import run_ts_moe_pipeline
+    from src.models.train_ts_moe import run_ts_moe_pipeline
 
     result = run_ts_moe_pipeline(cfg, seed, output_dir, verbose=verbose)
 

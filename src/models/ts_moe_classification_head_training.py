@@ -31,7 +31,6 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from src.config import DATA_DIR, DATASET_REGISTRY
-from src.models.final_classifier import build_final_classifier_from_metadata
 from src.models.student_gatekeeper import StudentGatekeeper
 from src.models.ts_moe_classification_head import build_final_classifier_from_metadata
 from src.utils.evaluate import accuracy, evaluate

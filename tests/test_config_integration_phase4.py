@@ -27,7 +27,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from experiments.train_ts_moe import (  # noqa: E402
+from src.models.train_ts_moe import (  # noqa: E402
     _apply_final_overrides,
     _apply_student_overrides,
     run_ts_moe_pipeline,

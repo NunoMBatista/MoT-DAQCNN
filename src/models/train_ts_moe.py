@@ -7,7 +7,7 @@ Chains all three phases of the Teacher-Student Mixture-of-Topologies pipeline:
     Phase 3: Train Final Classifier (on sparse routed features)
 
 Usage:
-    python experiments/train_ts_moe.py --config configs/pneumonia_mnist_ts_moe.yml
+    python -m src.models.train_ts_moe --config configs/pneumonia_mnist_ts_moe.yml
 """
 
 import argparse
