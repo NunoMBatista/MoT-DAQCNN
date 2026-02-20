@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite the associated paper as below."
+message: "This project was based on the paper below."
 title: "MoT-DAQC"
 authors:
   - family-names: "Simen"
