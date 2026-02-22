@@ -13,13 +13,13 @@ dataset:
   download: true
 
 model:
-  architecture: "TS-MoE"  # "original" for DAQCNN, "TS-MoE" for Teacher-Student pipeline
+  architecture: "TS-MoE" # "original" for DAQCNN, "TS-MoE" for Teacher-Student pipeline
   num_classes: 2
   kernel_size: 2
-  stride: 1
-  kernel_topology_names: ["kings", "horizontal", "vertical", "square"]
-  scaling_factor: 1.0
-  evolution_time: 0.2
+  stride: 2
+  kernel_topology_names: ["kings", "horizontal", "vertical", "u_shape"]
+  scaling_factor: 1000
+  evolution_time: 6.28
   mode: trotter
   dropout: 0.1
   activation: relu
@@ -30,10 +30,10 @@ model:
 # Teacher-Student MoE parameters
 ts_moe:
   # Phase 1: Teacher entropy regularization
-  lambda_entropy: 0.01
-  lambda_max: 0.1
+  lambda_entropy: 0
+  lambda_max: 1
   lambda_warmup_epochs: 5
-  se_hidden_dim: null  # auto-select based on num_kernels
+  se_hidden_dim: null # auto-select based on num_kernels
 
   # Phase 2: Student gatekeeper
   student_hidden_dims: [32, 16]
@@ -46,13 +46,13 @@ ts_moe:
   final_lr: 1e-3
 
   # Optional filtering
-  confidence_threshold: 0.0  # 0.0 = no filtering
+  confidence_threshold: 0.0 # 0.0 = no filtering
 
 # Optimizer (used for Teacher training; Student/Final have their own lr above)
 optim:
   lr: 1e-3
   weight_decay: 0.0
-  epochs: 10
+  epochs: 15
   grad_clip: 1.0
   patience: 5
   use_scheduler: false
@@ -60,5 +60,5 @@ optim:
   scheduler_eta_min: 0.0
 
 misc:
-  seed: 0
+  seed: [1, 2, 3]
   log_every: 50

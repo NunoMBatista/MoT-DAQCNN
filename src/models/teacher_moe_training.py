@@ -23,6 +23,7 @@ from src.utils.evaluate import accuracy, evaluate
 from src.utils.losses import compute_lambda, entropy_loss
 from src.utils.plotting import (
     plot_alpha_histogram,
+    plot_alpha_histogram_combined,
     plot_confusion_matrix,
     plot_loss_curves,
     plot_roc_curve,
@@ -336,13 +337,10 @@ def run_teacher_training(
         routing_ratio = compute_routing_ratio(model, val_loader, device)
         routing_history.append(routing_ratio)
 
-        # Alpha histograms — save per kernel
+        # Alpha histograms — combined plot with all kernels in different colors
         alpha_vals = collect_alpha_weights(model, val_loader, device)
-        for kernel_name, vals in alpha_vals.items():
-            hist_path = os.path.join(
-                alpha_hist_dir, f"epoch_{epoch:03d}_kernel_{kernel_name}.png"
-            )
-            plot_alpha_histogram(vals, kernel_name, epoch, hist_path)
+        hist_path = os.path.join(alpha_hist_dir, f"epoch_{epoch:03d}_all_kernels.png")
+        plot_alpha_histogram_combined(alpha_vals, epoch, hist_path)
 
         epoch_pbar.set_description(
             f"Teacher seed {seed} | E{epoch}/{epochs} | "

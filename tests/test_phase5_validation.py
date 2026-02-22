@@ -310,23 +310,20 @@ class TestTeacherOutputs:
         assert ckpt["kernel_names"] == KERNEL_NAMES
 
     def test_alpha_histogram_files_exist(self, pipeline_result):
-        """Alpha histogram PNGs should exist for every epoch × kernel combo."""
+        """Alpha histogram PNGs should exist for every epoch (one combined plot per epoch)."""
         seed_dir = pipeline_result["seed_dir"]
         hist_dir = os.path.join(seed_dir, "teacher", "alpha_histograms")
         assert os.path.isdir(hist_dir), "Alpha histogram directory missing"
 
         for epoch in range(1, TEACHER_EPOCHS + 1):
-            for kname in KERNEL_NAMES:
-                hist_file = os.path.join(
-                    hist_dir, f"epoch_{epoch:03d}_kernel_{kname}.png"
-                )
-                assert os.path.isfile(hist_file), f"Missing histogram: {hist_file}"
+            hist_file = os.path.join(hist_dir, f"epoch_{epoch:03d}_all_kernels.png")
+            assert os.path.isfile(hist_file), f"Missing histogram: {hist_file}"
 
-        # Total count check
+        # Total count check: one histogram per epoch
         png_files = [f for f in os.listdir(hist_dir) if f.endswith(".png")]
-        expected = TEACHER_EPOCHS * len(KERNEL_NAMES)
+        expected = TEACHER_EPOCHS
         assert len(png_files) == expected, (
-            f"Expected {expected} histogram files, got {len(png_files)}"
+            f"Expected {expected} histogram files (one per epoch), got {len(png_files)}"
         )
 
     def test_teacher_plots_saved(self, pipeline_result):

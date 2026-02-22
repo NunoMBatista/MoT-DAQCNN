@@ -91,6 +91,59 @@ def plot_alpha_histogram(alpha_values, kernel_name, epoch, save_path, num_bins=2
     plt.close()
 
 
+def plot_alpha_histogram_combined(alpha_values_dict, epoch, save_path, num_bins=20):
+    """Plot alpha routing weights for all kernels in a single histogram.
+
+    Each kernel is drawn as a separate histogram with a different color,
+    overlaid on the same plot. This makes it easy to compare routing
+    distributions across kernels at a glance.
+
+    Args:
+        alpha_values_dict: Dict mapping kernel_name -> 1-D array of alpha values.
+        epoch: Current training epoch (for the title).
+        save_path: Where to save the PNG.
+        num_bins: Number of histogram bins.
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # Define a color palette (expand if needed for more kernels)
+    colors = ["steelblue", "coral", "seagreen", "purple", "orange", "pink"]
+
+    plt.figure(figsize=(10, 6))
+
+    for idx, (kernel_name, alpha_values) in enumerate(alpha_values_dict.items()):
+        if hasattr(alpha_values, "numpy"):
+            alpha_values = alpha_values.numpy()
+        alpha_values = np.asarray(alpha_values).ravel()
+
+        color = colors[idx % len(colors)]
+        plt.hist(
+            alpha_values,
+            bins=num_bins,
+            range=(0.0, 1.0),
+            alpha=0.5,
+            label=kernel_name,
+            color=color,
+            edgecolor="black",
+            linewidth=0.5,
+        )
+
+    # Reference lines
+    plt.axvline(0.0, color="red", linestyle="--", linewidth=1, alpha=0.6, label="0.0 (reject)")
+    plt.axvline(0.5, color="gray", linestyle="--", linewidth=1, alpha=0.6, label="0.5 (uncertain)")
+    plt.axvline(1.0, color="green", linestyle="--", linewidth=1, alpha=0.6, label="1.0 (select)")
+
+    plt.xlabel("Alpha value", fontsize=12)
+    plt.ylabel("Number of patches", fontsize=12)
+    plt.title(f"Alpha distribution — All kernels (epoch {epoch})", fontsize=13)
+    plt.xlim(-0.05, 1.05)
+    plt.legend(loc="upper right", fontsize=10)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+
+
 def plot_routing_ratio_over_epochs(routing_history, kernel_names, save_path):
     """Plot how the global routing ratio for each kernel evolves over epochs.
 

@@ -113,9 +113,9 @@ To avoid ambiguity regarding feature map dimensions and hardware constraints:
     - **Entropy Loss:** Regularization term to track routing decisiveness
     - **Teacher Oracle Accuracy:** Validation accuracy using the soft-gated volume
     - **Alpha Weight Histograms (CRITICAL!):** 
-      - Visualize distribution of $\alpha$ values for each kernel across all patches
-      - Generate one histogram per kernel, per epoch
-      - Save to `outputs/alpha_histograms/epoch_{N}_kernel_{name}.png`
+      - Visualize distribution of $\alpha$ values for all kernels across all patches in one combined histogram
+      - Generate one histogram per epoch with kernels in different colors
+      - Save to `outputs/alpha_histograms/epoch_{N}_all_kernels.png`
       - **SUCCESS PATTERN:** Bimodal distribution with spikes at 0.0 and 1.0
         - Example: 40% of patches have α≈0.0, 60% have α≈1.0 (decisive routing)
         - Indicates SE block learned to make hard choices
@@ -510,13 +510,14 @@ This ensures you're building ON TOP of existing code, not replacing it!
 - Lambda value (should anneal from 0 to lambda_max)
 - Teacher Oracle Accuracy (validation accuracy with soft gating)
 - **Alpha Weight Histograms** - CRITICAL! Generate per epoch:
-  - One histogram per kernel showing distribution of alpha values across all patches
-  - Save as image files to `outputs/alpha_histograms/epoch_{N}_kernel_{name}.png`
+  - One combined histogram per epoch with all kernels displayed in different colors
+  - Save as image files to `outputs/alpha_histograms/epoch_{N}_all_kernels.png`
   - **Visualization Requirements:**
     - X-axis: Alpha values (0.0 to 1.0)
     - Y-axis: Number of patches (or percentage)
     - Use bins of width 0.05 for fine-grained analysis
     - Overlay vertical lines at 0.0, 0.5, and 1.0 for reference
+    - Each kernel drawn with a different color for easy visual comparison
   - **Success Criteria by End of Training:**
     - Bimodal distribution with clear peaks at 0.0 and 1.0
     - Minimal mass in the middle region (0.3-0.7)
@@ -754,9 +755,9 @@ This ensures you're building ON TOP of existing code, not replacing it!
     - [x] Log Entropy Loss (regularization) separately every epoch
     - [x] Log Combined Total Loss and Lambda value
     - [x] Log Teacher Oracle Accuracy on validation set
-    - [x] **Generate Alpha Weight Histograms for each kernel (CRITICAL!):**
-      - [x] Create histogram per kernel per epoch
-      - [x] Save to `outputs/alpha_histograms/epoch_{N}_kernel_{name}.png`
+    - [x] **Generate Alpha Weight Histograms (CRITICAL!):**
+      - [x] Create one combined histogram per epoch with all kernels in different colors
+      - [x] Save to `outputs/alpha_histograms/epoch_{N}_all_kernels.png`
       - [ ] Verify bimodal distribution by final epoch (peaks at 0.0 and 1.0)
       - [x] Track evolution from uniform to bimodal across training
     - [x] Log Global Routing Ratio (percentage per kernel) every epoch
@@ -973,7 +974,7 @@ This ensures you're building ON TOP of existing code, not replacing it!
 
 - [x] **Output Files Verification:**
   - [x] `outputs/moe_run_<timestamp>/` directory created (via experiment runner)
-  - [x] `outputs/.../alpha_histograms/` contains histogram plots (per epoch × kernel)
+  - [x] `outputs/.../alpha_histograms/` contains histogram plots (one per epoch with all kernels)
   - [x] `outputs/.../student_routing_confusion_seed_N.png` exists
   - [x] `pipeline_summary.json` file contains all logged metrics per seed
   - [x] Summary report comparing all three phases generated (`pipeline_summary.json`)

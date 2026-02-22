@@ -218,22 +218,19 @@ def test_run_teacher_training_e2e():
             os.path.join(output_dir, "teacher_routing_ratio_seed_42.png")
         ), "Routing ratio plot not saved"
 
-        # Alpha histograms: should have one per kernel per epoch
+        # Alpha histograms: should have one combined histogram per epoch
         hist_dir = os.path.join(output_dir, "alpha_histograms")
         assert os.path.isdir(hist_dir), "Alpha histogram directory not created"
         for epoch in range(1, n_epochs + 1):
-            for kname in kernel_names:
-                hist_file = os.path.join(
-                    hist_dir, f"epoch_{epoch:03d}_kernel_{kname}.png"
-                )
-                assert os.path.isfile(hist_file), (
-                    f"Missing alpha histogram: {hist_file}"
+            hist_file = os.path.join(hist_dir, f"epoch_{epoch:03d}_all_kernels.png")
+            assert os.path.isfile(hist_file), (
+                f"Missing alpha histogram: {hist_file}"
                 )
 
         hist_count = len([f for f in os.listdir(hist_dir) if f.endswith(".png")])
-        expected_count = n_epochs * len(kernel_names)
+        expected_count = n_epochs
         assert hist_count == expected_count, (
-            f"Expected {expected_count} histogram files, got {hist_count}"
+            f"Expected {expected_count} histogram files (one per epoch), got {hist_count}"
         )
 
         print("\n  All E2E checks passed!")
