@@ -11,6 +11,7 @@ dataset:
   batch_size: 32
   num_workers: 2
   download: true
+  color_space: GRAYSCALE
 
 model:
   architecture: "TS-MoE" # "original" for DAQCNN, "TS-MoE" for Teacher-Student pipeline
@@ -18,8 +19,8 @@ model:
   kernel_size: 2
   stride: 2
   kernel_topology_names: ["kings", "horizontal", "vertical", "u_shape"]
-  scaling_factor: 1000
-  evolution_time: 6.28
+  scaling_factor: 1
+  evolution_time: 2.5
   mode: trotter
   dropout: 0.1
   activation: relu

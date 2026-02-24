@@ -14,6 +14,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 from src.models.daqcnn_training import run_single_seed  # noqa: E402
+from src.models.train_ts_moe import run_ts_moe_pipeline  # noqa: E402
 from src.utils.plotting import (  # noqa: E402
     plot_multi_seed_loss_curves,
     plot_multi_seed_roc_curves,
@@ -30,47 +31,6 @@ def set_seed(seed: int):
 def load_config(path: str):
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
-
-
-def run_ts_moe_for_seed(cfg, seed, output_dir, verbose=True):
-    """Run the full TS-MoE pipeline (Teacher → Student → Final Classifier)
-    for a single seed and return a results dict compatible with the
-    aggregation logic used for the original DAQCNN path."""
-
-    from src.models.train_ts_moe import run_ts_moe_pipeline
-
-    result = run_ts_moe_pipeline(cfg, seed, output_dir, verbose=verbose)
-
-    # Flatten into the same shape the aggregation code expects
-    final = result["final"]
-    summary = result["summary"]
-
-    return {
-        "seed": seed,
-        "architecture": "TS-MoE",
-        "train_losses": final.get("train_losses", []),
-        "val_losses": final.get("val_losses", []),
-        "train_accs": final.get("train_accs", []),
-        "val_accs": final.get("val_accs", []),
-        "test_loss": final.get("test_loss", 0.0),
-        "test_acc": final.get("test_acc", 0.0),
-        "test_auc": final.get("test_auc", 0.0),
-        "test_f1": final.get("test_f1", 0.0),
-        "test_recall": final.get("test_recall", 0.0),
-        "test_probs": final.get("test_probs", []),
-        "test_labels": final.get("test_labels", []),
-        "test_confusion_matrix": final.get("test_confusion_matrix", []),
-        "num_classes": final.get("num_classes", 2),
-        "final_train_loss": final.get("final_train_loss", 0.0),
-        "final_val_loss": final.get("final_val_loss", 0.0),
-        "final_train_acc": final.get("final_train_acc", 0.0),
-        "final_val_acc": final.get("final_val_acc", 0.0),
-        # Extra TS-MoE specific fields
-        "teacher_test_acc": summary.get("teacher_test_acc"),
-        "student_agreement": summary.get("student_agreement"),
-        "speedup_factor": summary.get("speedup_factor"),
-        "pipeline_time_s": summary.get("pipeline_time_s"),
-    }
 
 
 def main():
@@ -123,9 +83,38 @@ def main():
     all_results = []
     for seed in seeds:
         if architecture == "TS-MoE":
-            result = run_ts_moe_for_seed(
+            ts_result = run_ts_moe_pipeline(
                 cfg, seed, output_dir, verbose=(len(seeds) == 1)
             )
+            # Flatten into the same shape the aggregation code expects
+            final = ts_result["final"]
+            summary = ts_result["summary"]
+            result = {
+                "seed": seed,
+                "architecture": "TS-MoE",
+                "train_losses": final.get("train_losses", []),
+                "val_losses": final.get("val_losses", []),
+                "train_accs": final.get("train_accs", []),
+                "val_accs": final.get("val_accs", []),
+                "test_loss": final.get("test_loss", 0.0),
+                "test_acc": final.get("test_acc", 0.0),
+                "test_auc": final.get("test_auc", 0.0),
+                "test_f1": final.get("test_f1", 0.0),
+                "test_recall": final.get("test_recall", 0.0),
+                "test_probs": final.get("test_probs", []),
+                "test_labels": final.get("test_labels", []),
+                "test_confusion_matrix": final.get("test_confusion_matrix", []),
+                "num_classes": final.get("num_classes", 2),
+                "final_train_loss": final.get("final_train_loss", 0.0),
+                "final_val_loss": final.get("final_val_loss", 0.0),
+                "final_train_acc": final.get("final_train_acc", 0.0),
+                "final_val_acc": final.get("final_val_acc", 0.0),
+                # Extra TS-MoE specific fields
+                "teacher_test_acc": summary.get("teacher_test_acc"),
+                "student_agreement": summary.get("student_agreement"),
+                "speedup_factor": summary.get("speedup_factor"),
+                "pipeline_time_s": summary.get("pipeline_time_s"),
+            }
         else:
             result = run_single_seed(
                 cfg, seed, output_dir, verbose=(len(seeds) == 1), set_seed_fn=set_seed

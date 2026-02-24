@@ -34,10 +34,10 @@ def entropy_loss(alpha):
     return h.mean()
 
 
-def compute_lambda(epoch, warmup_epochs, lambda_max):
+def compute_lambda(epoch, warmup_epochs, lambda_max, lambda_start=0.0):
     """Compute the entropy regularization weight with linear annealing.
 
-    Lambda starts at 0 (no entropy penalty — let the network explore freely)
+    Lambda starts at ``lambda_start`` (typically 0 to let the network explore)
     and ramps linearly to ``lambda_max`` over ``warmup_epochs`` epochs.
     After that it stays at ``lambda_max``.
 
@@ -46,6 +46,7 @@ def compute_lambda(epoch, warmup_epochs, lambda_max):
         warmup_epochs: Number of epochs over which to anneal lambda.
             If 0, lambda is always lambda_max.
         lambda_max: Maximum value of lambda.
+        lambda_start: Starting value of lambda (default 0.0).
 
     Returns:
         float: Current lambda value.
@@ -53,4 +54,4 @@ def compute_lambda(epoch, warmup_epochs, lambda_max):
     if warmup_epochs <= 0:
         return lambda_max
     progress = min(epoch / warmup_epochs, 1.0)
-    return lambda_max * progress
+    return lambda_start + (lambda_max - lambda_start) * progress

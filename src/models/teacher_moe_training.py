@@ -272,12 +272,13 @@ def run_teacher_training(
         scheduler = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=eta_min)
 
     # --- Entropy regularization ---
+    lambda_start = float(ts_moe_cfg.get("lambda_entropy_start", 0.0))
     lambda_max = float(ts_moe_cfg.get("lambda_max", 0.1))
     lambda_warmup = int(ts_moe_cfg.get("lambda_warmup_epochs", epochs // 2))
 
     if verbose:
         print(
-            f"Entropy regularization: lambda_max={lambda_max}, warmup={lambda_warmup} epochs"
+            f"Entropy regularization: lambda_start={lambda_start}, lambda_max={lambda_max}, warmup={lambda_warmup} epochs"
         )
 
     # --- Training loop ---
@@ -312,7 +313,7 @@ def run_teacher_training(
         t0 = time.time()
 
         # Current lambda
-        lam = compute_lambda(epoch - 1, lambda_warmup, lambda_max)
+        lam = compute_lambda(epoch - 1, lambda_warmup, lambda_max, lambda_start)
         lambda_history.append(lam)
 
         # Train

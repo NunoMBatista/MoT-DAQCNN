@@ -697,9 +697,13 @@ class DAQCNNTestUI(App):
                 label = f"🔀 {label} [TS-MoE]"
             run_node = tree.root.add(label)
 
+            # Filter checkpoints for TS-MoE: only show teacher and final_classifier
             if run["checkpoints"]["best"]:
                 best_node = run_node.add("Best Models")
                 for ckpt in run["checkpoints"]["best"]:
+                    # Skip student checkpoints for TS-MoE
+                    if arch == "TS-MoE" and "student" in os.path.basename(ckpt):
+                        continue
                     best_node.add_leaf(
                         os.path.basename(ckpt), data={"path": ckpt, "run": run}
                     )
@@ -707,6 +711,9 @@ class DAQCNNTestUI(App):
             if run["checkpoints"]["final"]:
                 final_node = run_node.add("Final Models")
                 for ckpt in run["checkpoints"]["final"]:
+                    # Skip student checkpoints for TS-MoE
+                    if arch == "TS-MoE" and "student" in os.path.basename(ckpt):
+                        continue
                     final_node.add_leaf(
                         os.path.basename(ckpt), data={"path": ckpt, "run": run}
                     )
@@ -737,7 +744,10 @@ class DAQCNNTestUI(App):
         info_text += f"[bold]Run:[/bold] {run_info['run_name']}\n"
         info_text += f"[bold]Architecture:[/bold] {arch}\n"
         if ckpt_type != "unknown":
-            info_text += f"[bold]Model Type:[/bold] {ckpt_type}\n"
+            model_type_display = ckpt_type
+            if ckpt_type == "final_classifier":
+                model_type_display = "final_classifier (with student router)"
+            info_text += f"[bold]Model Type:[/bold] {model_type_display}\n"
         info_text += "\n"
 
         if run_info["config"]:
@@ -752,33 +762,75 @@ class DAQCNNTestUI(App):
         if run_info.get("model_metadata"):
             metadata = run_info["model_metadata"]
             info_text += f"[bold yellow]Model Architecture:[/bold yellow]\n"
-            total_params = metadata.get("total_params", "N/A")
-            trainable_params = metadata.get("trainable_params", "N/A")
-            if isinstance(total_params, int):
-                info_text += f"  Total params: {total_params:,}\n"
-                info_text += f"  Trainable params: {trainable_params:,}\n"
+
+            # For TS-MoE models, show specific architecture details
+            if arch == "TS-MoE" and ckpt_type in ("teacher", "final_classifier"):
+                # Show quantum layer info
+                kernel_size = metadata.get("quantum_kernel_size")
+                kernel_topologies = metadata.get("quantum_kernel_topologies", [])
+                if kernel_size is not None:
+                    info_text += f"  Quantum kernel: {kernel_size}×{kernel_size}\n"
+                if kernel_topologies:
+                    topologies_str = ", ".join(kernel_topologies)
+                    info_text += (
+                        f"  Topologies ({len(kernel_topologies)}): {topologies_str}\n"
+                    )
+
+                # Show parameter counts
+                total_params = metadata.get("total_params", "N/A")
+                trainable_params = metadata.get("trainable_params", "N/A")
+                if isinstance(total_params, int):
+                    info_text += f"  Total params: {total_params:,}\n"
+                    info_text += f"  Trainable params: {trainable_params:,}\n"
+                else:
+                    info_text += f"  Total params: {total_params}\n"
+                    info_text += f"  Trainable params: {trainable_params}\n"
+
+                # Show CNN head structure
+                head_structure = metadata.get("head_structure", [])
+                if head_structure:
+                    conv_layers = [l for l in head_structure if l["type"] == "Conv2d"]
+                    linear_layers = [
+                        l
+                        for l in head_structure
+                        if l["type"] in ["Linear", "LazyLinear"]
+                    ]
+                    info_text += f"  CNN layers: {len(conv_layers)}\n"
+                    info_text += f"  FC layers: {len(linear_layers)}\n"
+
+                if ckpt_type == "final_classifier":
+                    info_text += f"\n[dim]Note: Final classifier uses student router for inference[/dim]\n"
             else:
-                info_text += f"  Total params: {total_params}\n"
-                info_text += f"  Trainable params: {trainable_params}\n"
+                # Original DAQCNN display
+                total_params = metadata.get("total_params", "N/A")
+                trainable_params = metadata.get("trainable_params", "N/A")
+                if isinstance(total_params, int):
+                    info_text += f"  Total params: {total_params:,}\n"
+                    info_text += f"  Trainable params: {trainable_params:,}\n"
+                else:
+                    info_text += f"  Total params: {total_params}\n"
+                    info_text += f"  Trainable params: {trainable_params}\n"
 
-            # Display quantum kernel information
-            kernel_size = metadata.get("quantum_kernel_size")
-            kernel_topologies = metadata.get("quantum_kernel_topologies", [])
-            if kernel_size is not None:
-                info_text += f"  Quantum kernel: {kernel_size}×{kernel_size}\n"
-            if kernel_topologies:
-                topologies_str = ", ".join(kernel_topologies)
-                info_text += f"  Topologies: {topologies_str}\n"
+                # Display quantum kernel information
+                kernel_size = metadata.get("quantum_kernel_size")
+                kernel_topologies = metadata.get("quantum_kernel_topologies", [])
+                if kernel_size is not None:
+                    info_text += f"  Quantum kernel: {kernel_size}×{kernel_size}\n"
+                if kernel_topologies:
+                    topologies_str = ", ".join(kernel_topologies)
+                    info_text += f"  Topologies: {topologies_str}\n"
 
-            # Display CNN head structure summary
-            head_structure = metadata.get("head_structure", [])
-            if head_structure:
-                conv_layers = [l for l in head_structure if l["type"] == "Conv2d"]
-                linear_layers = [
-                    l for l in head_structure if l["type"] in ["Linear", "LazyLinear"]
-                ]
-                info_text += f"  CNN layers: {len(conv_layers)}\n"
-                info_text += f"  FC layers: {len(linear_layers)}\n"
+                # Display CNN head structure summary
+                head_structure = metadata.get("head_structure", [])
+                if head_structure:
+                    conv_layers = [l for l in head_structure if l["type"] == "Conv2d"]
+                    linear_layers = [
+                        l
+                        for l in head_structure
+                        if l["type"] in ["Linear", "LazyLinear"]
+                    ]
+                    info_text += f"  CNN layers: {len(conv_layers)}\n"
+                    info_text += f"  FC layers: {len(linear_layers)}\n"
 
             # Show compatible datasets
             model_type = (
@@ -968,6 +1020,7 @@ class DAQCNNTestUI(App):
                 return
 
             # Check model/dataset compatibility (skip for TS-MoE quantum models)
+            # TS-MoE models require cached quantum features
             if ckpt_type in ("teacher", "final_classifier"):
                 # TS-MoE models require cached quantum features
                 cfg = checkpoint.get("config", {})
@@ -985,6 +1038,19 @@ class DAQCNNTestUI(App):
                         )
                     )
                     return
+
+                # NOTE: For final_classifier, ideally we should:
+                # 1. Load the student router checkpoint
+                # 2. Route quantum features through student to create sparse tensors
+                # 3. Pass sparse tensors to final_classifier
+                # Currently, for simplicity, we test on full quantum features directly.
+                # This gives an approximation but not the exact pipeline behavior.
+                if ckpt_type == "final_classifier":
+                    self.notify(
+                        "Note: Testing final_classifier on full features (student router not applied)",
+                        severity="warning",
+                        timeout=5,
+                    )
 
                 self.notify(
                     f"Loading TS-MoE model ({ckpt_type}) and testing on {dataset_name}..."
@@ -1183,12 +1249,13 @@ class DAQCNNTestUI(App):
             ckpt_type = detect_checkpoint_type(ckpt_path)
 
             # TS-MoE models don't support single raw-image inference
-            if ckpt_type in ("teacher", "student", "final_classifier"):
+            # Note: student checkpoints are filtered out in load_models, but we keep this check
+            if ckpt_type in ("teacher", "final_classifier"):
                 self.push_screen(
                     ErrorModal(
                         "Single-image inference is only available for original "
-                        "DAQCNN models. TS-MoE models require pre-computed "
-                        "quantum features for the full dataset.",
+                        "DAQCNN models. TS-MoE models (teacher and final classifier) "
+                        "require pre-computed quantum features for the full dataset.",
                         "Not Supported",
                     )
                 )
