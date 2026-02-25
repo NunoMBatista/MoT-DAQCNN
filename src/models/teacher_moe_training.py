@@ -166,6 +166,58 @@ def compute_routing_ratio(model, loader, device):
     return {name: wins[name] / max(total, 1) for name in model.kernel_names}
 
 
+def get_teacher_head_structure(model):
+    """Extract CNN head structure from TeacherMoE model.
+
+    Args:
+        model: TeacherMoE instance
+
+    Returns:
+        List of dicts describing each layer in the head.
+    """
+    head_structure = []
+
+    if hasattr(model, "head"):
+        for i, layer in enumerate(model.head):
+            layer_info = {
+                "index": i,
+                "type": layer.__class__.__name__,
+            }
+
+            # Add layer-specific details
+            if isinstance(layer, nn.Conv2d):
+                layer_info.update(
+                    {
+                        "in_channels": layer.in_channels,
+                        "out_channels": layer.out_channels,
+                        "kernel_size": layer.kernel_size,
+                        "stride": layer.stride,
+                        "padding": layer.padding,
+                    }
+                )
+            elif isinstance(layer, nn.Linear):
+                if hasattr(layer, "in_features"):
+                    layer_info["in_features"] = layer.in_features
+                if hasattr(layer, "out_features"):
+                    layer_info["out_features"] = layer.out_features
+            elif isinstance(layer, nn.LazyLinear):
+                if hasattr(layer, "out_features"):
+                    layer_info["out_features"] = layer.out_features
+                if hasattr(layer, "in_features") and layer.in_features is not None:
+                    layer_info["in_features"] = layer.in_features
+            elif isinstance(layer, nn.BatchNorm2d):
+                layer_info["num_features"] = layer.num_features
+            elif isinstance(layer, nn.Dropout):
+                layer_info["p"] = layer.p
+            elif isinstance(layer, nn.MaxPool2d):
+                layer_info["kernel_size"] = layer.kernel_size
+                layer_info["stride"] = layer.stride
+
+            head_structure.append(layer_info)
+
+    return head_structure
+
+
 # -------------------------------------------------------------------------
 # Main training orchestrator
 # -------------------------------------------------------------------------
@@ -379,6 +431,19 @@ def run_teacher_training(
     epoch_pbar.close()
 
     # --- Save models ---
+    # Compute parameter counts for metadata
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    # Extract head structure
+    head_structure = get_teacher_head_structure(model)
+
+    # Enhance metadata with parameter counts and head structure
+    enhanced_metadata = metadata.copy()
+    enhanced_metadata["total_params"] = total_params
+    enhanced_metadata["trainable_params"] = trainable_params
+    enhanced_metadata["head_structure"] = head_structure
+
     final_model_path = os.path.join(output_dir, f"teacher_final_seed_{seed}.pt")
     torch.save(
         {
@@ -388,7 +453,7 @@ def run_teacher_training(
             "seed": seed,
             "num_classes": num_classes,
             "kernel_names": model.kernel_names,
-            "metadata": metadata,
+            "metadata": enhanced_metadata,
         },
         final_model_path,
     )
@@ -405,7 +470,7 @@ def run_teacher_training(
                 "num_classes": num_classes,
                 "best_val_loss": best_val_loss,
                 "kernel_names": model.kernel_names,
-                "metadata": metadata,
+                "metadata": enhanced_metadata,
             },
             best_model_path,
         )

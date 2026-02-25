@@ -377,6 +377,10 @@ def scan_all_outputs(outputs_root: Optional[str] = None) -> list:
             if len(individual_results) > 0:
                 model_metadata = individual_results[0].get("model_metadata")
 
+        # For TS-MoE runs, if metadata not found, try loading from teacher checkpoint
+        if architecture == "TS-MoE" and model_metadata is None:
+            model_metadata = _load_metadata_from_teacher_checkpoint(run_path)
+
         # For TS-MoE runs, load pipeline summary for extra info
         pipeline_summary = None
         if architecture == "TS-MoE":
@@ -459,3 +463,36 @@ def _load_json_safe(path: str) -> Optional[Any]:
             return json.load(f)
     except Exception:
         return None
+
+
+def _load_metadata_from_teacher_checkpoint(run_path: str) -> Optional[dict]:
+    """Load metadata from the first teacher checkpoint in a TS-MoE run.
+
+    Args:
+        run_path: Path to the TS-MoE run directory.
+
+    Returns:
+        Dictionary containing model metadata, or None if not found.
+    """
+    for entry in sorted(os.listdir(run_path)):
+        seed_path = os.path.join(run_path, entry)
+        if os.path.isdir(seed_path) and entry.startswith("seed_"):
+            teacher_dir = os.path.join(seed_path, "teacher")
+            if not os.path.isdir(teacher_dir):
+                continue
+
+            # Find teacher checkpoint
+            for fname in sorted(os.listdir(teacher_dir)):
+                if fname.endswith(".pt") and fname.startswith("teacher_"):
+                    teacher_ckpt_path = os.path.join(teacher_dir, fname)
+                    try:
+                        ckpt = torch.load(
+                            teacher_ckpt_path, map_location="cpu", weights_only=False
+                        )
+                        metadata = ckpt.get("metadata", {})
+                        if metadata:
+                            return metadata
+                    except Exception:
+                        continue
+
+    return None
