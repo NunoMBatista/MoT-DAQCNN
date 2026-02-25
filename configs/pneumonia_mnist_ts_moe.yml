@@ -22,7 +22,7 @@ model:
   scaling_factor: 1
   evolution_time: 2.5
   mode: trotter
-  dropout: 0.1
+  dropout: 0.5
   activation: relu
   quantum_device: default.qubit
   quantum_device_kwargs: {}
@@ -53,9 +53,9 @@ ts_moe:
 optim:
   lr: 1e-3
   weight_decay: 0.0
-  epochs: 15
+  epochs: 100
   grad_clip: 1.0
-  patience: 5
+  patience: 10
   use_scheduler: false
   scheduler_T_max: 10
   scheduler_eta_min: 0.0

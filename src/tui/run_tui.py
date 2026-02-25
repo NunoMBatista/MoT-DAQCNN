@@ -763,8 +763,209 @@ class DAQCNNTestUI(App):
             metadata = run_info["model_metadata"]
             info_text += f"[bold yellow]Model Architecture:[/bold yellow]\n"
 
-            # For TS-MoE models, show specific architecture details
-            if arch == "TS-MoE" and ckpt_type in ("teacher", "final_classifier"):
+            # For TS-MoE final_classifier, show student router and teacher info
+            if arch == "TS-MoE" and ckpt_type == "final_classifier":
+                # Load final classifier checkpoint to get metadata
+                try:
+                    final_ckpt = torch.load(
+                        ckpt_path, map_location="cpu", weights_only=False
+                    )
+
+                    # Extract seed from checkpoint path to find related models
+                    import re
+
+                    seed_match = re.search(r"seed_(\d+)", ckpt_path)
+                    if seed_match:
+                        seed_num = seed_match.group(1)
+                        seed_dir = os.path.dirname(
+                            os.path.dirname(ckpt_path)
+                        )  # Go up from final_classifier/ to seed_N/
+
+                        # Find student checkpoint
+                        student_dir = os.path.join(seed_dir, "student")
+                        student_best = os.path.join(
+                            student_dir, f"student_best_seed_{seed_num}.pt"
+                        )
+                        student_final = os.path.join(
+                            student_dir, f"student_final_seed_{seed_num}.pt"
+                        )
+                        student_ckpt_path = (
+                            student_best
+                            if os.path.exists(student_best)
+                            else student_final
+                        )
+
+                        # Find teacher checkpoint
+                        teacher_dir = os.path.join(seed_dir, "teacher")
+                        teacher_best = os.path.join(
+                            teacher_dir, f"teacher_best_seed_{seed_num}.pt"
+                        )
+                        teacher_final = os.path.join(
+                            teacher_dir, f"teacher_final_seed_{seed_num}.pt"
+                        )
+                        teacher_ckpt_path = (
+                            teacher_best
+                            if os.path.exists(teacher_best)
+                            else teacher_final
+                        )
+
+                        # Display Final Classifier info
+                        info_text += (
+                            f"[bold cyan]Final Classifier (CNN Head):[/bold cyan]\n"
+                        )
+                        final_metadata = final_ckpt.get("metadata", {})
+
+                        # Count parameters for final classifier
+                        if "model_state_dict" in final_ckpt:
+                            final_params = sum(
+                                p.numel()
+                                for p in final_ckpt["model_state_dict"].values()
+                            )
+                            info_text += f"  Parameters: {final_params:,}\n"
+
+                        # Show input channels
+                        use_mask = final_ckpt.get("use_mask_channel", False)
+                        out_ch = final_metadata.get("out_channels", "N/A")
+                        if out_ch != "N/A":
+                            in_ch = out_ch + (1 if use_mask else 0)
+                            info_text += f"  Input channels: {in_ch} ({out_ch} quantum"
+                            if use_mask:
+                                info_text += " + 1 mask"
+                            info_text += ")\n"
+
+                        # Show quantum kernel info
+                        kernel_size = final_metadata.get("quantum_kernel_size")
+                        if kernel_size:
+                            info_text += (
+                                f"  Quantum kernel: {kernel_size}×{kernel_size}\n"
+                            )
+
+                        info_text += "\n"
+
+                        # Display Student Router info
+                        if os.path.exists(student_ckpt_path):
+                            info_text += (
+                                f"[bold cyan]Student Router (Gatekeeper):[/bold cyan]\n"
+                            )
+                            try:
+                                student_ckpt = torch.load(
+                                    student_ckpt_path,
+                                    map_location="cpu",
+                                    weights_only=False,
+                                )
+
+                                # Count parameters for student
+                                if "model_state_dict" in student_ckpt:
+                                    student_params = sum(
+                                        p.numel()
+                                        for p in student_ckpt[
+                                            "model_state_dict"
+                                        ].values()
+                                    )
+                                    info_text += f"  Parameters: {student_params:,}\n"
+
+                                # Show patch dimension and hidden layers
+                                patch_dim = student_ckpt.get("patch_dim", "N/A")
+                                hidden_dims = student_ckpt.get("hidden_dims", [])
+                                num_kernels = student_ckpt.get("num_kernels", "N/A")
+
+                                info_text += f"  Patch dim: {patch_dim}\n"
+                                if hidden_dims:
+                                    info_text += f"  Hidden layers: {hidden_dims}\n"
+                                info_text += f"  Output kernels: {num_kernels}\n"
+
+                                # Show agreement
+                                agreement = student_ckpt.get("agreement", None)
+                                if agreement is not None:
+                                    info_text += (
+                                        f"  Teacher agreement: {agreement:.4f}\n"
+                                    )
+
+                                info_text += "\n"
+                            except Exception as e:
+                                info_text += (
+                                    f"  [dim](Could not load: {str(e)})[/dim]\n\n"
+                                )
+                        else:
+                            info_text += f"[bold cyan]Student Router:[/bold cyan] [dim]Not found[/dim]\n\n"
+
+                        # Display Teacher info
+                        if os.path.exists(teacher_ckpt_path):
+                            info_text += (
+                                f"[bold cyan]Teacher (Full Model):[/bold cyan]\n"
+                            )
+                            try:
+                                teacher_ckpt = torch.load(
+                                    teacher_ckpt_path,
+                                    map_location="cpu",
+                                    weights_only=False,
+                                )
+                                teacher_metadata = teacher_ckpt.get("metadata", {})
+
+                                # Count parameters for teacher
+                                if "model_state_dict" in teacher_ckpt:
+                                    teacher_params = sum(
+                                        p.numel()
+                                        for p in teacher_ckpt[
+                                            "model_state_dict"
+                                        ].values()
+                                    )
+                                    info_text += (
+                                        f"  Total parameters: {teacher_params:,}\n"
+                                    )
+
+                                # Show quantum kernel info
+                                kernel_size = teacher_metadata.get(
+                                    "quantum_kernel_size"
+                                )
+                                kernel_topologies = teacher_metadata.get(
+                                    "quantum_kernel_topologies", []
+                                )
+                                if kernel_size is not None:
+                                    info_text += f"  Quantum kernel: {kernel_size}×{kernel_size}\n"
+                                if kernel_topologies:
+                                    topologies_str = ", ".join(kernel_topologies)
+                                    info_text += f"  Topologies ({len(kernel_topologies)}): {topologies_str}\n"
+
+                                # Show CNN head structure
+                                head_structure = teacher_metadata.get(
+                                    "head_structure", []
+                                )
+                                if head_structure:
+                                    conv_layers = [
+                                        l
+                                        for l in head_structure
+                                        if l["type"] == "Conv2d"
+                                    ]
+                                    linear_layers = [
+                                        l
+                                        for l in head_structure
+                                        if l["type"] in ["Linear", "LazyLinear"]
+                                    ]
+                                    info_text += f"  CNN layers: {len(conv_layers)}, FC layers: {len(linear_layers)}\n"
+
+                                info_text += "\n"
+                            except Exception as e:
+                                info_text += (
+                                    f"  [dim](Could not load: {str(e)})[/dim]\n\n"
+                                )
+                        else:
+                            info_text += f"[bold cyan]Teacher:[/bold cyan] [dim]Not found[/dim]\n\n"
+
+                        info_text += f"[dim]Note: Final classifier uses student router for inference[/dim]\n"
+                except Exception as e:
+                    info_text += f"[dim]Could not load related models: {str(e)}[/dim]\n"
+                    # Fallback to basic display
+                    kernel_size = metadata.get("quantum_kernel_size")
+                    kernel_topologies = metadata.get("quantum_kernel_topologies", [])
+                    if kernel_size is not None:
+                        info_text += f"  Quantum kernel: {kernel_size}×{kernel_size}\n"
+                    if kernel_topologies:
+                        topologies_str = ", ".join(kernel_topologies)
+                        info_text += f"  Topologies ({len(kernel_topologies)}): {topologies_str}\n"
+
+            # For TS-MoE teacher, show specific architecture details
+            elif arch == "TS-MoE" and ckpt_type == "teacher":
                 # Show quantum layer info
                 kernel_size = metadata.get("quantum_kernel_size")
                 kernel_topologies = metadata.get("quantum_kernel_topologies", [])
@@ -798,8 +999,6 @@ class DAQCNNTestUI(App):
                     info_text += f"  CNN layers: {len(conv_layers)}\n"
                     info_text += f"  FC layers: {len(linear_layers)}\n"
 
-                if ckpt_type == "final_classifier":
-                    info_text += f"\n[dim]Note: Final classifier uses student router for inference[/dim]\n"
             else:
                 # Original DAQCNN display
                 total_params = metadata.get("total_params", "N/A")
@@ -833,6 +1032,12 @@ class DAQCNNTestUI(App):
                     info_text += f"  FC layers: {len(linear_layers)}\n"
 
             # Show compatible datasets
+            # For TS-MoE final_classifier, we don't have total_params from metadata
+            total_params = (
+                metadata.get("total_params", "N/A")
+                if arch != "TS-MoE" or ckpt_type != "final_classifier"
+                else "N/A"
+            )
             model_type = (
                 "RGB"
                 if total_params != "N/A" and isinstance(total_params, int)
@@ -863,38 +1068,69 @@ class DAQCNNTestUI(App):
 
             info_text += "\n"
 
-        # Display test metrics if available
+        # Display checkpoint-specific metrics
+        try:
+            checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+
+            # Show validation loss for "best" models
+            if "best_val_loss" in checkpoint:
+                info_text += f"[bold cyan]Checkpoint Metrics:[/bold cyan]\n"
+                val_loss = checkpoint["best_val_loss"]
+                info_text += f"  Best Val Loss: {val_loss:.4f}\n"
+
+            # Show agreement for student models
+            if "agreement" in checkpoint:
+                if "best_val_loss" not in checkpoint:
+                    info_text += f"[bold cyan]Checkpoint Metrics:[/bold cyan]\n"
+                agreement = checkpoint["agreement"]
+                info_text += f"  Agreement: {agreement:.4f}\n"
+
+            if "best_val_loss" in checkpoint or "agreement" in checkpoint:
+                info_text += "[dim]Note: Test metrics for this specific checkpoint\nare only available by running 'Test on Dataset'[/dim]\n\n"
+        except Exception:
+            pass  # If checkpoint can't be loaded, skip checkpoint metrics
+
+        # Display aggregate run metrics (for comparison across seeds)
         if run_info.get("metrics"):
             metrics = run_info["metrics"]
-            info_text += f"[bold cyan]Test Metrics:[/bold cyan]\n"
+            info_text += f"[bold cyan]Run Aggregate Metrics:[/bold cyan]\n"
+            info_text += f"[dim](averaged across all seeds)[/dim]\n"
             if "test_acc" in metrics:
                 acc = metrics["test_acc"].get("mean", "N/A")
-                info_text += (
-                    f"  Accuracy: {acc:.4f}\n"
-                    if isinstance(acc, float)
-                    else f"  Accuracy: {acc}\n"
-                )
+                std = metrics["test_acc"].get("std", "N/A")
+                if isinstance(acc, float) and isinstance(std, float):
+                    info_text += f"  Accuracy: {acc:.4f} ± {std:.4f}\n"
+                elif isinstance(acc, float):
+                    info_text += f"  Accuracy: {acc:.4f}\n"
+                else:
+                    info_text += f"  Accuracy: {acc}\n"
             if "test_auc" in metrics:
                 auc = metrics["test_auc"].get("mean", "N/A")
-                info_text += (
-                    f"  AUC/ROC: {auc:.4f}\n"
-                    if isinstance(auc, float)
-                    else f"  AUC/ROC: {auc}\n"
-                )
+                std = metrics["test_auc"].get("std", "N/A")
+                if isinstance(auc, float) and isinstance(std, float):
+                    info_text += f"  AUC/ROC: {auc:.4f} ± {std:.4f}\n"
+                elif isinstance(auc, float):
+                    info_text += f"  AUC/ROC: {auc:.4f}\n"
+                else:
+                    info_text += f"  AUC/ROC: {auc}\n"
             if "test_f1" in metrics:
                 f1 = metrics["test_f1"].get("mean", "N/A")
-                info_text += (
-                    f"  F1 Score: {f1:.4f}\n"
-                    if isinstance(f1, float)
-                    else f"  F1 Score: {f1}\n"
-                )
+                std = metrics["test_f1"].get("std", "N/A")
+                if isinstance(f1, float) and isinstance(std, float):
+                    info_text += f"  F1 Score: {f1:.4f} ± {std:.4f}\n"
+                elif isinstance(f1, float):
+                    info_text += f"  F1 Score: {f1:.4f}\n"
+                else:
+                    info_text += f"  F1 Score: {f1}\n"
             if "test_recall" in metrics:
                 recall = metrics["test_recall"].get("mean", "N/A")
-                info_text += (
-                    f"  Recall: {recall:.4f}\n"
-                    if isinstance(recall, float)
-                    else f"  Recall: {recall}\n"
-                )
+                std = metrics["test_recall"].get("std", "N/A")
+                if isinstance(recall, float) and isinstance(std, float):
+                    info_text += f"  Recall: {recall:.4f} ± {std:.4f}\n"
+                elif isinstance(recall, float):
+                    info_text += f"  Recall: {recall:.4f}\n"
+                else:
+                    info_text += f"  Recall: {recall}\n"
             info_text += "\n"
 
         # TS-MoE pipeline summary (if available)
@@ -1024,7 +1260,17 @@ class DAQCNNTestUI(App):
             if ckpt_type in ("teacher", "final_classifier"):
                 # TS-MoE models require cached quantum features
                 cfg = checkpoint.get("config", {})
-                cfg.setdefault("dataset", {})["name"] = dataset_name
+                if not isinstance(cfg, dict):
+                    self.push_screen(
+                        ErrorModal(
+                            "Invalid checkpoint: config is not a dictionary",
+                            "Checkpoint Error",
+                        )
+                    )
+                    return
+                if "dataset" not in cfg:
+                    cfg["dataset"] = {}
+                cfg["dataset"]["name"] = dataset_name
 
                 cached_path = find_cached_quantum_dataset(cfg)
                 if cached_path is None:
@@ -1039,28 +1285,209 @@ class DAQCNNTestUI(App):
                     )
                     return
 
-                # NOTE: For final_classifier, ideally we should:
-                # 1. Load the student router checkpoint
-                # 2. Route quantum features through student to create sparse tensors
-                # 3. Pass sparse tensors to final_classifier
-                # Currently, for simplicity, we test on full quantum features directly.
-                # This gives an approximation but not the exact pipeline behavior.
+                # For final_classifier, route through student to create sparse tensors
                 if ckpt_type == "final_classifier":
+                    try:
+                        self.notify(
+                            f"Loading student router and final classifier for {dataset_name}..."
+                        )
+
+                        # Find and load student checkpoint
+                        import re
+
+                        seed_match = re.search(r"seed_(\d+)", ckpt_path)
+                        if not seed_match:
+                            self.push_screen(
+                                ErrorModal(
+                                    "Could not extract seed from checkpoint path",
+                                    "Error",
+                                )
+                            )
+                            return
+
+                        seed_num = seed_match.group(1)
+                        seed_dir = os.path.dirname(os.path.dirname(ckpt_path))
+                        student_dir = os.path.join(seed_dir, "student")
+                        student_best = os.path.join(
+                            student_dir, f"student_best_seed_{seed_num}.pt"
+                        )
+                        student_final = os.path.join(
+                            student_dir, f"student_final_seed_{seed_num}.pt"
+                        )
+                        student_ckpt_path = (
+                            student_best
+                            if os.path.exists(student_best)
+                            else student_final
+                        )
+
+                        if not os.path.exists(student_ckpt_path):
+                            self.push_screen(
+                                ErrorModal(
+                                    f"Student checkpoint not found at {student_ckpt_path}",
+                                    "Missing Student",
+                                )
+                            )
+                            return
+
+                        # Load student model
+                        from src.utils.model_cache_manager import (
+                            load_model_from_checkpoint as load_ckpt,
+                        )
+
+                        student_model, student_ckpt = load_ckpt(
+                            student_ckpt_path, device=self.device
+                        )
+                        student_model.eval()
+
+                        # Load quantum features and raw images
+                        batch_size = cfg.get("dataset", {}).get("batch_size", 32)
+                        num_workers = cfg.get("dataset", {}).get("num_workers", 2)
+                        _, _, test_loader, n_classes, metadata = (
+                            load_cached_quantum_dataset(
+                                cached_path, batch_size, num_workers
+                            )
+                        )
+
+                        # Load raw images for patch extraction
+                        import copy
+
+                        cfg_copy = copy.deepcopy(cfg)
+                        if "dataset" not in cfg_copy:
+                            cfg_copy["dataset"] = {}
+                        cfg_copy["dataset"]["name"] = dataset_name
+                        _, _, raw_test_loader, _ = get_dataloaders(cfg_copy)
+
+                        # Build raw image dataset (list-like access)
+                        raw_images_list = []
+                        for imgs, lbls in raw_test_loader:
+                            for img in imgs:
+                                raw_images_list.append(img)
+
+                        class RawImageDataset:
+                            def __init__(self, images):
+                                self.images = images
+
+                            def __len__(self):
+                                return len(self.images)
+
+                            def __getitem__(self, idx):
+                                return self.images[idx], 0  # dummy label
+
+                        raw_dataset = RawImageDataset(raw_images_list)
+
+                        # Route through student to create sparse features
+                        from src.utils.color_conversion import apply_color_conversion
+                        from src.utils.kernel_mapping import (
+                            build_kernel_to_channels_map,
+                        )
+                        from src.utils.sparse_reconstruction import (
+                            build_sparse_tensor_fast,
+                        )
+
+                        kernel_to_channels = build_kernel_to_channels_map(
+                            metadata["channel_kernel_map"]
+                        )
+                        kernel_names = sorted(
+                            kernel_to_channels.keys(),
+                            key=lambda k: kernel_to_channels[k][0],
+                        )
+                        channel_groups = [
+                            kernel_to_channels[name] for name in kernel_names
+                        ]
+
+                        kernel_size = metadata.get("kernel_size", 2)
+                        stride = metadata.get("stride", 2)
+                        color_space = metadata.get("color_space", "RGB")
+                        use_mask = checkpoint.get("use_mask_channel", False)
+
+                        # Extract patches helper
+                        import torch.nn as nn
+
+                        def extract_patches(images, ks, s):
+                            unfold = nn.Unfold(kernel_size=ks, stride=s)
+                            patches = unfold(images)
+                            return patches.transpose(1, 2)
+
+                        # Route dataset through student
+                        all_sparse = []
+                        all_labels = []
+                        q_idx = 0
+
+                        self.notify("Routing features through student...", timeout=2)
+
+                        for q_features, q_labels in test_loader:
+                            B = q_features.shape[0]
+                            _, _, H, W = q_features.shape
+
+                            # Get raw images
+                            raw_images = []
+                            for i in range(B):
+                                img, _ = raw_dataset[q_idx + i]
+                                if not isinstance(img, torch.Tensor):
+                                    img = torch.tensor(img)
+                                raw_images.append(img)
+                            raw_images = torch.stack(raw_images)
+                            q_idx += B
+
+                            # Color conversion
+                            raw_images = apply_color_conversion(raw_images, color_space)
+                            if color_space == "HSV" and raw_images.shape[1] == 3:
+                                raw_images = raw_images[:, 2:3, :, :]
+
+                            # Extract patches
+                            patches = extract_patches(raw_images, kernel_size, stride)
+                            flat_patches = patches.reshape(-1, patches.shape[-1]).to(
+                                self.device
+                            )
+
+                            # Student routing
+                            with torch.no_grad():
+                                routing_flat = student_model.predict(flat_patches).cpu()
+                            routing_map = routing_flat.reshape(B, H, W)
+
+                            # Build sparse tensor
+                            sparse = build_sparse_tensor_fast(
+                                q_features, routing_map, channel_groups, use_mask
+                            )
+                            all_sparse.append(sparse)
+                            all_labels.append(q_labels.squeeze().long())
+
+                        # Create new dataloader with sparse features
+                        from torch.utils.data import DataLoader, TensorDataset
+
+                        sparse_features = torch.cat(all_sparse, dim=0)
+                        labels_tensor = torch.cat(all_labels, dim=0)
+                        sparse_dataset = TensorDataset(sparse_features, labels_tensor)
+                        test_loader = DataLoader(
+                            sparse_dataset,
+                            batch_size=batch_size,
+                            shuffle=False,
+                            num_workers=0,
+                        )
+
+                        self.notify(f"Testing final classifier on {dataset_name}...")
+                    except Exception as e:
+                        import traceback
+
+                        tb = traceback.format_exc()
+                        self.push_screen(
+                            ErrorModal(
+                                f"Error routing through student:\n{tb}",
+                                "Routing Error",
+                            )
+                        )
+                        return
+                else:
+                    # Teacher model - just load quantum features directly
                     self.notify(
-                        "Note: Testing final_classifier on full features (student router not applied)",
-                        severity="warning",
-                        timeout=5,
+                        f"Loading TS-MoE model ({ckpt_type}) and testing on {dataset_name}..."
                     )
 
-                self.notify(
-                    f"Loading TS-MoE model ({ckpt_type}) and testing on {dataset_name}..."
-                )
-
-                batch_size = cfg.get("dataset", {}).get("batch_size", 32)
-                num_workers = cfg.get("dataset", {}).get("num_workers", 2)
-                _, _, test_loader, n_classes, _ = load_cached_quantum_dataset(
-                    cached_path, batch_size, num_workers
-                )
+                    batch_size = cfg.get("dataset", {}).get("batch_size", 32)
+                    num_workers = cfg.get("dataset", {}).get("num_workers", 2)
+                    _, _, test_loader, n_classes, _ = load_cached_quantum_dataset(
+                        cached_path, batch_size, num_workers
+                    )
             else:
                 # Original DAQCNN model
                 model_in_channels = (
