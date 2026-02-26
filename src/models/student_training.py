@@ -46,6 +46,7 @@ from src.models.student_gatekeeper import (
 )
 from src.models.teacher_moe import build_teacher_from_metadata
 from src.utils.color_conversion import apply_color_conversion
+from src.utils.data import load_medmnist_dataset
 from src.utils.plotting import plot_loss_curves, plot_routing_confusion_matrix
 from src.utils.quantum_dataset_cache import (
     find_cached_quantum_dataset,
@@ -111,39 +112,6 @@ def generate_routing_labels(teacher, loader, device):
 # -------------------------------------------------------------------------
 # Raw patch extraction from original images
 # -------------------------------------------------------------------------
-
-
-def _load_medmnist_dataset(dataset_name, split, data_root=None):
-    """Load a MedMNIST dataset for a given split, no shuffling.
-
-    Uses the same loading pattern as ``experiments/create_quantum_dataset.py``
-    to guarantee index alignment with cached quantum features.
-    """
-    if dataset_name not in DATASET_REGISTRY:
-        raise ValueError(
-            f"Unknown dataset: {dataset_name}. "
-            f"Available: {list(DATASET_REGISTRY.keys())}"
-        )
-
-    _, class_name = DATASET_REGISTRY[dataset_name]
-
-    try:
-        import medmnist
-    except ImportError as exc:
-        raise ImportError("medmnist package required. pip install medmnist") from exc
-
-    DataClass = getattr(medmnist, class_name)
-    root = data_root or str(DATA_DIR)
-
-    transform = transforms.Compose([transforms.ToTensor()])
-    dataset = DataClass(
-        root=root,
-        split=split,
-        transform=transform,
-        download=True,
-        as_rgb=False,
-    )
-    return dataset
 
 
 def extract_patches(images, kernel_size, stride):
@@ -811,10 +779,16 @@ def _load_teacher_from_checkpoint(ckpt_path, device):
     num_classes = ckpt["num_classes"]
     kernel_names = ckpt["kernel_names"]
 
+    # Get SE block config from metadata (saved during teacher training)
+    se_hidden_dim = metadata.get("se_hidden_dim", None)
+    se_use_std = metadata.get("se_use_std", False)
+
     teacher = build_teacher_from_metadata(
         metadata=metadata,
         num_classes=num_classes,
         dropout=0.0,  # no dropout needed in eval mode
+        se_hidden_dim=se_hidden_dim,
+        se_use_std=se_use_std,
     )
     teacher.to(device)
 
@@ -909,8 +883,10 @@ def run_student_training(
         )
 
     batch_size = cfg.get("dataset", {}).get("batch_size", 32)
+    model_cfg = cfg.get("model", {})
+    requested_kernels = model_cfg.get("kernel_topology_names", None)
     q_train_loader, q_val_loader, _, _, q_metadata = load_cached_quantum_dataset(
-        cached_path, batch_size, num_workers=0
+        cached_path, batch_size, num_workers=0, requested_kernels=requested_kernels
     )
     if verbose:
         print(
@@ -978,10 +954,10 @@ def run_student_training(
                 f"Loading original images ({dataset_name}, {color_space}) "
                 f"for patch extraction..."
             )
-        train_dataset = _load_medmnist_dataset(
+        train_dataset = load_medmnist_dataset(
             dataset_name, "train", effective_data_root
         )
-        val_dataset = _load_medmnist_dataset(dataset_name, "val", effective_data_root)
+        val_dataset = load_medmnist_dataset(dataset_name, "val", effective_data_root)
 
     train_patches, _ = extract_all_patches(
         train_dataset, kernel_size, stride, color_space

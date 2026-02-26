@@ -34,6 +34,7 @@ from src.config import DATA_DIR, DATASET_REGISTRY
 from src.models.student_gatekeeper import StudentGatekeeper
 from src.models.student_training import compute_patch_features
 from src.models.ts_moe_classification_head import build_final_classifier_from_metadata
+from src.utils.data import load_medmnist_dataset
 from src.utils.evaluate import accuracy, evaluate
 from src.utils.kernel_mapping import build_kernel_to_channels_map, get_kernel_names
 from src.utils.plotting import (
@@ -50,37 +51,6 @@ from src.utils.sparse_reconstruction import build_sparse_tensor_fast
 # -------------------------------------------------------------------------
 # Sparse dataset construction
 # -------------------------------------------------------------------------
-
-
-def _load_medmnist_dataset(dataset_name, split, data_root=None):
-    """Load a MedMNIST dataset for a given split, no shuffling."""
-    from torchvision import transforms
-
-    if dataset_name not in DATASET_REGISTRY:
-        raise ValueError(
-            f"Unknown dataset: {dataset_name}. "
-            f"Available: {list(DATASET_REGISTRY.keys())}"
-        )
-
-    _, class_name = DATASET_REGISTRY[dataset_name]
-
-    try:
-        import medmnist
-
-        dataset_class = getattr(medmnist, class_name)
-    except ImportError as exc:
-        raise ImportError(
-            f"medmnist is required for {dataset_name}. "
-            "Install with `pip install medmnist`."
-        ) from exc
-
-    if data_root is None:
-        data_root = str(DATA_DIR)
-
-    transform = transforms.ToTensor()
-    return dataset_class(
-        split=split, download=True, root=str(data_root), transform=transform
-    )
 
 
 def _extract_patches(images, kernel_size, stride):
@@ -399,15 +369,18 @@ def run_final_classifier_training(
 
     batch_size = cfg.get("dataset", {}).get("batch_size", 32)
     # Use shuffle=False loaders for sparse dataset construction (index alignment!)
+    model_cfg = cfg.get("model", {})
+    requested_kernels = model_cfg.get("kernel_topology_names", None)
     q_train_loader, q_val_loader, q_test_loader, n_classes, q_metadata = (
-        load_cached_quantum_dataset(cached_path, batch_size, num_workers=0)
+        load_cached_quantum_dataset(
+            cached_path, batch_size, num_workers=0, requested_kernels=requested_kernels
+        )
     )
-    # Rebuild unshuffled train loader for sparse construction
-    data = np.load(cached_path, allow_pickle=True)
-    train_features = torch.from_numpy(data["train_features"]).float()
-    train_labels_t = torch.from_numpy(data["train_labels"]).long()
+    # Use the already-filtered train loader's dataset (for subset extraction)
+    # We need unshuffled version for index alignment with raw images
+    train_dataset = q_train_loader.dataset
     q_train_unshuffled = DataLoader(
-        TensorDataset(train_features, train_labels_t),
+        train_dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=0,
@@ -420,7 +393,8 @@ def run_final_classifier_training(
         )
 
     # --- Kernel mapping ---
-    channel_kernel_map = metadata["channel_kernel_map"]
+    # Use q_metadata (from quantum dataset) which has correct subset info
+    channel_kernel_map = q_metadata["channel_kernel_map"]
     kernel_to_channels = build_kernel_to_channels_map(channel_kernel_map)
     ordered_kernel_names = get_kernel_names(kernel_to_channels)
     channel_groups = [kernel_to_channels[name] for name in ordered_kernel_names]
@@ -428,8 +402,8 @@ def run_final_classifier_training(
     # --- Load raw images ---
     dataset_name = cfg.get("dataset", {}).get("name", "pneumonia_mnist")
     color_space = cfg.get("dataset", {}).get("color_space", "RGB")
-    kernel_size = metadata["kernel_size"]
-    stride = metadata["stride"]
+    kernel_size = q_metadata["kernel_size"]
+    stride = q_metadata["stride"]
 
     ts_moe_cfg = cfg.get("ts_moe", {})
     use_mask_channel = ts_moe_cfg.get("use_mask_channel", False)
@@ -447,9 +421,9 @@ def run_final_classifier_training(
     else:
         if verbose:
             print(f"Loading original images ({dataset_name}, {color_space})...")
-        raw_train = _load_medmnist_dataset(dataset_name, "train", effective_data_root)
-        raw_val = _load_medmnist_dataset(dataset_name, "val", effective_data_root)
-        raw_test = _load_medmnist_dataset(dataset_name, "test", effective_data_root)
+        raw_train = load_medmnist_dataset(dataset_name, "train", effective_data_root)
+        raw_val = load_medmnist_dataset(dataset_name, "val", effective_data_root)
+        raw_test = load_medmnist_dataset(dataset_name, "test", effective_data_root)
 
     # --- Build sparse datasets ---
     if verbose:
@@ -525,7 +499,7 @@ def run_final_classifier_training(
     num_classes = model_cfg.get("num_classes", n_classes)
 
     model = build_final_classifier_from_metadata(
-        metadata=metadata,
+        metadata=q_metadata,
         num_classes=num_classes,
         use_mask_channel=use_mask_channel,
         dropout=model_cfg.get("dropout", 0.1),
@@ -701,7 +675,7 @@ def run_final_classifier_training(
             "seed": seed,
             "num_classes": num_classes,
             "kernel_names": ordered_kernel_names,
-            "metadata": metadata,
+            "metadata": q_metadata,
             "use_mask_channel": use_mask_channel,
             "test_accuracy": test_metrics["accuracy"],
         },
@@ -718,10 +692,10 @@ def run_final_classifier_training(
                 "config": cfg,
                 "seed": seed,
                 "num_classes": num_classes,
-                "kernel_names": ordered_kernel_names,
-                "metadata": metadata,
-                "use_mask_channel": use_mask_channel,
                 "best_val_loss": best_val_loss,
+                "kernel_names": ordered_kernel_names,
+                "metadata": q_metadata,
+                "use_mask_channel": use_mask_channel,
                 "test_accuracy": test_metrics["accuracy"],
             },
             best_path,

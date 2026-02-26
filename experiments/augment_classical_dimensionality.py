@@ -37,6 +37,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
+from src.utils.data import load_medmnist_dataset
 
 # =============================================================================
 # PARAMETERS - Edit these to configure the augmented dataset generation
@@ -101,40 +102,6 @@ SPLITS = ["train", "val", "test"]
 # =============================================================================
 # Helper functions
 # =============================================================================
-
-
-def load_medmnist_dataset(dataset_name, split, data_root):
-    """Load a MedMNIST dataset by name and split."""
-
-    name_to_class = {
-        "pneumonia_mnist": "PneumoniaMNIST",
-        "breast_mnist": "BreastMNIST",
-        "path_mnist": "PathMNIST",
-        "derma_mnist": "DermaMNIST",
-        "tissue_mnist": "TissueMNIST",
-    }
-
-    if dataset_name not in name_to_class:
-        raise ValueError(f"Unknown dataset: {dataset_name}")
-
-    class_name = name_to_class[dataset_name]
-
-    try:
-        import medmnist
-
-        dataset_class = getattr(medmnist, class_name)
-    except ImportError:
-        raise ImportError("medmnist is required. Install with: pip install medmnist")
-
-    transform = transforms.ToTensor()
-    ds = dataset_class(
-        split=split,
-        download=True,
-        root=str(data_root),
-        transform=transform,
-    )
-
-    return ds
 
 
 def extract_images_and_labels(dataset):

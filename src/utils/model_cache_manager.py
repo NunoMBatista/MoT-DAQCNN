@@ -140,11 +140,17 @@ def _load_teacher(checkpoint: dict, device: str) -> torch.nn.Module:
     cfg = checkpoint.get("config", {})
     model_cfg = cfg.get("model", {})
 
+    # Get SE block config from metadata (saved during teacher training)
+    se_hidden_dim = metadata.get("se_hidden_dim", None)
+    se_use_std = metadata.get("se_use_std", False)
+
     model = build_teacher_from_metadata(
         metadata,
         num_classes=num_classes,
         dropout=model_cfg.get("dropout", 0.1),
         activation=model_cfg.get("activation", "relu"),
+        se_hidden_dim=se_hidden_dim,
+        se_use_std=se_use_std,
     )
 
     # Initialize lazy layers before loading state dict

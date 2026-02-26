@@ -18,7 +18,7 @@ model:
   num_classes: 2
   kernel_size: 2
   stride: 2
-  kernel_topology_names: ["kings", "horizontal", "vertical", "u_shape"]
+  kernel_topology_names: ["horizontal", "u_shape"]
   scaling_factor: 1
   evolution_time: 2.5
   mode: trotter
@@ -35,8 +35,16 @@ ts_moe:
   # -----------------------------------------------------------------------
   lambda_entropy: 0 # entropy regularisation weight on Teacher routing
   lambda_max: 1 # max-alpha regularisation weight (encourages confident routing)
-  lambda_warmup_epochs: 5 # ramp lambda_entropy/lambda_max up over this many epochs
-  se_hidden_dim: null # SE bottleneck hidden dim; null = auto (num_kernels)
+  lambda_warmup_epochs: 50 # ramp lambda_entropy/lambda_max up over this many epochs
+  se_hidden_dim: 32 # SE bottleneck hidden dim; null = auto (num_kernels)
+
+  # SE squeeze operation: by default, each kernel group's N channels are averaged
+  # to a single value (mean). Set se_use_std to true to also compute std, giving
+  # the SE gating network richer information about variance within each kernel.
+  # This doubles the input to the SE MLP (from M to 2*M channels), which may help
+  # if the Teacher struggles to route accurately with mean alone.
+  # Recommended: try false first (simpler), then true if Teacher accuracy is poor.
+  se_use_std: false # use mean+std instead of mean-only in SE squeeze
 
   # -----------------------------------------------------------------------
   # Phase 2: Student gatekeeper
@@ -63,8 +71,8 @@ ts_moe:
   student_batch_size: 256 # batch size for patch-level training
 
   # Early stopping: stop once val agreement stays above threshold for N epochs
-  student_agreement_threshold: 0.90 # target Teacher-Student agreement (0-1)
-  student_agreement_patience: 3 # consecutive epochs above threshold to stop
+  student_agreement_threshold: 0.98 # target Teacher-Student agreement (0-1)
+  student_agreement_patience: 5 # consecutive epochs above threshold to stop
 
   # -----------------------------------------------------------------------
   # FIX A: Label imbalance
@@ -97,7 +105,7 @@ ts_moe:
   # Try 0.3–0.5 to remove the most ambiguous routing decisions.
   # A diagnostic summary of Teacher confidence is printed at the start of
   # student training to help you choose a good value.
-  confidence_threshold: 0.3
+  confidence_threshold: 0.6
 
   # Knowledge distillation (soft labels):
   #   Instead of training on hard argmax labels only, also train against the
@@ -113,7 +121,7 @@ ts_moe:
   #   Higher temperature (e.g. 4–8) produces softer targets and transfers
   #   more inter-class relationship information.  Lower (e.g. 1–2) keeps
   #   targets close to one-hot.
-  student_kd_alpha: 0.5 # weight of KL distillation term (0 = hard CE only)
+  student_kd_alpha: 0.0 # weight of KL distillation term (0 = hard CE only)
   student_kd_temperature: 4.0 # temperature for softening Teacher/Student distributions
 
   # -----------------------------------------------------------------------
@@ -146,7 +154,7 @@ ts_moe:
   # Phase 3: Final classifier
   # -----------------------------------------------------------------------
   use_mask_channel: false # whether to append the routing mask as an extra channel
-  final_epochs: 15
+  final_epochs: 100
   final_lr: 1e-3
 
 # Optimizer (used for Teacher training; Student/Final have their own lr above)
@@ -155,8 +163,8 @@ optim:
   weight_decay: 0.0
   epochs: 100
   grad_clip: 1.0
-  patience: 10
-  use_scheduler: false
+  patience: 15
+  use_scheduler: true
   scheduler_T_max: 10
   scheduler_eta_min: 0.0
 

@@ -60,6 +60,7 @@ class TeacherMoE(nn.Module):
         dropout=0.1,
         activation="relu",
         se_hidden_dim=None,
+        se_use_std=False,
     ):
         super().__init__()
 
@@ -81,6 +82,7 @@ class TeacherMoE(nn.Module):
             channels_per_kernel=self.channels_per_kernel,
             channel_groups=channel_groups,
             hidden_dim=se_hidden_dim,
+            use_std=se_use_std,
         )
 
         # Classification Head — the "Driver"
@@ -169,7 +171,12 @@ class TeacherMoE(nn.Module):
 
 
 def build_teacher_from_metadata(
-    metadata, num_classes, dropout=0.1, activation="relu", se_hidden_dim=None
+    metadata,
+    num_classes,
+    dropout=0.1,
+    activation="relu",
+    se_hidden_dim=None,
+    se_use_std=False,
 ):
     """Convenience factory: build a TeacherMoE directly from cached dataset metadata.
 
@@ -180,6 +187,7 @@ def build_teacher_from_metadata(
         dropout: Dropout for the classification head.
         activation: Activation function ("relu" or "gelu").
         se_hidden_dim: Hidden dimension for SE gating MLP.
+        se_use_std: Whether to use both mean and std in SE squeeze (default: False).
 
     Returns:
         TeacherMoE instance.
@@ -196,4 +204,5 @@ def build_teacher_from_metadata(
         dropout=dropout,
         activation=activation,
         se_hidden_dim=se_hidden_dim,
+        se_use_std=se_use_std,
     )

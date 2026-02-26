@@ -172,6 +172,9 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     using_cache = False
     cached_path = find_cached_quantum_dataset(cfg)
 
+    # Get model config early (needed for requested_kernels)
+    model_cfg = cfg.get("model", {})
+
     if cached_path is not None:
         if verbose:
             print(f"Found cached quantum dataset: {cached_path}")
@@ -179,8 +182,14 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
 
         batch_size = cfg.get("dataset", {}).get("batch_size", 32)
         num_workers = cfg.get("dataset", {}).get("num_workers", 2)
+        requested_kernels = model_cfg.get("kernel_topology_names", None)
         train_loader, val_loader, test_loader, n_classes, cache_meta = (
-            load_cached_quantum_dataset(cached_path, batch_size, num_workers)
+            load_cached_quantum_dataset(
+                cached_path,
+                batch_size,
+                num_workers,
+                requested_kernels=requested_kernels,
+            )
         )
         using_cache = True
     else:
@@ -196,9 +205,8 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
         )
 
     # Model
-    model_cfg = cfg.get("model", {})
     num_classes = model_cfg.get("num_classes", n_classes)
-    
+
     # When using cache, override the expected quantum output channels
     # This is needed for HSV datasets where output structure differs
     override_quantum_out_channels = None
@@ -207,7 +215,7 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
 
     if verbose:
         print("Building model...")
-    
+
     # Build model kwargs
     model_kwargs = {
         "num_classes": num_classes,
@@ -225,11 +233,11 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
         "in_channels": model_cfg.get("in_channels", 1),
         "interface": model_cfg.get("interface", "torch"),
     }
-    
+
     # Add override if using cached data
     if override_quantum_out_channels is not None:
         model_kwargs["override_quantum_out_channels"] = override_quantum_out_channels
-    
+
     model = DAQCNN(**model_kwargs)
 
     if using_cache:

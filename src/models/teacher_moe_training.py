@@ -275,10 +275,15 @@ def run_teacher_training(
     if verbose:
         print(f"Using cached quantum dataset: {cached_path}")
 
+    # --- Build model config early (needed for requested_kernels) ---
+    model_cfg = cfg.get("model", {})
     batch_size = cfg.get("dataset", {}).get("batch_size", 32)
     num_workers = cfg.get("dataset", {}).get("num_workers", 2)
+    requested_kernels = model_cfg.get("kernel_topology_names", None)
     train_loader, val_loader, test_loader, n_classes, metadata = (
-        load_cached_quantum_dataset(cached_path, batch_size, num_workers)
+        load_cached_quantum_dataset(
+            cached_path, batch_size, num_workers, requested_kernels=requested_kernels
+        )
     )
 
     if verbose:
@@ -288,16 +293,18 @@ def run_teacher_training(
         )
 
     # --- Build model ---
-    model_cfg = cfg.get("model", {})
     num_classes = model_cfg.get("num_classes", n_classes)
     ts_moe_cfg = cfg.get("ts_moe", {})
+    se_hidden_dim = ts_moe_cfg.get("se_hidden_dim", None)
+    se_use_std = ts_moe_cfg.get("se_use_std", False)
 
     model = build_teacher_from_metadata(
         metadata=metadata,
         num_classes=num_classes,
         dropout=model_cfg.get("dropout", 0.1),
         activation=model_cfg.get("activation", "relu"),
-        se_hidden_dim=ts_moe_cfg.get("se_hidden_dim", None),
+        se_hidden_dim=se_hidden_dim,
+        se_use_std=se_use_std,
     )
     model.to(device)
 
@@ -438,11 +445,13 @@ def run_teacher_training(
     # Extract head structure
     head_structure = get_teacher_head_structure(model)
 
-    # Enhance metadata with parameter counts and head structure
+    # Enhance metadata with parameter counts, head structure, and SE config
     enhanced_metadata = metadata.copy()
     enhanced_metadata["total_params"] = total_params
     enhanced_metadata["trainable_params"] = trainable_params
     enhanced_metadata["head_structure"] = head_structure
+    enhanced_metadata["se_hidden_dim"] = se_hidden_dim
+    enhanced_metadata["se_use_std"] = se_use_std
 
     final_model_path = os.path.join(output_dir, f"teacher_final_seed_{seed}.pt")
     torch.save(

@@ -31,6 +31,8 @@ class GroupedSEBlock(nn.Module):
             grouping: kernel 0 = channels [0..N-1], kernel 1 = [N..2N-1], etc.
         hidden_dim: Hidden dimension for the gating MLP. Defaults to
             max(num_kernels, 4) to keep it small but expressive.
+        use_std: If True, use both mean and std for squeeze (input becomes 2*M).
+            If False, use only mean (input is M). Default: False.
 
     Input shape:  (B, M*N, H, W)
     Output shape: (B, M*N, H, W) — same shape, but channels are reweighted.
@@ -46,12 +48,14 @@ class GroupedSEBlock(nn.Module):
         channels_per_kernel,
         channel_groups=None,
         hidden_dim=None,
+        use_std=False,
     ):
         super().__init__()
 
         self.num_kernels = num_kernels  # M
         self.channels_per_kernel = channels_per_kernel  # N
         self.total_channels = num_kernels * channels_per_kernel  # M * N
+        self.use_std = use_std  # Whether to include std in squeeze
 
         # Channel groups: which channel indices belong to each kernel.
         # Stored as a list of lists, ordered by kernel index.
@@ -72,8 +76,11 @@ class GroupedSEBlock(nn.Module):
         if hidden_dim is None:
             hidden_dim = max(num_kernels, 4)
 
+        # Input to gate is M (mean only) or 2*M (mean + std)
+        gate_input_channels = 2 * num_kernels if use_std else num_kernels
+
         self.gate = nn.Sequential(
-            nn.Conv2d(num_kernels, hidden_dim, kernel_size=1, bias=True),
+            nn.Conv2d(gate_input_channels, hidden_dim, kernel_size=1, bias=True),
             nn.ReLU(inplace=True),
             nn.Conv2d(hidden_dim, num_kernels, kernel_size=1, bias=True),
         )
@@ -100,15 +107,26 @@ class GroupedSEBlock(nn.Module):
             f"Expected {self.total_channels} channels, got {C}"
         )
 
-        # --- Squeeze: average each kernel group to one value per patch ---
-        # Result: (B, M, H, W)
-        pooled = torch.zeros(B, self.num_kernels, H, W, device=x.device, dtype=x.dtype)
-        for k, group in enumerate(self.channel_groups):
-            # Mean over the N channels in this kernel group
-            pooled[:, k, :, :] = x[:, group, :, :].mean(dim=1)
+        # --- Squeeze: average each kernel group (optionally include std) ---
+        # Result: (B, M, H, W) if use_std=False, or (B, 2*M, H, W) if use_std=True
+        if self.use_std:
+            # Use both mean and std: more information about each kernel group
+            pooled = torch.zeros(
+                B, 2 * self.num_kernels, H, W, device=x.device, dtype=x.dtype
+            )
+            for k, group in enumerate(self.channel_groups):
+                pooled[:, 2 * k, :, :] = x[:, group, :, :].mean(dim=1)  # mean
+                pooled[:, 2 * k + 1, :, :] = x[:, group, :, :].std(dim=1)  # std
+        else:
+            # Use only mean (original behavior)
+            pooled = torch.zeros(
+                B, self.num_kernels, H, W, device=x.device, dtype=x.dtype
+            )
+            for k, group in enumerate(self.channel_groups):
+                pooled[:, k, :, :] = x[:, group, :, :].mean(dim=1)
 
         # --- Gate: produce M weights per patch via small MLP ---
-        # (B, M, H, W) -> (B, M, H, W)
+        # (B, M or 2*M, H, W) -> (B, M, H, W)
         alpha = self.gate(pooled)
         alpha = torch.softmax(alpha, dim=1)  # normalize across kernels
 

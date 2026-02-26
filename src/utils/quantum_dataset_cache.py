@@ -21,7 +21,11 @@ def _match_metadata(meta, cfg):
     the quantum-relevant parameters in the training config.
 
     We compare: dataset_name, kernel_size, stride, kernel_topology_names
-    (order-insensitive), num_kernels, scaling_factor, evolution_time, color_space.
+    (order-insensitive or subset), num_kernels, scaling_factor, evolution_time, color_space.
+
+    Returns:
+        "exact" if perfect match, "subset" if requested kernels are a subset of cached,
+        False otherwise.
     """
     model_cfg = cfg.get("model", {})
     dataset_cfg = cfg.get("dataset", {})
@@ -30,7 +34,7 @@ def _match_metadata(meta, cfg):
     # Dataset name
     if meta.get("dataset_name") != dataset_name:
         return False
-    
+
     # Color space (default to RGB for backward compatibility)
     cached_color_space = meta.get("color_space", "RGB")
     config_color_space = dataset_cfg.get("color_space", "RGB")
@@ -45,10 +49,14 @@ def _match_metadata(meta, cfg):
     if meta.get("stride") != model_cfg.get("stride"):
         return False
 
-    # Topology names (sorted so order doesn't matter)
+    # Topology names - check for exact match or subset
     cached_topos = sorted(meta.get("kernel_topology_names", []))
     config_topos = sorted(model_cfg.get("kernel_topology_names", []))
-    if cached_topos != config_topos:
+
+    exact_match = cached_topos == config_topos
+    subset_match = set(config_topos).issubset(set(cached_topos))
+
+    if not exact_match and not subset_match:
         return False
 
     # Scaling factor — compare with a small tolerance for float rounding
@@ -71,7 +79,7 @@ def _match_metadata(meta, cfg):
     ):
         return False
 
-    return True
+    return "exact" if exact_match else "subset"
 
 
 def find_cached_quantum_dataset(cfg, datasets_dir=None):
@@ -79,6 +87,9 @@ def find_cached_quantum_dataset(cfg, datasets_dir=None):
     Scan ``data/quantum_datasets/`` for a ``.json`` metadata sidecar whose
     parameters match *cfg*.  Returns the path to the corresponding ``.npz``
     file, or ``None`` if nothing matches.
+
+    Prefers exact matches, but will return a superset match if available
+    (the loader will extract only the needed kernel channels).
     """
     if datasets_dir is None:
         datasets_dir = QUANTUM_DATASETS_DIR
@@ -86,25 +97,44 @@ def find_cached_quantum_dataset(cfg, datasets_dir=None):
     if not datasets_dir.is_dir():
         return None
 
+    exact_match = None
+    subset_match = None
+
     for json_path in sorted(datasets_dir.glob("*.json")):
         try:
             meta = json.loads(json_path.read_text())
         except (json.JSONDecodeError, OSError):
             continue
 
-        if _match_metadata(meta, cfg):
+        match_type = _match_metadata(meta, cfg)
+        if match_type:
             npz_path = json_path.with_suffix(".npz")
             if npz_path.is_file():
-                return npz_path
+                if match_type == "exact":
+                    exact_match = npz_path
+                    break  # Exact match found, stop searching
+                elif match_type == "subset":
+                    subset_match = npz_path
 
-    return None
+    # Prefer exact match, fall back to subset
+    return exact_match if exact_match else subset_match
 
 
-def load_cached_quantum_dataset(npz_path, batch_size=32, num_workers=2):
+def load_cached_quantum_dataset(
+    npz_path, batch_size=32, num_workers=2, requested_kernels=None
+):
     """
     Load a cached quantum ``.npz`` and return DataLoaders that yield
     ``(features, labels)`` tensors, plus the number of classes and the
     metadata dict.
+
+    Args:
+        npz_path: Path to the cached .npz file.
+        batch_size: Batch size for DataLoaders.
+        num_workers: Number of workers for DataLoaders.
+        requested_kernels: Optional list of kernel names to extract. If provided
+            and different from cached kernels, will extract only the channels
+            corresponding to the requested kernels. If None, loads all kernels.
 
     Returns:
         (train_loader, val_loader, test_loader, n_classes, metadata)
@@ -114,8 +144,71 @@ def load_cached_quantum_dataset(npz_path, batch_size=32, num_workers=2):
     # Parse metadata
     metadata = json.loads(str(data["metadata"]))
 
+    # Check if we need to extract a subset of kernels
+    cached_kernels = metadata.get("kernel_topology_names", [])
+    extract_subset = (
+        requested_kernels is not None
+        and set(requested_kernels) != set(cached_kernels)
+        and set(requested_kernels).issubset(set(cached_kernels))
+    )
+
+    if extract_subset:
+        # Build channel mapping to extract only requested kernel channels
+        from src.utils.kernel_mapping import build_kernel_to_channels_map
+
+        cached_channel_map = metadata["channel_kernel_map"]
+        kernel_to_channels = build_kernel_to_channels_map(cached_channel_map)
+
+        # Collect channel indices for requested kernels
+        channel_indices = []
+        new_channel_map = []
+        new_out_idx = 0
+
+        for kernel_name in sorted(requested_kernels):
+            if kernel_name in kernel_to_channels:
+                old_indices = sorted(kernel_to_channels[kernel_name])
+                channel_indices.extend(old_indices)
+
+                # Update channel mapping for the subset (preserve dict format)
+                for old_idx in old_indices:
+                    # Find the original entry to get qubit info
+                    original_entry = next(
+                        e for e in cached_channel_map if e["channel"] == old_idx
+                    )
+                    new_channel_map.append(
+                        {
+                            "channel": new_out_idx,
+                            "kernel": kernel_name,
+                            "qubit": original_entry["qubit"],
+                        }
+                    )
+                    new_out_idx += 1
+
+        # Update metadata to reflect the subset
+        metadata = metadata.copy()
+        metadata["kernel_topology_names"] = sorted(requested_kernels)
+        metadata["num_kernels"] = len(requested_kernels)
+        metadata["out_channels"] = len(channel_indices)
+        metadata["channel_kernel_map"] = new_channel_map
+
+        # Log subset extraction info
+        print(
+            f"- Extracting subset from cached dataset:"
+            f"{len(requested_kernels)}/{len(cached_kernels)} kernels "
+            f"({len(channel_indices)}/{len(cached_channel_map)} channels)"
+        )
+        print(f"   Requested: {sorted(requested_kernels)}")
+        print(f"   Available: {sorted(cached_kernels)}")
+    else:
+        channel_indices = None  # Use all channels
+
     def _make_loader(split, shuffle):
         features = torch.from_numpy(data[f"{split}_features"]).float()
+
+        # Extract subset of channels if needed
+        if channel_indices is not None:
+            features = features[:, channel_indices, :, :]
+
         labels = torch.from_numpy(data[f"{split}_labels"]).long()
         ds = TensorDataset(features, labels)
         return DataLoader(

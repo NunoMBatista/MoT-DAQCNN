@@ -131,6 +131,64 @@ def get_medmnist_loaders(cfg, dataset_name):
     return train_loader, val_loader, test_loader, n_classes
 
 
+def load_medmnist_dataset(dataset_name, split, data_root=None, download=True):
+    """Load a raw MedMNIST dataset for a given split.
+
+    This is the centralized loader used across the codebase for loading
+    raw MedMNIST datasets (not DataLoaders). Returns the dataset object
+    directly for use cases that need direct access to samples.
+
+    Args:
+        dataset_name: Name of dataset from DATASET_REGISTRY keys
+            (e.g., "pneumonia_mnist", "breast_mnist", etc.)
+        split: Split name - "train", "val", or "test"
+        data_root: Root directory for data storage. If None, uses DATA_DIR
+        download: Whether to download the dataset if not present
+
+    Returns:
+        MedMNIST dataset object with .transform = ToTensor()
+
+    Raises:
+        ValueError: If dataset_name is not in DATASET_REGISTRY
+        ImportError: If medmnist package is not installed
+
+    Example:
+        >>> train_ds = load_medmnist_dataset("pneumonia_mnist", "train")
+        >>> img, label = train_ds[0]
+        >>> print(img.shape, label)
+    """
+    if dataset_name not in DATASET_REGISTRY:
+        raise ValueError(
+            f"Unknown dataset: {dataset_name}. "
+            f"Available: {list(DATASET_REGISTRY.keys())}"
+        )
+
+    _, class_name = DATASET_REGISTRY[dataset_name]
+
+    try:
+        import medmnist
+
+        dataset_class = getattr(medmnist, class_name)
+    except ImportError as exc:
+        raise ImportError(
+            f"medmnist is required for {dataset_name}. "
+            "Install with `pip install medmnist`."
+        ) from exc
+
+    if data_root is None:
+        data_root = str(DATA_DIR)
+
+    os.makedirs(data_root, exist_ok=True)
+
+    transform = transforms.ToTensor()
+    return dataset_class(
+        split=split,
+        download=download,
+        root=data_root,
+        transform=transform,
+    )
+
+
 def get_dataloaders(cfg):
     """Get dataloaders based on config. Auto-selects from DATASET_REGISTRY."""
     dataset_name = cfg.get("dataset", {}).get("name", "pneumonia_mnist")
