@@ -32,6 +32,7 @@ from tqdm import tqdm
 
 from src.config import DATA_DIR, DATASET_REGISTRY
 from src.models.student_gatekeeper import StudentGatekeeper
+from src.models.student_training import compute_patch_features
 from src.models.ts_moe_classification_head import build_final_classifier_from_metadata
 from src.utils.evaluate import accuracy, evaluate
 from src.utils.kernel_mapping import build_kernel_to_channels_map, get_kernel_names
@@ -100,6 +101,7 @@ def build_sparse_dataset(
     channel_groups,
     device,
     use_mask_channel=False,
+    feature_flags=None,
 ):
     """Route an entire split through the Student and produce sparse tensors.
 
@@ -154,11 +156,17 @@ def build_sparse_dataset(
         if color_space == "HSV" and raw_images.shape[1] == 3:
             raw_images = raw_images[:, 2:3, :, :]
 
-        # Extract patches and run student
+        # Extract patches, apply the same feature augmentation used during
+        # student training, then run the student for routing decisions.
         patches = _extract_patches(
             raw_images, kernel_size, stride
         )  # (B, n_patches, dim)
-        flat_patches = patches.reshape(-1, patches.shape[-1]).to(device)
+        flat_patches = patches.reshape(-1, patches.shape[-1])
+        if any((feature_flags or {}).values()):
+            flat_patches = compute_patch_features(
+                flat_patches, kernel_size, feature_flags
+            )
+        flat_patches = flat_patches.to(device)
         routing_flat = student.predict(flat_patches).cpu()  # (B*n_patches,)
         routing_map = routing_flat.reshape(B, H, W)
 
@@ -284,7 +292,10 @@ def _load_student_from_checkpoint(ckpt_path, device):
         device: Device to place the model on.
 
     Returns:
-        Tuple of (student, metadata, kernel_names, num_kernels).
+        Tuple of (student, metadata, kernel_names, num_kernels, feature_flags,
+        kernel_size).  feature_flags and kernel_size describe the feature
+        augmentation that was applied during training and must be reproduced
+        at inference time before calling student.predict().
     """
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     metadata = ckpt["metadata"]
@@ -292,6 +303,9 @@ def _load_student_from_checkpoint(ckpt_path, device):
     num_kernels = ckpt["num_kernels"]
     patch_dim = ckpt["patch_dim"]
     hidden_dims = tuple(ckpt["hidden_dims"])
+    # Older checkpoints won't have these keys; default to no augmentation.
+    feature_flags = ckpt.get("feature_flags", {})
+    kernel_size = ckpt.get("kernel_size", metadata.get("kernel_size", 2))
 
     student = StudentGatekeeper(
         patch_dim=patch_dim,
@@ -302,7 +316,7 @@ def _load_student_from_checkpoint(ckpt_path, device):
     student.to(device)
     student.eval()
 
-    return student, metadata, kernel_names, num_kernels
+    return student, metadata, kernel_names, num_kernels, feature_flags, kernel_size
 
 
 # -------------------------------------------------------------------------
@@ -369,8 +383,8 @@ def run_final_classifier_training(
     # --- Load trained Student ---
     if verbose:
         print(f"Loading student from: {student_ckpt_path}")
-    student, metadata, kernel_names, num_kernels = _load_student_from_checkpoint(
-        student_ckpt_path, device
+    student, metadata, kernel_names, num_kernels, feature_flags, kernel_size = (
+        _load_student_from_checkpoint(student_ckpt_path, device)
     )
     if verbose:
         print(f"Student loaded: {num_kernels} kernels ({kernel_names})")
@@ -452,6 +466,7 @@ def run_final_classifier_training(
         channel_groups,
         device,
         use_mask_channel,
+        feature_flags=feature_flags,
     )
     sparse_val, labels_val, routing_val = build_sparse_dataset(
         q_val_loader,
@@ -463,6 +478,7 @@ def run_final_classifier_training(
         channel_groups,
         device,
         use_mask_channel,
+        feature_flags=feature_flags,
     )
     sparse_test, labels_test, routing_test = build_sparse_dataset(
         q_test_loader,
@@ -474,6 +490,7 @@ def run_final_classifier_training(
         channel_groups,
         device,
         use_mask_channel,
+        feature_flags=feature_flags,
     )
 
     routing_time = time.time() - t0_route

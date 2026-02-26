@@ -8,11 +8,21 @@ hard routing labels extracted from the frozen Teacher's alpha weights.
 Pipeline:
     1. Load trained Teacher checkpoint and cached quantum features.
     2. Run Teacher on all quantum features to produce per-patch routing labels
-       (argmax of alpha weights).
+       (argmax of alpha weights) and optionally soft alpha distributions.
     3. Load original images and extract raw patches matching the quantum
        convolution's spatial grid (same kernel_size and stride).
-    4. Train the Student MLP on (patch, routing_label) pairs using CE loss.
-    5. Evaluate agreement between Student predictions and Teacher labels.
+    4. Optionally augment patches with cheap classical statistics
+       (per-channel mean, std, min, max) to give the student more signal.
+    5. Optionally filter out low-confidence patches (where the Teacher was
+       unsure which kernel to pick) to reduce label noise.
+    6. Train the Student MLP on (patch, routing_label) pairs using either:
+         - Hard CE (standard cross-entropy on argmax labels), or
+         - Soft distillation (KL divergence against Teacher's softmax with
+           temperature scaling), or
+         - A weighted combination of both.
+       Class weights are optionally computed from label frequencies to
+       counteract majority-class collapse.
+    7. Evaluate agreement between Student predictions and Teacher labels.
 
 Uses existing utilities for dataset loading, evaluation, and plotting.
 """
@@ -23,8 +33,9 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
 from torchvision import transforms
 from tqdm import tqdm
 
@@ -52,6 +63,8 @@ def generate_routing_labels(teacher, loader, device):
 
     For every sample in ``loader``, the Teacher produces alpha weights of shape
     (M, H, W). Taking argmax over M gives the routing decision for each patch.
+    The raw alpha values (before argmax) are also returned so the caller can
+    use them for soft-label distillation or confidence filtering.
 
     Args:
         teacher: Trained TeacherMoE model (will be set to eval mode).
@@ -62,18 +75,37 @@ def generate_routing_labels(teacher, loader, device):
     Returns:
         routing_labels: LongTensor of shape (N, H, W) with values in
             {0, ..., M-1}, where N is the total number of samples.
+        soft_labels: FloatTensor of shape (N, M, H, W) — the Teacher's raw
+            alpha weights (after softmax over M), one distribution per patch.
+            Useful for soft-label distillation.
+        confidence: FloatTensor of shape (N, H, W) — max alpha value per
+            patch, in [0, 1].  Low values indicate the Teacher was uncertain.
     """
     teacher.eval()
     all_labels = []
+    all_soft = []
+    all_conf = []
 
     for features, _ in tqdm(loader, desc="Generating routing labels", leave=False):
         features = features.to(device)
         teacher(features)
         alpha = teacher.last_alpha  # (B, M, H, W)
-        winners = alpha.argmax(dim=1)  # (B, H, W)
-        all_labels.append(winners.cpu())
 
-    return torch.cat(all_labels, dim=0)  # (N, H, W)
+        # Soft labels: normalise raw alpha to a proper probability distribution
+        soft = F.softmax(alpha, dim=1)  # (B, M, H, W)
+
+        winners = alpha.argmax(dim=1)  # (B, H, W)
+        conf = soft.max(dim=1).values  # (B, H, W)
+
+        all_labels.append(winners.cpu())
+        all_soft.append(soft.cpu())
+        all_conf.append(conf.cpu())
+
+    return (
+        torch.cat(all_labels, dim=0),  # (N, H, W)
+        torch.cat(all_soft, dim=0),  # (N, M, H, W)
+        torch.cat(all_conf, dim=0),  # (N, H, W)
+    )
 
 
 # -------------------------------------------------------------------------
@@ -97,25 +129,21 @@ def _load_medmnist_dataset(dataset_name, split, data_root=None):
 
     try:
         import medmnist
-
-        dataset_class = getattr(medmnist, class_name)
     except ImportError as exc:
-        raise ImportError(
-            f"medmnist is required for {dataset_name}. "
-            "Install with `pip install medmnist`."
-        ) from exc
+        raise ImportError("medmnist package required. pip install medmnist") from exc
 
-    if data_root is None:
-        data_root = str(DATA_DIR)
+    DataClass = getattr(medmnist, class_name)
+    root = data_root or str(DATA_DIR)
 
-    transform = transforms.ToTensor()
-    ds = dataset_class(
+    transform = transforms.Compose([transforms.ToTensor()])
+    dataset = DataClass(
+        root=root,
         split=split,
-        download=True,
-        root=str(data_root),
         transform=transform,
+        download=True,
+        as_rgb=False,
     )
-    return ds
+    return dataset
 
 
 def extract_patches(images, kernel_size, stride):
@@ -183,6 +211,112 @@ def extract_all_patches(dataset, kernel_size, stride, color_space, batch_size=25
 
 
 # -------------------------------------------------------------------------
+# Optional patch feature augmentation
+# -------------------------------------------------------------------------
+
+
+def compute_patch_features(flat_patches, kernel_size, feature_flags):
+    """Append selected classical feature groups to the raw pixel vector.
+
+    Each group is independently toggled via ``feature_flags`` (a dict of
+    bool values read from the config).  Only enabled groups are computed and
+    appended, so you can mix and match freely.
+
+    All features are computed patch-by-patch (no cross-batch statistics),
+    so they remain valid at inference time without any normalisation state.
+
+    Args:
+        flat_patches: FloatTensor of shape (N, patch_dim).
+            patch_dim = C * kernel_size^2 (flattened raw pixels).
+        kernel_size: int — spatial side length of each patch (e.g. 2 or 3).
+            Needed to reshape the patch for gradient computation.
+        feature_flags: dict with boolean values for each group:
+            "stats"        — mean, std, min, max                    (+4)
+            "range_energy" — range (max-min), L2 energy, L1 norm    (+3)
+            "gradients"    — horizontal grad, vertical grad, mag     (+3)
+
+    Returns:
+        augmented: FloatTensor of shape (N, patch_dim + n_extra), where
+            n_extra is the total number of appended features.
+    """
+    extras = []
+
+    # ------------------------------------------------------------------
+    # Group: stats
+    # Basic first and second order statistics of the pixel intensities.
+    # Captures average brightness, contrast, and dynamic range.
+    # ------------------------------------------------------------------
+    if feature_flags.get("stats", False):
+        mean = flat_patches.mean(dim=1, keepdim=True)  # (N, 1)
+        std = flat_patches.std(dim=1, keepdim=True)  # (N, 1)
+        mn = flat_patches.min(dim=1, keepdim=True).values  # (N, 1)
+        mx = flat_patches.max(dim=1, keepdim=True).values  # (N, 1)
+        extras.extend([mean, std, mn, mx])
+
+    # ------------------------------------------------------------------
+    # Group: range_energy
+    # Range = max - min: how much contrast exists in the patch.
+    # L2 energy = sum of squared pixels: overall activation / power.
+    # L1 norm  = sum of |pixels|: similar but less sensitive to outliers.
+    # ------------------------------------------------------------------
+    if feature_flags.get("range_energy", False):
+        mn = flat_patches.min(dim=1, keepdim=True).values
+        mx = flat_patches.max(dim=1, keepdim=True).values
+        rng = mx - mn  # (N, 1)
+        energy = (flat_patches**2).sum(dim=1, keepdim=True)  # (N, 1)
+        l1 = flat_patches.abs().sum(dim=1, keepdim=True)  # (N, 1)
+        extras.extend([rng, energy, l1])
+
+    # ------------------------------------------------------------------
+    # Group: gradients
+    # Approximate horizontal and vertical intensity gradients by taking
+    # finite differences across the patch columns / rows.
+    #
+    # Why this matters: the kernel topologies (horizontal, vertical,
+    # kings, u_shape) have different spatial connectivity patterns.
+    # A patch with a strong horizontal edge is more likely to be routed
+    # to a horizontally-sensitive kernel, and vice versa.
+    #
+    # For a patch of shape (ks, ks) we compute:
+    #   h_grad = mean of (right_col - left_col) differences  -> scalar
+    #   v_grad = mean of (bottom_row - top_row) differences  -> scalar
+    #   grad_mag = sqrt(h_grad^2 + v_grad^2)                 -> scalar
+    #
+    # For ks=2: one column pair and one row pair each.
+    # For ks=3: two column pairs and two row pairs, averaged.
+    # ------------------------------------------------------------------
+    if feature_flags.get("gradients", False):
+        # Reshape to (N, ks, ks); assumes single channel (C=1) or that
+        # flat_patches already contains only 1 channel (grayscale / V).
+        # For multi-channel patches the first channel is used.
+        ks = kernel_size
+        spatial = flat_patches[:, : ks * ks].reshape(-1, ks, ks)  # (N, ks, ks)
+
+        # Horizontal gradient: difference between adjacent columns, averaged
+        h_grad = (spatial[:, :, 1:] - spatial[:, :, :-1]).mean(
+            dim=(1, 2), keepdim=False
+        )
+        # Vertical gradient: difference between adjacent rows, averaged
+        v_grad = (spatial[:, 1:, :] - spatial[:, :-1, :]).mean(
+            dim=(1, 2), keepdim=False
+        )
+        grad_mag = (h_grad**2 + v_grad**2).sqrt()
+
+        extras.extend(
+            [
+                h_grad.unsqueeze(1),  # (N, 1)
+                v_grad.unsqueeze(1),  # (N, 1)
+                grad_mag.unsqueeze(1),  # (N, 1)
+            ]
+        )
+
+    if not extras:
+        return flat_patches
+
+    return torch.cat([flat_patches] + extras, dim=1)
+
+
+# -------------------------------------------------------------------------
 # Student dataset creation (pairing patches with routing labels)
 # -------------------------------------------------------------------------
 
@@ -194,12 +328,26 @@ def create_student_dataloaders(
     num_workers=0,
     val_patches=None,
     val_routing_labels=None,
+    soft_labels=None,
+    val_soft_labels=None,
+    confidence=None,
+    val_confidence=None,
+    confidence_threshold=0.0,
+    feature_flags=None,
+    use_balanced_sampler=False,
+    kernel_size=2,
+    num_kernels=None,
 ):
     """Create DataLoaders for student training from paired patches and labels.
 
     Flattens the spatial dimensions so each patch becomes an independent sample:
         patches (N, n_patches, patch_dim) -> (N * n_patches, patch_dim)
         routing_labels (N, H, W) -> (N * H * W,)
+
+    Optionally:
+      - Filters out patches where the Teacher confidence < confidence_threshold.
+      - Appends classical statistics to patch features (augment_patch_features).
+      - Uses a WeightedRandomSampler to balance kernel classes during training.
 
     Args:
         patches: Training patches, shape (N, n_patches, patch_dim).
@@ -208,12 +356,35 @@ def create_student_dataloaders(
         num_workers: Number of DataLoader workers.
         val_patches: Optional validation patches.
         val_routing_labels: Optional validation routing labels.
+        soft_labels: Optional soft (Teacher alpha) labels for training,
+            shape (N, M, H, W).  When provided, included in the dataset
+            so the training loop can use them for KL distillation.
+        val_soft_labels: Same as soft_labels but for validation.
+        confidence: Optional per-patch confidence tensor, shape (N, H, W).
+            Used for filtering when confidence_threshold > 0.
+        val_confidence: Same for validation set.
+        confidence_threshold: Discard patches whose Teacher confidence
+            (max alpha) is below this value.  0.0 = keep everything.
+        feature_flags: Dict of booleans controlling which classical feature
+            groups are appended to the raw patch pixels.  Keys: "stats",
+            "range_energy", "gradients".  None or empty = no augmentation.
+        use_balanced_sampler: If True, use WeightedRandomSampler so that
+            each kernel class is sampled equally during training.  Useful
+            when the routing label distribution is heavily skewed.
 
     Returns:
-        train_loader: DataLoader yielding (flat_patch, routing_label).
+        train_loader: DataLoader yielding (flat_patch, routing_label) or
+            (flat_patch, routing_label, soft_label) when soft_labels given.
         val_loader: DataLoader for validation, or None if not provided.
+        effective_patch_dim: int — the actual feature dimension of the
+            patches in the loaders (may be larger than raw patch_dim when
+            use_augmented_features=True).
+        class_weights: FloatTensor of shape (M,) — inverse-frequency weights
+            for each kernel class, computed on the (possibly filtered)
+            training set.  Always returned so the caller can decide whether
+            to use them.
     """
-    # Flatten spatial dimensions
+    # --- Flatten spatial dimensions ---
     N, n_patches, patch_dim = patches.shape
     flat_patches = patches.reshape(N * n_patches, patch_dim)
     flat_labels = routing_labels.reshape(-1).long()
@@ -222,20 +393,127 @@ def create_student_dataloaders(
         f"Patch count {flat_patches.shape[0]} != label count {flat_labels.shape[0]}"
     )
 
-    train_ds = TensorDataset(flat_patches, flat_labels)
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-    )
+    # Flatten soft labels if provided: (N, M, H, W) -> (N*H*W, M)
+    if soft_labels is not None:
+        M = soft_labels.shape[1]
+        flat_soft = soft_labels.permute(0, 2, 3, 1).reshape(-1, M)  # (N*H*W, M)
+    else:
+        flat_soft = None
 
+    # --- Confidence filtering ---
+    if confidence is not None and confidence_threshold > 0.0:
+        flat_conf = confidence.reshape(-1)  # (N*H*W,)
+        keep_mask = flat_conf >= confidence_threshold
+        n_before = flat_patches.shape[0]
+        flat_patches = flat_patches[keep_mask]
+        flat_labels = flat_labels[keep_mask]
+        if flat_soft is not None:
+            flat_soft = flat_soft[keep_mask]
+        n_after = flat_patches.shape[0]
+        frac_kept = n_after / max(n_before, 1)
+        print(
+            f"  Confidence filtering (threshold={confidence_threshold:.2f}): "
+            f"kept {n_after}/{n_before} patches ({frac_kept:.1%})"
+        )
+    else:
+        print(
+            f"  Confidence filtering: disabled (threshold={confidence_threshold:.2f})"
+        )
+
+    # --- Optional feature augmentation ---
+    active_groups = [k for k, v in (feature_flags or {}).items() if v]
+    if active_groups:
+        flat_patches = compute_patch_features(flat_patches, kernel_size, feature_flags)
+        print(
+            f"  Feature augmentation: raw pixels + {active_groups} "
+            f"-> feature dim {flat_patches.shape[1]}"
+        )
+
+    effective_patch_dim = flat_patches.shape[1]
+
+    # --- Per-class label distribution (always printed for diagnostics) ---
+    # Use num_kernels as minlength so class_weights always has shape (M,) even
+    # when some kernels never appear in the (possibly filtered) training labels.
+    minlength = num_kernels if num_kernels is not None else flat_labels.max().item() + 1
+    label_counts = torch.bincount(flat_labels, minlength=minlength)
+    total_patches = flat_labels.shape[0]
+    print("  Training label distribution (kernel -> count / fraction):")
+    for k, cnt in enumerate(label_counts.tolist()):
+        print(f"    kernel {k}: {cnt:>8d}  ({cnt / max(total_patches, 1):.1%})")
+
+    # --- Inverse-frequency class weights ---
+    # Weight for class k = total / (num_classes * count_k).
+    # These can be passed to CrossEntropyLoss(weight=...) to counteract
+    # majority-class dominance.
+    num_classes = label_counts.shape[0]
+    class_weights = total_patches / (num_classes * label_counts.float().clamp(min=1))
+    class_weights = class_weights / class_weights.sum() * num_classes  # re-scale
+
+    # --- Build dataset ---
+    if flat_soft is not None:
+        train_ds = TensorDataset(flat_patches, flat_labels, flat_soft)
+    else:
+        train_ds = TensorDataset(flat_patches, flat_labels)
+
+    # --- Optional balanced sampler ---
+    if use_balanced_sampler:
+        sample_weights = class_weights[flat_labels]  # (N_train,)
+        sampler = WeightedRandomSampler(
+            weights=sample_weights.double(),
+            num_samples=len(train_ds),
+            replacement=True,
+        )
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=batch_size,
+            sampler=sampler,
+            num_workers=num_workers,
+        )
+        print("  Balanced sampler: enabled (WeightedRandomSampler)")
+    else:
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+        )
+
+    # --- Validation loader ---
     val_loader = None
     if val_patches is not None and val_routing_labels is not None:
         Nv, npv, pdv = val_patches.shape
         vflat_patches = val_patches.reshape(Nv * npv, pdv)
         vflat_labels = val_routing_labels.reshape(-1).long()
-        val_ds = TensorDataset(vflat_patches, vflat_labels)
+
+        # Filter val by confidence as well (same threshold)
+        if val_confidence is not None and confidence_threshold > 0.0:
+            vflat_conf = val_confidence.reshape(-1)
+            vkeep = vflat_conf >= confidence_threshold
+            vflat_patches = vflat_patches[vkeep]
+            vflat_labels = vflat_labels[vkeep]
+            if val_soft_labels is not None:
+                M = val_soft_labels.shape[1]
+                vflat_soft = val_soft_labels.permute(0, 2, 3, 1).reshape(-1, M)
+                vflat_soft = vflat_soft[vkeep]
+            else:
+                vflat_soft = None
+        else:
+            if val_soft_labels is not None:
+                M = val_soft_labels.shape[1]
+                vflat_soft = val_soft_labels.permute(0, 2, 3, 1).reshape(-1, M)
+            else:
+                vflat_soft = None
+
+        if active_groups:
+            vflat_patches = compute_patch_features(
+                vflat_patches, kernel_size, feature_flags
+            )
+
+        if vflat_soft is not None:
+            val_ds = TensorDataset(vflat_patches, vflat_labels, vflat_soft)
+        else:
+            val_ds = TensorDataset(vflat_patches, vflat_labels)
+
         val_loader = DataLoader(
             val_ds,
             batch_size=batch_size,
@@ -243,7 +521,95 @@ def create_student_dataloaders(
             num_workers=num_workers,
         )
 
-    return train_loader, val_loader
+    return train_loader, val_loader, effective_patch_dim, class_weights
+
+
+# -------------------------------------------------------------------------
+# Loss function factory
+# -------------------------------------------------------------------------
+
+
+def build_student_loss_fn(
+    num_kernels,
+    class_weights=None,
+    use_weighted_ce=False,
+    kd_alpha=0.0,
+    kd_temperature=2.0,
+    device="cpu",
+):
+    """Build the student loss function based on config flags.
+
+    Supports three modes (controlled by kd_alpha):
+
+    1. Hard CE only (kd_alpha = 0.0):
+        loss = CrossEntropy(logits, hard_labels)
+        Standard supervised learning on Teacher argmax labels.
+
+    2. Soft distillation only (kd_alpha = 1.0):
+        loss = KL(student_soft || teacher_soft)  [with temperature T]
+        Trains purely against the Teacher's probability distribution,
+        preserving soft inter-class relationships.
+
+    3. Mixed (0 < kd_alpha < 1):
+        loss = (1 - kd_alpha) * CE + kd_alpha * KL
+        Balances hard-label supervision with soft distillation.
+
+    When use_weighted_ce=True, the CE term uses inverse-frequency class
+    weights so that minority kernels are penalised more strongly, preventing
+    the student from collapsing to the majority class.
+
+    Args:
+        num_kernels: Number of kernel classes (M).
+        class_weights: FloatTensor of shape (M,) from create_student_dataloaders.
+            Only used when use_weighted_ce=True.
+        use_weighted_ce: Whether to weight CE by inverse label frequency.
+        kd_alpha: Weight for the KL distillation term.  0 = hard CE only,
+            1 = soft KL only, values in between blend both.
+        kd_temperature: Temperature T for softening the Teacher/Student
+            distributions in the KL term.  Higher T -> softer distributions,
+            more information transfer.  Typical values: 2–8.
+        device: Device to place class_weights on.
+
+    Returns:
+        loss_fn: callable(logits, hard_labels, soft_labels) -> scalar loss.
+            soft_labels may be None if kd_alpha == 0.
+    """
+    if use_weighted_ce and class_weights is not None:
+        weights = class_weights.to(device)
+    else:
+        weights = None
+
+    ce_fn = nn.CrossEntropyLoss(weight=weights)
+
+    def loss_fn(logits, hard_labels, soft_labels=None):
+        """Compute student loss.
+
+        Args:
+            logits: (B, M) student output logits.
+            hard_labels: (B,) integer class indices from Teacher argmax.
+            soft_labels: (B, M) Teacher softmax probabilities, or None.
+
+        Returns:
+            Scalar loss tensor.
+        """
+        # Hard cross-entropy term
+        hard_loss = ce_fn(logits, hard_labels)
+
+        if kd_alpha == 0.0 or soft_labels is None:
+            return hard_loss
+
+        # Soft KL divergence term (knowledge distillation)
+        # Scale both distributions by temperature before computing KL.
+        student_log_soft = F.log_softmax(logits / kd_temperature, dim=1)
+        teacher_soft = F.softmax(soft_labels / kd_temperature, dim=1)
+        # T^2 scaling is the standard KD correction (Hinton et al., 2015)
+        kl_loss = F.kl_div(student_log_soft, teacher_soft, reduction="batchmean") * (
+            kd_temperature**2
+        )
+
+        return (1.0 - kd_alpha) * hard_loss + kd_alpha * kl_loss
+
+    return loss_fn
 
 
 # -------------------------------------------------------------------------
@@ -251,13 +617,17 @@ def create_student_dataloaders(
 # -------------------------------------------------------------------------
 
 
-def train_student_one_epoch(model, loader, optimizer, device, grad_clip, epoch_pbar):
+def train_student_one_epoch(
+    model, loader, optimizer, loss_fn, device, grad_clip, epoch_pbar
+):
     """Train the Student for one epoch on routing labels.
 
     Args:
         model: StudentGatekeeper instance.
-        loader: DataLoader yielding (flat_patch, routing_label).
+        loader: DataLoader yielding (flat_patch, routing_label) or
+            (flat_patch, routing_label, soft_label).
         optimizer: Torch optimizer.
+        loss_fn: Callable returned by build_student_loss_fn.
         device: Device string.
         grad_clip: Max gradient norm (0 to disable).
         epoch_pbar: Outer progress bar for description updates.
@@ -266,20 +636,26 @@ def train_student_one_epoch(model, loader, optimizer, device, grad_clip, epoch_p
         Tuple of (avg_loss, avg_accuracy).
     """
     model.train()
-    ce_fn = nn.CrossEntropyLoss()
 
     loss_sum = 0.0
     correct = 0
     total = 0
 
     batch_pbar = tqdm(loader, desc="Student training", leave=False)
-    for batch_idx, (patches, labels) in enumerate(batch_pbar):
+    for batch_idx, batch in enumerate(batch_pbar):
+        if len(batch) == 3:
+            patches, labels, soft = batch
+            soft = soft.to(device)
+        else:
+            patches, labels = batch
+            soft = None
+
         patches = patches.to(device)
         labels = labels.to(device)
 
         optimizer.zero_grad()
         logits = model(patches)
-        loss = ce_fn(logits, labels)
+        loss = loss_fn(logits, labels, soft)
         loss.backward()
 
         if grad_clip:
@@ -301,30 +677,38 @@ def train_student_one_epoch(model, loader, optimizer, device, grad_clip, epoch_p
 
 
 @torch.no_grad()
-def evaluate_student(model, loader, device):
-    """Evaluate Student on routing labels (CE loss + accuracy).
+def evaluate_student(model, loader, loss_fn, device):
+    """Evaluate Student on routing labels (loss + accuracy).
 
     Args:
         model: StudentGatekeeper instance.
-        loader: DataLoader yielding (flat_patch, routing_label).
+        loader: DataLoader yielding (flat_patch, routing_label) or
+            (flat_patch, routing_label, soft_label).
+        loss_fn: Callable returned by build_student_loss_fn.
         device: Device string.
 
     Returns:
         Tuple of (avg_loss, accuracy).
     """
     model.eval()
-    ce_fn = nn.CrossEntropyLoss()
 
     loss_sum = 0.0
     correct = 0
     total = 0
 
-    for patches, labels in tqdm(loader, desc="Student eval", leave=False):
+    for batch in tqdm(loader, desc="Student eval", leave=False):
+        if len(batch) == 3:
+            patches, labels, soft = batch
+            soft = soft.to(device)
+        else:
+            patches, labels = batch
+            soft = None
+
         patches = patches.to(device)
         labels = labels.to(device)
 
         logits = model(patches)
-        loss = ce_fn(logits, labels)
+        loss = loss_fn(logits, labels, soft)
 
         bs = labels.size(0)
         loss_sum += loss.item() * bs
@@ -349,7 +733,7 @@ def compute_routing_confusion(model, loader, device, num_kernels):
 
     Args:
         model: StudentGatekeeper instance.
-        loader: DataLoader yielding (flat_patch, routing_label).
+        loader: DataLoader yielding (flat_patch, routing_label[, soft_label]).
         device: Device string.
         num_kernels: Number of kernel topologies (M).
 
@@ -361,7 +745,8 @@ def compute_routing_confusion(model, loader, device, num_kernels):
     model.eval()
     cm = np.zeros((num_kernels, num_kernels), dtype=np.int64)
 
-    for patches, labels in loader:
+    for batch in loader:
+        patches, labels = batch[0], batch[1]
         patches = patches.to(device)
         preds = model(patches).argmax(dim=1).cpu().numpy()
         labels_np = labels.numpy()
@@ -395,7 +780,8 @@ def compute_prediction_distribution(model, loader, device, num_kernels):
     counts = np.zeros(num_kernels, dtype=np.int64)
     total = 0
 
-    for patches, _ in loader:
+    for batch in loader:
+        patches = batch[0]
         patches = patches.to(device)
         preds = model(patches).argmax(dim=1).cpu().numpy()
         for k in range(num_kernels):
@@ -533,16 +919,30 @@ def run_student_training(
         )
 
     # --- Generate routing labels from Teacher ---
+    # This now also returns soft alpha distributions and per-patch confidence.
     if verbose:
         print("Generating routing labels from Teacher...")
     t0 = time.time()
-    train_routing_labels = generate_routing_labels(teacher, q_train_loader, device)
-    val_routing_labels = generate_routing_labels(teacher, q_val_loader, device)
+    train_routing_labels, train_soft_labels, train_confidence = generate_routing_labels(
+        teacher, q_train_loader, device
+    )
+    val_routing_labels, val_soft_labels, val_confidence = generate_routing_labels(
+        teacher, q_val_loader, device
+    )
     label_gen_time = time.time() - t0
     if verbose:
         print(
             f"Labels generated in {label_gen_time:.1f}s — "
             f"train: {train_routing_labels.shape}, val: {val_routing_labels.shape}"
+        )
+        # Print Teacher confidence statistics for diagnostics
+        flat_conf_train = train_confidence.reshape(-1)
+        print(
+            f"Teacher confidence (train) — "
+            f"mean={flat_conf_train.mean():.3f}, "
+            f"min={flat_conf_train.min():.3f}, "
+            f"max={flat_conf_train.max():.3f}, "
+            f"frac<0.5={(flat_conf_train < 0.5).float().mean():.1%}"
         )
 
     # --- Load original images and extract patches ---
@@ -609,24 +1009,64 @@ def run_student_training(
             f"{H_W_train} routing labels per image (H*W)."
         )
 
-    # --- Create Student DataLoaders ---
+    # --- Read student config ---
     ts_moe_cfg = cfg.get("ts_moe", {})
     student_batch_size = ts_moe_cfg.get("student_batch_size", 256)
+    confidence_threshold = float(ts_moe_cfg.get("confidence_threshold", 0.0))
+    feature_flags = {
+        "stats": bool(ts_moe_cfg.get("student_features_stats", False)),
+        "range_energy": bool(ts_moe_cfg.get("student_features_range_energy", False)),
+        "gradients": bool(ts_moe_cfg.get("student_features_gradients", False)),
+    }
+    use_weighted_ce = bool(ts_moe_cfg.get("student_weighted_ce", False))
+    use_balanced_sampler = bool(ts_moe_cfg.get("student_balanced_sampler", False))
+    kd_alpha = float(ts_moe_cfg.get("student_kd_alpha", 0.0))
+    kd_temperature = float(ts_moe_cfg.get("student_kd_temperature", 4.0))
 
-    train_loader, val_loader = create_student_dataloaders(
-        patches=train_patches,
-        routing_labels=train_routing_labels,
-        batch_size=student_batch_size,
-        num_workers=0,
-        val_patches=val_patches,
-        val_routing_labels=val_routing_labels,
+    # Only pass soft labels to the dataloader when KD is actually used
+    use_soft = kd_alpha > 0.0
+    if verbose:
+        print(
+            f"\nStudent dataset config:\n"
+            f"  confidence_threshold    = {confidence_threshold}\n"
+            f"  feature_flags           = {feature_flags}\n"
+            f"  use_weighted_ce         = {use_weighted_ce}\n"
+            f"  use_balanced_sampler    = {use_balanced_sampler}\n"
+            f"  kd_alpha                = {kd_alpha} "
+            f"({'soft distillation' if kd_alpha > 0 else 'hard CE only'})\n"
+            f"  kd_temperature          = {kd_temperature}\n"
+        )
+
+    # --- Create Student DataLoaders ---
+    train_loader, val_loader, effective_patch_dim, class_weights = (
+        create_student_dataloaders(
+            patches=train_patches,
+            routing_labels=train_routing_labels,
+            batch_size=student_batch_size,
+            num_workers=0,
+            val_patches=val_patches,
+            val_routing_labels=val_routing_labels,
+            soft_labels=train_soft_labels if use_soft else None,
+            val_soft_labels=val_soft_labels if use_soft else None,
+            confidence=train_confidence,
+            val_confidence=val_confidence,
+            confidence_threshold=confidence_threshold,
+            feature_flags=feature_flags,
+            use_balanced_sampler=use_balanced_sampler,
+            kernel_size=kernel_size,
+            num_kernels=num_kernels,
+        )
     )
     if verbose:
         total_train = len(train_loader.dataset)
         total_val = len(val_loader.dataset) if val_loader else 0
-        print(f"Student datasets: {total_train} train patches, {total_val} val patches")
+        print(
+            f"Student datasets: {total_train} train patches, {total_val} val patches\n"
+            f"Effective patch feature dim: {effective_patch_dim}"
+        )
 
     # --- Build Student model ---
+    # effective_patch_dim may differ from raw patch_dim when augmented features are on
     hidden_dims = tuple(ts_moe_cfg.get("student_hidden_dims", [32, 16]))
 
     student, _ = build_student_from_metadata(
@@ -634,6 +1074,17 @@ def run_student_training(
         hidden_dims=hidden_dims,
         in_channels=student_in_channels,
     )
+
+    # If feature augmentation enlarged the input, rebuild with the correct dim
+    if effective_patch_dim != student.patch_dim:
+        from src.models.student_gatekeeper import StudentGatekeeper
+
+        student = StudentGatekeeper(
+            patch_dim=effective_patch_dim,
+            num_kernels=num_kernels,
+            hidden_dims=hidden_dims,
+        )
+
     student.to(device)
 
     total_params, trainable_params = count_parameters(student)
@@ -641,13 +1092,29 @@ def run_student_training(
         print(
             f"Student built: {total_params:,} params "
             f"({trainable_params:,} trainable), "
-            f"hidden_dims={hidden_dims}"
+            f"hidden_dims={hidden_dims}, patch_dim={effective_patch_dim}"
         )
         if total_params > 5000:
             print(
                 f"WARNING: Student has {total_params} params (target is <5k). "
                 "Consider reducing hidden_dims."
             )
+
+    # --- Loss function ---
+    loss_fn = build_student_loss_fn(
+        num_kernels=num_kernels,
+        class_weights=class_weights,
+        use_weighted_ce=use_weighted_ce,
+        kd_alpha=kd_alpha,
+        kd_temperature=kd_temperature,
+        device=device,
+    )
+    if verbose:
+        print(
+            f"Loss: "
+            f"{'weighted ' if use_weighted_ce else ''}CE"
+            f"{f' + {kd_alpha:.2f} * KL(T={kd_temperature})' if kd_alpha > 0 else ''}"
+        )
 
     # --- Optimizer ---
     optim_cfg = cfg.get("optim", {})
@@ -691,10 +1158,10 @@ def run_student_training(
         t0 = time.time()
 
         train_loss, train_acc = train_student_one_epoch(
-            student, train_loader, optimizer, device, grad_clip, epoch_pbar
+            student, train_loader, optimizer, loss_fn, device, grad_clip, epoch_pbar
         )
 
-        val_loss, val_acc = evaluate_student(student, val_loader, device)
+        val_loss, val_acc = evaluate_student(student, val_loader, loss_fn, device)
 
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -815,6 +1282,10 @@ def run_student_training(
             "hidden_dims": hidden_dims,
             "student_in_channels": student_in_channels,
             "agreement": final_agreement,
+            # Needed by the classification head to apply the same feature
+            # augmentation at inference time as was used during training.
+            "feature_flags": feature_flags,
+            "kernel_size": kernel_size,
         },
         final_model_path,
     )
@@ -836,6 +1307,10 @@ def run_student_training(
                 "student_in_channels": student_in_channels,
                 "best_val_loss": best_val_loss,
                 "agreement": final_agreement,
+                # Needed by the classification head to apply the same feature
+                # augmentation at inference time as was used during training.
+                "feature_flags": feature_flags,
+                "kernel_size": kernel_size,
             },
             best_model_path,
         )
