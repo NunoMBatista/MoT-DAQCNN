@@ -112,6 +112,15 @@ class TeacherMoE(nn.Module):
         """
         return self.se_block.last_alpha
 
+    @property
+    def last_logits(self):
+        """Access the most recent pre-softmax logits from the SE block.
+
+        Shape: (B, M, H, W) where M = num_kernels.
+        Available after a forward pass. Used for knowledge distillation.
+        """
+        return self.se_block.last_logits
+
     def forward(self, x):
         """Forward pass through SE block and classification head.
 

@@ -88,8 +88,10 @@ class GroupedSEBlock(nn.Module):
         # Stored after each forward pass:
         # - live version keeps gradients (for entropy loss backprop)
         # - detached version is safe for logging / numpy conversion
+        # - logits are pre-softmax values for knowledge distillation
         self.last_alpha_live = None
         self.last_alpha = None
+        self.last_logits = None
 
     def forward(self, x):
         """Forward pass: squeeze, gate, and reweight.
@@ -127,10 +129,11 @@ class GroupedSEBlock(nn.Module):
 
         # --- Gate: produce M weights per patch via small MLP ---
         # (B, M or 2*M, H, W) -> (B, M, H, W)
-        alpha = self.gate(pooled)
-        alpha = torch.softmax(alpha, dim=1)  # normalize across kernels
+        alpha_logits = self.gate(pooled)  # pre-softmax logits
+        alpha = torch.softmax(alpha_logits, dim=1)  # normalize across kernels
 
-        # Store live (for entropy loss) and detached (for logging)
+        # Store logits (for KD), live alpha (for entropy loss), and detached alpha (for logging)
+        self.last_logits = alpha_logits.detach()
         self.last_alpha_live = alpha
         self.last_alpha = alpha.detach()
 

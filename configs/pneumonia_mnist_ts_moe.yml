@@ -33,8 +33,8 @@ ts_moe:
   # -----------------------------------------------------------------------
   # Phase 1: Teacher training
   # -----------------------------------------------------------------------
-  lambda_entropy: 0 # entropy regularisation weight on Teacher routing
-  lambda_max: 1 # max-alpha regularisation weight (encourages confident routing)
+  lambda_entropy: 0.5 # entropy regularisation weight on Teacher routing (prevents collapse)
+  lambda_max: 0.5 # max-alpha regularisation weight (encourages confident routing)
   lambda_warmup_epochs: 50 # ramp lambda_entropy/lambda_max up over this many epochs
   se_hidden_dim: 32 # SE bottleneck hidden dim; null = auto (num_kernels)
 

@@ -90,13 +90,15 @@ def generate_routing_labels(teacher, loader, device):
     for features, _ in tqdm(loader, desc="Generating routing labels", leave=False):
         features = features.to(device)
         teacher(features)
-        alpha = teacher.last_alpha  # (B, M, H, W)
+        alpha = teacher.last_alpha  # (B, M, H, W) - softmax probabilities
+        logits = teacher.last_logits  # (B, M, H, W) - pre-softmax logits
 
-        # Soft labels: normalise raw alpha to a proper probability distribution
-        soft = F.softmax(alpha, dim=1)  # (B, M, H, W)
+        # Soft labels: use PRE-SOFTMAX logits for knowledge distillation
+        # The KD loss will apply softmax with temperature, so we must NOT apply it here
+        soft = logits  # (B, M, H, W)
 
         winners = alpha.argmax(dim=1)  # (B, H, W)
-        conf = soft.max(dim=1).values  # (B, H, W)
+        conf = alpha.max(dim=1).values  # (B, H, W)
 
         all_labels.append(winners.cpu())
         all_soft.append(soft.cpu())
