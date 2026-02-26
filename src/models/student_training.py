@@ -656,6 +656,8 @@ def run_student_training(
     student_epochs = int(ts_moe_cfg.get("student_epochs", optim_cfg.get("epochs", 20)))
     grad_clip = optim_cfg.get("grad_clip", 0.0)
     patience = ts_moe_cfg.get("student_patience", optim_cfg.get("patience", None))
+    agreement_threshold = ts_moe_cfg.get("student_agreement_threshold", None)
+    agreement_patience = ts_moe_cfg.get("student_agreement_patience", 3)
 
     optimizer = torch.optim.Adam(student.parameters(), lr=lr, weight_decay=weight_decay)
 
@@ -666,7 +668,11 @@ def run_student_training(
         scheduler = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=eta_min)
 
     if verbose:
-        print(f"Optimizer: Adam lr={lr}, epochs={student_epochs}, patience={patience}")
+        print(
+            f"Optimizer: Adam lr={lr}, epochs={student_epochs}, patience={patience}, "
+            f"agreement_threshold={agreement_threshold}, "
+            f"agreement_patience={agreement_patience}"
+        )
 
     # --- Training loop ---
     train_losses, val_losses = [], []
@@ -676,6 +682,7 @@ def run_student_training(
     best_val_loss = float("inf")
     epochs_without_improvement = 0
     best_model_state = None
+    epochs_above_threshold = 0
 
     epoch_pbar = tqdm(
         range(1, student_epochs + 1), desc=f"Student seed {seed}", leave=True
@@ -713,6 +720,25 @@ def run_student_training(
                 f"val_loss={val_loss:.4f} val_acc(agreement)={val_acc:.4f} | "
                 f"{dt:.1f}s"
             )
+
+        # Agreement-threshold patience: stop once student reliably mirrors teacher
+        if agreement_threshold is not None and val_acc >= agreement_threshold:
+            epochs_above_threshold += 1
+            if epochs_above_threshold >= agreement_patience:
+                if verbose:
+                    print(
+                        f"Agreement threshold reached: {val_acc:.1%} >= "
+                        f"{agreement_threshold:.1%} for {agreement_patience} "
+                        f"consecutive epoch(s). Stopping at epoch {epoch}."
+                    )
+                # Keep the best model seen so far
+                if best_model_state is None:
+                    best_model_state = {
+                        k: v.clone() for k, v in student.state_dict().items()
+                    }
+                break
+        else:
+            epochs_above_threshold = 0
 
         # Best model tracking
         if val_loss < best_val_loss:

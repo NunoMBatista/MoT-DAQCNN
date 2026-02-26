@@ -33,17 +33,19 @@ ts_moe:
   # Phase 1: Teacher entropy regularization
   lambda_entropy: 0
   lambda_max: 1
-  lambda_warmup_epochs: 5
+  lambda_warmup_epochs: 50
   se_hidden_dim: null # auto-select based on num_kernels
 
   # Phase 2: Student gatekeeper
   student_hidden_dims: [32, 16]
   student_epochs: 20
   student_lr: 1e-3
+  student_agreement_threshold: 0.98 # stop early once agreement >= this value
+  student_agreement_patience: 3 # number of consecutive epochs above threshold before stopping
 
   # Phase 3: Final classifier
   use_mask_channel: false
-  final_epochs: 15
+  final_epochs: 100
   final_lr: 1e-3
 
   # Optional filtering
@@ -56,7 +58,7 @@ optim:
   epochs: 100
   grad_clip: 1.0
   patience: 10
-  use_scheduler: false
+  use_scheduler: true
   scheduler_T_max: 10
   scheduler_eta_min: 0.0
 
