@@ -29,6 +29,7 @@ Uses existing utilities for dataset loading, evaluation, and plotting.
 
 import os
 import time
+import warnings
 
 import numpy as np
 import torch
@@ -389,6 +390,33 @@ def create_student_dataloaders(
         print(
             f"  Confidence filtering: disabled (threshold={confidence_threshold:.2f})"
         )
+
+    # If confidence filtering removes all patches, return sentinel loaders so
+    # the caller can skip Student/Final phases gracefully.
+    if flat_patches.shape[0] == 0:
+        warnings.warn(
+            "No student patches remain after confidence filtering. "
+            "Skipping Student and Final Classifier training for this seed.",
+            UserWarning,
+        )
+        print(
+            "  WARNING: 0 patches remain after confidence filtering; "
+            "Student/Final training will be skipped for this seed."
+        )
+        effective_patch_dim = patch_dim
+        if feature_flags:
+            extra_dim = 0
+            if feature_flags.get("stats", False):
+                extra_dim += 4
+            if feature_flags.get("range_energy", False):
+                extra_dim += 3
+            if feature_flags.get("gradients", False):
+                extra_dim += 3
+            effective_patch_dim += extra_dim
+
+        m = int(num_kernels or 1)
+        class_weights = torch.ones(m, dtype=torch.float32)
+        return None, None, effective_patch_dim, class_weights
 
     # --- Optional feature augmentation ---
     active_groups = [k for k, v in (feature_flags or {}).items() if v]
@@ -1035,6 +1063,41 @@ def run_student_training(
             num_kernels=num_kernels,
         )
     )
+    if train_loader is None:
+        if verbose:
+            print(
+                "\nWARNING: Student training skipped because confidence filtering "
+                "kept 0 patches."
+            )
+
+        # Return a schema-compatible result object so pipeline orchestration
+        # can continue and decide whether to run the final classifier.
+        return {
+            "seed": seed,
+            "architecture": "TS-MoE-Student",
+            "skipped": True,
+            "skip_reason": "no_patches_after_confidence_filtering",
+            "train_losses": [],
+            "val_losses": [],
+            "train_accs": [],
+            "val_accs": [],
+            "agreement": 0.0,
+            "agreement_history": [],
+            "per_kernel_agreement": {name: 0.0 for name in kernel_names},
+            "prediction_distribution": {name: 0.0 for name in kernel_names},
+            "routing_confusion_matrix": [
+                [0 for _ in range(num_kernels)] for _ in range(num_kernels)
+            ],
+            "kernel_names": kernel_names,
+            "num_kernels": num_kernels,
+            "student_params": 0,
+            "label_generation_time_s": label_gen_time,
+            "final_train_loss": None,
+            "final_val_loss": None,
+            "final_train_acc": None,
+            "final_val_acc": None,
+        }
+
     if verbose:
         total_train = len(train_loader.dataset)
         total_val = len(val_loader.dataset) if val_loader else 0

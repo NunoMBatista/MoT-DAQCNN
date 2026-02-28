@@ -87,11 +87,14 @@ def main():
                 cfg, seed, output_dir, verbose=(len(seeds) == 1)
             )
             # Flatten into the same shape the aggregation code expects
+            teacher = ts_result["teacher"]
+            student = ts_result["student"]
             final = ts_result["final"]
             summary = ts_result["summary"]
             result = {
                 "seed": seed,
                 "architecture": "TS-MoE",
+                # Final classifier metrics (kept for compatibility)
                 "train_losses": final.get("train_losses", []),
                 "val_losses": final.get("val_losses", []),
                 "train_accs": final.get("train_accs", []),
@@ -109,6 +112,18 @@ def main():
                 "final_val_loss": final.get("final_val_loss", 0.0),
                 "final_train_acc": final.get("final_train_acc", 0.0),
                 "final_val_acc": final.get("final_val_acc", 0.0),
+                # Per-phase histories for TS-MoE multi-seed plots
+                "teacher_train_losses": teacher.get("train_losses", []),
+                "teacher_val_losses": teacher.get("val_losses", []),
+                "student_train_losses": student.get("train_losses", []),
+                "student_val_losses": student.get("val_losses", []),
+                "final_train_losses": final.get("train_losses", []),
+                "final_val_losses": final.get("val_losses", []),
+                # Explicit skip flags (helps explain null/empty entries)
+                "student_skipped": bool(student.get("skipped", False)),
+                "student_skip_reason": student.get("skip_reason"),
+                "final_skipped": bool(final.get("skipped", False)),
+                "final_skip_reason": final.get("skip_reason"),
                 # Extra TS-MoE specific fields
                 "teacher_test_acc": summary.get("teacher_test_acc"),
                 "student_agreement": summary.get("student_agreement"),
@@ -206,6 +221,40 @@ def main():
                 all_train_losses, all_val_losses, multi_seed_plot_path
             )
             print(f"Multi-seed loss curve saved to: {multi_seed_plot_path}\n")
+
+        # TS-MoE: also save per-phase multi-seed loss curves
+        if architecture == "TS-MoE":
+            phase_specs = [
+                (
+                    "teacher",
+                    "teacher_train_losses",
+                    "teacher_val_losses",
+                    "teacher_loss_curve_multi_seed.png",
+                ),
+                (
+                    "student",
+                    "student_train_losses",
+                    "student_val_losses",
+                    "student_loss_curve_multi_seed.png",
+                ),
+                (
+                    "final classifier",
+                    "final_train_losses",
+                    "final_val_losses",
+                    "final_loss_curve_multi_seed.png",
+                ),
+            ]
+
+            for phase_name, train_key, val_key, filename in phase_specs:
+                phase_train = [r[train_key] for r in all_results if r.get(train_key)]
+                phase_val = [r[val_key] for r in all_results if r.get(val_key)]
+                if phase_train and phase_val:
+                    phase_plot_path = os.path.join(output_dir, filename)
+                    plot_multi_seed_loss_curves(phase_train, phase_val, phase_plot_path)
+                    print(
+                        f"TS-MoE {phase_name} multi-seed loss curve saved to: "
+                        f"{phase_plot_path}\n"
+                    )
 
         # Plot multi-seed ROC curves
         all_test_labels = [

@@ -18,7 +18,7 @@ model:
   num_classes: 2
   kernel_size: 2
   stride: 2
-  kernel_topology_names: ["horizontal", "u_shape"]
+  kernel_topology_names: ["kings", "horizontal", "vertical", "u_shape"]
   scaling_factor: 1
   evolution_time: 2.5
   mode: trotter
@@ -33,8 +33,8 @@ ts_moe:
   # -----------------------------------------------------------------------
   # Phase 1: Teacher training
   # -----------------------------------------------------------------------
-  lambda_entropy: 0.5 # entropy regularisation weight on Teacher routing (prevents collapse)
-  lambda_max: 0.5 # max-alpha regularisation weight (encourages confident routing)
+  lambda_entropy: 0.0 # entropy regularisation weight on Teacher routing (prevents collapse)
+  lambda_max: 0.1 # max-alpha regularisation weight (encourages confident routing)
   lambda_warmup_epochs: 50 # ramp lambda_entropy/lambda_max up over this many epochs
   se_hidden_dim: 32 # SE bottleneck hidden dim; null = auto (num_kernels)
 
@@ -105,7 +105,7 @@ ts_moe:
   # Try 0.3–0.5 to remove the most ambiguous routing decisions.
   # A diagnostic summary of Teacher confidence is printed at the start of
   # student training to help you choose a good value.
-  confidence_threshold: 0.6
+  confidence_threshold: 0.3
 
   # Knowledge distillation (soft labels):
   #   Instead of training on hard argmax labels only, also train against the
@@ -121,7 +121,7 @@ ts_moe:
   #   Higher temperature (e.g. 4–8) produces softer targets and transfers
   #   more inter-class relationship information.  Lower (e.g. 1–2) keeps
   #   targets close to one-hot.
-  student_kd_alpha: 0.0 # weight of KL distillation term (0 = hard CE only)
+  student_kd_alpha: 0.5 # weight of KL distillation term (0 = hard CE only)
   student_kd_temperature: 4.0 # temperature for softening Teacher/Student distributions
 
   # -----------------------------------------------------------------------
@@ -159,15 +159,15 @@ ts_moe:
 
 # Optimizer (used for Teacher training; Student/Final have their own lr above)
 optim:
-  lr: 1e-3
-  weight_decay: 0.0
+  lr: 1e-4
+  weight_decay: 1e-4
   epochs: 100
   grad_clip: 1.0
-  patience: 15
+  patience: null
   use_scheduler: true
-  scheduler_T_max: 10
+  scheduler_T_max: 100
   scheduler_eta_min: 0.0
 
 misc:
-  seed: [1, 2, 3]
+  seed: [343, 4123, 10]
   log_every: 50

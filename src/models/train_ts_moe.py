@@ -16,6 +16,7 @@ import os
 import random
 import sys
 import time
+import warnings
 
 import numpy as np
 import torch
@@ -145,23 +146,77 @@ def run_ts_moe_pipeline(
         print(f"# Phase 3: Final Classifier Training (seed={seed})")
         print(f"{'#' * 60}")
 
-    final_dir = os.path.join(seed_dir, "final_classifier")
-    os.makedirs(final_dir, exist_ok=True)
-
-    # Override final-classifier-specific hyperparameters
-    final_cfg = _apply_final_overrides(cfg)
-
-    final_result = run_final_classifier_training(
-        final_cfg,
-        seed,
-        final_dir,
-        student_ckpt_path=student_ckpt,
-        verbose=verbose,
-        set_seed_fn=set_seed,
-        datasets_dir=datasets_dir,
-        raw_image_datasets=raw_image_datasets,
-        teacher_test_acc=teacher_result["test_acc"],
+    should_skip_final = bool(student_result.get("skipped", False)) or not os.path.exists(
+        student_ckpt
     )
+
+    if should_skip_final:
+        warnings.warn(
+            "Skipping Final Classifier training because Student training was "
+            "skipped or no Student checkpoint was produced.",
+            UserWarning,
+        )
+        if verbose:
+            print(
+                "WARNING: Skipping Phase 3 (Final Classifier) because "
+                "Student has no trainable data/checkpoint for this seed."
+            )
+        final_result = {
+            "seed": seed,
+            "architecture": "TS-MoE-FinalClassifier",
+            "skipped": True,
+            "skip_reason": "student_skipped_or_missing_checkpoint",
+            "train_losses": [],
+            "val_losses": [],
+            "train_accs": [],
+            "val_accs": [],
+            "test_loss": None,
+            "test_acc": None,
+            "test_auc": None,
+            "test_f1": None,
+            "test_recall": None,
+            "test_probs": [],
+            "test_labels": [],
+            "test_confusion_matrix": [],
+            "num_classes": cfg.get("model", {}).get("num_classes", 2),
+            "final_train_loss": None,
+            "final_val_loss": None,
+            "final_train_acc": None,
+            "final_val_acc": None,
+            "kernel_names": student_result.get("kernel_names", []),
+            "num_kernels": student_result.get("num_kernels"),
+            "use_mask_channel": cfg.get("ts_moe", {}).get("use_mask_channel", False),
+            "comparison": {
+                "final_classifier_acc": None,
+                "teacher_oracle_acc": teacher_result.get("test_acc"),
+                "baseline_acc": None,
+                "speedup_factor": None,
+                "routing_time_s": None,
+                "inference_time_s": None,
+                "pipeline_time_s": None,
+            },
+            "routing_analysis": {},
+            "routing_time_s": None,
+            "classifier_params": 0,
+        }
+    else:
+        final_dir = os.path.join(seed_dir, "final_classifier")
+        os.makedirs(final_dir, exist_ok=True)
+
+        # Override final-classifier-specific hyperparameters
+        final_cfg = _apply_final_overrides(cfg)
+
+        final_result = run_final_classifier_training(
+            final_cfg,
+            seed,
+            final_dir,
+            student_ckpt_path=student_ckpt,
+            verbose=verbose,
+            set_seed_fn=set_seed,
+            datasets_dir=datasets_dir,
+            raw_image_datasets=raw_image_datasets,
+            teacher_test_acc=teacher_result["test_acc"],
+        )
 
     pipeline_time = time.time() - t_pipeline_start
 
@@ -182,13 +237,17 @@ def run_ts_moe_pipeline(
     }
 
     if verbose:
+        final_acc = summary["final_test_acc"]
+        final_acc_str = "N/A" if final_acc is None else f"{final_acc:.4f}"
+        speedup = summary["speedup_factor"]
+        speedup_str = "N/A" if speedup is None else f"{speedup}×"
         print(f"\n{'=' * 60}")
         print(f"TS-MoE Pipeline Summary (seed={seed})")
         print(f"{'=' * 60}")
         print(f"Teacher accuracy:   {summary['teacher_test_acc']:.4f}")
         print(f"Student agreement:  {summary['student_agreement']:.4f}")
-        print(f"Final accuracy:     {summary['final_test_acc']:.4f}")
-        print(f"Speedup factor:     {summary['speedup_factor']}×")
+        print(f"Final accuracy:     {final_acc_str}")
+        print(f"Speedup factor:     {speedup_str}")
         print(f"Total pipeline time: {pipeline_time:.1f}s")
         print(f"{'=' * 60}\n")
 
