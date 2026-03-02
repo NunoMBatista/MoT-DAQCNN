@@ -31,6 +31,7 @@ from src.models.teacher_moe_training import run_teacher_training  # noqa: E402
 from src.models.ts_moe_classification_head_training import (
     run_final_classifier_training,  # noqa: E402
 )
+from src.utils.plotting import plot_multi_seed_roc_curves  # noqa: E402
 
 
 def set_seed(seed: int):
@@ -146,9 +147,9 @@ def run_ts_moe_pipeline(
         print(f"# Phase 3: Final Classifier Training (seed={seed})")
         print(f"{'#' * 60}")
 
-    should_skip_final = bool(student_result.get("skipped", False)) or not os.path.exists(
-        student_ckpt
-    )
+    should_skip_final = bool(
+        student_result.get("skipped", False)
+    ) or not os.path.exists(student_ckpt)
 
     if should_skip_final:
         warnings.warn(
@@ -390,6 +391,49 @@ def main():
             indent=2,
         )
     print(f"Aggregate results saved to: {agg_path}")
+
+    # Plot multi-seed ROC curves for the final classifier
+    final_labels = [
+        np.array(r["final"]["test_labels"])
+        for r in all_results
+        if r["final"].get("test_labels")
+    ]
+    final_probs = [
+        np.array(r["final"]["test_probs"])
+        for r in all_results
+        if r["final"].get("test_probs")
+    ]
+    if final_labels and final_probs:
+        num_classes = all_results[0]["final"].get("num_classes", 2)
+        plot_multi_seed_roc_curves(
+            final_labels,
+            final_probs,
+            os.path.join(output_dir, "final_roc_curve_multi_seed.png"),
+            num_classes=num_classes,
+        )
+        print(f"Final classifier multi-seed ROC curve saved to: {output_dir}")
+
+    # Plot multi-seed ROC curves for the teacher
+    teacher_labels = [
+        np.array(r["teacher"]["test_labels"])
+        for r in all_results
+        if r["teacher"].get("test_labels")
+    ]
+    teacher_probs = [
+        np.array(r["teacher"]["test_probs"])
+        for r in all_results
+        if r["teacher"].get("test_probs")
+    ]
+    if teacher_labels and teacher_probs:
+        num_classes = all_results[0]["teacher"].get("num_classes", 2)
+        plot_multi_seed_roc_curves(
+            teacher_labels,
+            teacher_probs,
+            os.path.join(output_dir, "teacher_roc_curve_multi_seed.png"),
+            num_classes=num_classes,
+        )
+        print(f"Teacher multi-seed ROC curve saved to: {output_dir}")
+
     print(f"All outputs saved to: {output_dir}")
     print("\nTS-MoE pipeline complete!")
 
