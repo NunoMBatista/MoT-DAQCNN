@@ -2,12 +2,11 @@
 Smoke and sanity tests for Phase 3: Sparse Reconstruction & Final Classifier.
 
 Tests cover:
-    1. build_sparse_tensor — shape, zeroing, channel selection
-    2. build_sparse_tensor_fast — equivalence with dict-based version
-    3. Mask channel (optional extra channel)
-    4. FinalClassifier forward pass and backward
-    5. Routing analysis helper
-    6. Mini training loop (end-to-end smoke test)
+    1. build_sparse_tensor_fast — shape, zeroing, channel selection
+    2. Mask channel (optional extra channel)
+    3. FinalClassifier forward pass and backward
+    4. Routing analysis helper
+    5. Mini training loop (end-to-end smoke test)
 
 Run with:
     python -m pytest tests/test_final_classifier_phase3.py -v
@@ -37,10 +36,7 @@ from src.models.ts_moe_classification_head_training import (
 )
 from src.utils.evaluate import evaluate
 from src.utils.kernel_mapping import build_kernel_to_channels_map, get_kernel_names
-from src.utils.sparse_reconstruction import (
-    build_sparse_tensor,
-    build_sparse_tensor_fast,
-)
+from src.utils.sparse_reconstruction import build_sparse_tensor_fast
 
 # =========================================================================
 # Helpers
@@ -75,35 +71,31 @@ def make_fake_metadata(kernel_names, kernel_size):
 
 
 class TestSparseReconstruction:
+    def _make_groups(self, kernel_names, N):
+        """Helper: build channel_groups list from kernel names and N channels each."""
+        return [list(range(k * N, (k + 1) * N)) for k in range(len(kernel_names))]
+
     def test_output_shape_matches_input(self):
         """Sparse tensor should have same shape as quantum features."""
         M, N, H, W, B = 2, 4, 7, 7, 3
         features = torch.randn(B, M * N, H, W)
         routing = torch.randint(0, M, (B, H, W))
+        channel_groups = self._make_groups(["alpha", "beta"], N)
 
-        kernel_names = ["alpha", "beta"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-
-        sparse = build_sparse_tensor(features, routing, k2c)
+        sparse = build_sparse_tensor_fast(features, routing, channel_groups)
         assert sparse.shape == features.shape
 
     def test_zeros_for_unselected_kernel(self):
         """Channels for non-selected kernels should be zero."""
         M, N, H, W, B = 2, 4, 5, 5, 2
-        features = torch.ones(B, M * N, H, W)  # all ones
+        features = torch.ones(B, M * N, H, W)
         # All patches choose kernel 0
         routing = torch.zeros(B, H, W, dtype=torch.long)
+        channel_groups = self._make_groups(["alpha", "beta"], N)
+        ch_beta = channel_groups[1]
 
-        kernel_names = ["alpha", "beta"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-        names = get_kernel_names(k2c)
-        ch_beta = k2c[names[1]]  # kernel 1 channels
+        sparse = build_sparse_tensor_fast(features, routing, channel_groups)
 
-        sparse = build_sparse_tensor(features, routing, k2c)
-
-        # Kernel 1 channels should all be zero
         for ch in ch_beta:
             assert (sparse[:, ch, :, :] == 0).all(), f"Channel {ch} should be zero"
 
@@ -113,14 +105,10 @@ class TestSparseReconstruction:
         features = torch.randn(B, M * N, H, W)
         # All patches choose kernel 0
         routing = torch.zeros(B, H, W, dtype=torch.long)
+        channel_groups = self._make_groups(["alpha", "beta"], N)
+        ch_alpha = channel_groups[0]
 
-        kernel_names = ["alpha", "beta"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-        names = get_kernel_names(k2c)
-        ch_alpha = k2c[names[0]]  # kernel 0 channels
-
-        sparse = build_sparse_tensor(features, routing, k2c)
+        sparse = build_sparse_tensor_fast(features, routing, channel_groups)
 
         for ch in ch_alpha:
             assert torch.allclose(sparse[:, ch, :, :], features[:, ch, :, :]), (
@@ -134,15 +122,10 @@ class TestSparseReconstruction:
         routing = torch.zeros(B, H, W, dtype=torch.long)
         # Patch (0, 0, 0) selects kernel 1
         routing[0, 0, 0] = 1
+        channel_groups = self._make_groups(["alpha", "beta"], N)
+        ch_alpha, ch_beta = channel_groups[0], channel_groups[1]
 
-        kernel_names = ["alpha", "beta"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-        names = get_kernel_names(k2c)
-        ch_alpha = k2c[names[0]]
-        ch_beta = k2c[names[1]]
-
-        sparse = build_sparse_tensor(features, routing, k2c)
+        sparse = build_sparse_tensor_fast(features, routing, channel_groups)
 
         # At (0,0): kernel 1 selected -> alpha channels zero, beta channels filled
         for ch in ch_alpha:
@@ -161,62 +144,22 @@ class TestSparseReconstruction:
         M, N, H, W, B = 3, 4, 3, 3, 2
         features = torch.randn(B, M * N, H, W)
         routing = torch.randint(0, M, (B, H, W))
+        channel_groups = self._make_groups(["a", "b", "c"], N)
 
-        kernel_names = ["a", "b", "c"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-
-        sparse = build_sparse_tensor(features, routing, k2c)
+        sparse = build_sparse_tensor_fast(features, routing, channel_groups)
         assert sparse.shape == features.shape
 
         # Verify that for each patch, exactly one kernel group is non-zero
-        names = get_kernel_names(k2c)
         for b in range(B):
             for i in range(H):
                 for j in range(W):
                     selected_k = routing[b, i, j].item()
-                    for k, name in enumerate(names):
-                        chs = k2c[name]
+                    for k, chs in enumerate(channel_groups):
                         vals = sparse[b, chs, i, j]
                         if k == selected_k:
-                            expected = features[b, chs, i, j]
-                            assert torch.allclose(vals, expected)
+                            assert torch.allclose(vals, features[b, chs, i, j])
                         else:
                             assert (vals == 0).all()
-
-
-class TestSparseReconstructionFast:
-    def test_fast_matches_dict_version(self):
-        """build_sparse_tensor_fast should produce identical output."""
-        M, N, H, W, B = 2, 9, 7, 7, 4
-        features = torch.randn(B, M * N, H, W)
-        routing = torch.randint(0, M, (B, H, W))
-
-        kernel_names = ["kings", "horizontal"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-        names = get_kernel_names(k2c)
-        channel_groups = [k2c[name] for name in names]
-
-        sparse_dict = build_sparse_tensor(features, routing, k2c)
-        sparse_fast = build_sparse_tensor_fast(features, routing, channel_groups)
-
-        assert torch.allclose(sparse_dict, sparse_fast)
-
-    def test_fast_with_mask_channel(self):
-        """Fast version with mask channel appended."""
-        M, N, H, W, B = 2, 4, 5, 5, 2
-        features = torch.randn(B, M * N, H, W)
-        routing = torch.randint(0, M, (B, H, W))
-
-        channel_groups = [list(range(N)), list(range(N, 2 * N))]
-
-        sparse = build_sparse_tensor_fast(
-            features, routing, channel_groups, use_mask_channel=True
-        )
-        assert sparse.shape == (B, M * N + 1, H, W)
-        # Mask channel should be all ones
-        assert (sparse[:, -1, :, :] == 1.0).all()
 
 
 class TestMaskChannel:
@@ -225,12 +168,11 @@ class TestMaskChannel:
         M, N, H, W, B = 2, 4, 5, 5, 3
         features = torch.randn(B, M * N, H, W)
         routing = torch.randint(0, M, (B, H, W))
+        channel_groups = [list(range(N)), list(range(N, 2 * N))]
 
-        kernel_names = ["a", "b"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-
-        sparse = build_sparse_tensor(features, routing, k2c, use_mask_channel=True)
+        sparse = build_sparse_tensor_fast(
+            features, routing, channel_groups, use_mask_channel=True
+        )
         assert sparse.shape == (B, M * N + 1, H, W)
 
     def test_mask_channel_all_ones(self):
@@ -238,30 +180,23 @@ class TestMaskChannel:
         M, N, H, W, B = 2, 4, 5, 5, 2
         features = torch.randn(B, M * N, H, W)
         routing = torch.randint(0, M, (B, H, W))
+        channel_groups = [list(range(N)), list(range(N, 2 * N))]
 
-        kernel_names = ["a", "b"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-
-        sparse = build_sparse_tensor(features, routing, k2c, use_mask_channel=True)
-        mask_ch = sparse[:, -1, :, :]
-        assert (mask_ch == 1.0).all()
+        sparse = build_sparse_tensor_fast(
+            features, routing, channel_groups, use_mask_channel=True
+        )
+        assert (sparse[:, -1, :, :] == 1.0).all()
 
     def test_data_channels_unchanged_with_mask(self):
         """First M*N channels should be identical with or without mask."""
         M, N, H, W, B = 2, 4, 5, 5, 2
         features = torch.randn(B, M * N, H, W)
         routing = torch.randint(0, M, (B, H, W))
+        channel_groups = [list(range(N)), list(range(N, 2 * N))]
 
-        kernel_names = ["a", "b"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-
-        sparse_no_mask = build_sparse_tensor(
-            features, routing, k2c, use_mask_channel=False
-        )
-        sparse_with_mask = build_sparse_tensor(
-            features, routing, k2c, use_mask_channel=True
+        sparse_no_mask = build_sparse_tensor_fast(features, routing, channel_groups)
+        sparse_with_mask = build_sparse_tensor_fast(
+            features, routing, channel_groups, use_mask_channel=True
         )
 
         assert torch.allclose(sparse_no_mask, sparse_with_mask[:, : M * N, :, :])
@@ -503,12 +438,9 @@ class TestEndToEndSparse:
 
         features = torch.randn(B, M * N, H, W)
         routing = torch.randint(0, M, (B, H, W))
+        channel_groups = [list(range(N)), list(range(N, 2 * N))]
 
-        kernel_names = ["kings", "horizontal"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-
-        sparse = build_sparse_tensor(features, routing, k2c)
+        sparse = build_sparse_tensor_fast(features, routing, channel_groups)
 
         model = FinalClassifier(M * N, num_classes)
         logits = model(sparse)
@@ -522,12 +454,11 @@ class TestEndToEndSparse:
 
         features = torch.randn(B, M * N, H, W)
         routing = torch.randint(0, M, (B, H, W))
+        channel_groups = [list(range(N)), list(range(N, 2 * N))]
 
-        kernel_names = ["kings", "horizontal"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
-
-        sparse = build_sparse_tensor(features, routing, k2c, use_mask_channel=True)
+        sparse = build_sparse_tensor_fast(
+            features, routing, channel_groups, use_mask_channel=True
+        )
 
         model = FinalClassifier(M * N + 1, num_classes)
         logits = model(sparse)
@@ -540,19 +471,19 @@ class TestEndToEndSparse:
         H, W = 13, 13
         num_classes = 2
 
-        kernel_names = ["a", "b"]
-        ckm = make_channel_kernel_map(kernel_names, N)
-        k2c = build_kernel_to_channels_map(ckm)
+        channel_groups = [list(range(N)), list(range(N, 2 * N))]
 
         # Build sparse training data
         train_feats = torch.randn(B_train, M * N, H, W)
         train_routing = torch.randint(0, M, (B_train, H, W))
-        train_sparse = build_sparse_tensor(train_feats, train_routing, k2c)
+        train_sparse = build_sparse_tensor_fast(
+            train_feats, train_routing, channel_groups
+        )
         train_labels = torch.randint(0, num_classes, (B_train,))
 
         val_feats = torch.randn(B_val, M * N, H, W)
         val_routing = torch.randint(0, M, (B_val, H, W))
-        val_sparse = build_sparse_tensor(val_feats, val_routing, k2c)
+        val_sparse = build_sparse_tensor_fast(val_feats, val_routing, channel_groups)
         val_labels = torch.randint(0, num_classes, (B_val,))
 
         train_loader = DataLoader(
@@ -602,7 +533,6 @@ def run_all_tests():
 
     test_classes = [
         TestSparseReconstruction,
-        TestSparseReconstructionFast,
         TestMaskChannel,
         TestFinalClassifier,
         TestRoutingAnalysis,

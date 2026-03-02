@@ -37,8 +37,8 @@ from src.utils.kernel_mapping import (
     get_num_kernels,
     validate_kernel_map,
 )
-from src.utils.losses import compute_lambda, entropy_loss
 from src.utils.plotting import plot_alpha_histogram, plot_routing_ratio_over_epochs
+from src.utils.training_utils import compute_lambda, entropy_loss
 
 # =========================================================================
 # Helpers to build fake data / metadata
@@ -532,51 +532,44 @@ class TestMiniTraining:
         assert "probs" in metrics
         assert "labels" in metrics
 
-    def test_collect_alpha_weights(self):
-        """collect_alpha_weights should return flat alpha per kernel."""
-        from src.models.teacher_moe_training import collect_alpha_weights
+    def test_evaluate_teacher(self):
+        """evaluate_teacher should return loss, acc, routing ratios, and alpha weights."""
+        from src.models.teacher_moe_training import evaluate_teacher
 
-        M, N = 3, 4
-        metadata = make_fake_metadata(["a", "b", "c"], kernel_size=2)
-        model = build_teacher_from_metadata(metadata, num_classes=2)
-
+        kernel_names = ["kings", "horizontal"]
+        M, N = 2, 4
         num_samples = 12
         spatial = 8
-        loader = make_fake_loaders(num_samples, M * N, spatial, 2, batch_size=4)
+        metadata = make_fake_metadata(kernel_names, kernel_size=2)
+        model = build_teacher_from_metadata(metadata, num_classes=2)
 
+        # Init LazyLinear
+        loader = make_fake_loaders(num_samples, M * N, spatial, 2, batch_size=4)
         with torch.no_grad():
             sample, _ = next(iter(loader))
             model(sample)
 
-        alphas = collect_alpha_weights(model, loader, "cpu")
+        val_loss, val_acc, routing_ratio, alpha_vals = evaluate_teacher(
+            model, loader, "cpu"
+        )
 
-        assert set(alphas.keys()) == {"a", "b", "c"}
-        # Each kernel should have num_samples * spatial * spatial alpha values
+        # Loss and accuracy are valid scalars
+        assert isinstance(val_loss, float) and val_loss >= 0.0
+        assert isinstance(val_acc, float) and 0.0 <= val_acc <= 1.0
+
+        # Routing ratios cover all kernels and sum to 1
+        assert set(routing_ratio.keys()) == set(kernel_names)
+        assert abs(sum(routing_ratio.values()) - 1.0) < 1e-5
+        for r in routing_ratio.values():
+            assert 0.0 <= r <= 1.0
+
+        # Alpha values are flat tensors with num_samples * spatial * spatial entries
+        assert set(alpha_vals.keys()) == set(kernel_names)
         expected = num_samples * spatial * spatial
-        for name, vals in alphas.items():
+        for name, vals in alpha_vals.items():
             assert len(vals) == expected, (
                 f"Kernel '{name}': expected {expected} values, got {len(vals)}"
             )
-
-    def test_compute_routing_ratio(self):
-        """compute_routing_ratio should return valid fractions summing to 1."""
-        from src.models.teacher_moe_training import compute_routing_ratio
-
-        metadata = make_fake_metadata(["kings", "horizontal"], kernel_size=2)
-        model = build_teacher_from_metadata(metadata, num_classes=2)
-
-        loader = make_fake_loaders(16, 8, 14, 2, batch_size=8)
-
-        with torch.no_grad():
-            sample, _ = next(iter(loader))
-            model(sample)
-
-        ratio = compute_routing_ratio(model, loader, "cpu")
-        assert set(ratio.keys()) == {"kings", "horizontal"}
-        total = sum(ratio.values())
-        assert abs(total - 1.0) < 1e-5, f"Ratios sum to {total}, expected 1.0"
-        for name, r in ratio.items():
-            assert 0.0 <= r <= 1.0, f"Invalid ratio for {name}: {r}"
 
 
 # =========================================================================

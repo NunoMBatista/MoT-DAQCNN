@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 from src.models.teacher_moe import build_teacher_from_metadata
 from src.utils.evaluate import accuracy, evaluate
-from src.utils.losses import compute_lambda, entropy_loss
+from src.utils.training_utils import compute_lambda, entropy_loss, resolve_device
 from src.utils.plotting import (
     plot_alpha_histogram_combined,
     plot_confusion_matrix,
@@ -245,17 +245,7 @@ def run_teacher_training(
         set_seed_fn(seed)
 
     # --- Device ---
-    requested = cfg.get("model", {}).get("classical_device", "auto")
-    if requested == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    elif requested == "cuda" and not torch.cuda.is_available():
-        if verbose:
-            print("CUDA requested but not available, falling back to CPU")
-        device = "cpu"
-    else:
-        device = requested
-    if verbose:
-        print(f"Device: {device}")
+    device = resolve_device(cfg, verbose=verbose)
 
     # --- Load cached quantum dataset (REQUIRED) ---
     cached_path = find_cached_quantum_dataset(cfg, datasets_dir=datasets_dir)

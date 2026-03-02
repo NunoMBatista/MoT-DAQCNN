@@ -9,6 +9,7 @@ from tqdm import tqdm
 from src.models.daqcnn import DAQCNN
 from src.utils.data import get_dataloaders
 from src.utils.evaluate import evaluate
+from src.utils.training_utils import resolve_device
 from src.utils.plotting import plot_confusion_matrix, plot_loss_curves, plot_roc_curve
 from src.utils.quantum_dataset_cache import (
     find_cached_quantum_dataset,
@@ -154,19 +155,7 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     if set_seed_fn:
         set_seed_fn(seed)
 
-    # Determine device
-    requested_device = cfg.get("model", {}).get("classical_device", "auto")
-    if requested_device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    elif requested_device == "cuda" and not torch.cuda.is_available():
-        if verbose:
-            print("CUDA requested but not available, falling back to CPU")
-        device = "cpu"
-    else:
-        device = requested_device
-
-    if verbose:
-        print(f"Device: {device}")
+    device = resolve_device(cfg, verbose=verbose)
 
     # Check for a cached quantum dataset before doing anything expensive
     using_cache = False

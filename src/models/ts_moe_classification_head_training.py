@@ -37,6 +37,7 @@ from src.models.ts_moe_classification_head import build_final_classifier_from_me
 from src.utils.data import load_medmnist_dataset
 from src.utils.evaluate import accuracy, evaluate
 from src.utils.kernel_mapping import build_kernel_to_channels_map, get_kernel_names
+from src.utils.training_utils import resolve_device
 from src.utils.plotting import (
     plot_confusion_matrix,
     plot_loss_curves,
@@ -338,17 +339,7 @@ def run_final_classifier_training(
         set_seed_fn(seed)
 
     # --- Device ---
-    requested = cfg.get("model", {}).get("classical_device", "auto")
-    if requested == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    elif requested == "cuda" and not torch.cuda.is_available():
-        if verbose:
-            print("CUDA requested but not available, falling back to CPU")
-        device = "cpu"
-    else:
-        device = requested
-    if verbose:
-        print(f"Device: {device}")
+    device = resolve_device(cfg, verbose=verbose)
 
     # --- Load trained Student ---
     if verbose:

@@ -48,6 +48,7 @@ from src.models.student_gatekeeper import (
 from src.models.teacher_moe import build_teacher_from_metadata
 from src.utils.color_conversion import apply_color_conversion
 from src.utils.data import load_medmnist_dataset
+from src.utils.training_utils import resolve_device
 from src.utils.plotting import plot_loss_curves, plot_routing_confusion_matrix
 from src.utils.quantum_dataset_cache import (
     find_cached_quantum_dataset,
@@ -883,17 +884,7 @@ def run_student_training(
         set_seed_fn(seed)
 
     # --- Device ---
-    requested = cfg.get("model", {}).get("classical_device", "auto")
-    if requested == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    elif requested == "cuda" and not torch.cuda.is_available():
-        if verbose:
-            print("CUDA requested but not available, falling back to CPU")
-        device = "cpu"
-    else:
-        device = requested
-    if verbose:
-        print(f"Device: {device}")
+    device = resolve_device(cfg, verbose=verbose)
 
     # --- Load trained Teacher ---
     if verbose:
