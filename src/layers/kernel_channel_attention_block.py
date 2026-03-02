@@ -159,10 +159,25 @@ class KernelChannelAttentionBlock(nn.Module):
         # --- Excite: multiply alpha_k into all N channels of kernel group k ---
         # Expand alpha from (B, M, H, W) to (B, M*N, H, W) by repeating each
         # scalar weight N times so it broadcasts directly over the channel group.
-        # Uses the ORIGINAL (un-normalized) features so the classification head
-        # sees the true quantum output magnitudes.
+        #
+        # BUG FIX: Apply alpha to the NORMALISED features (x_normed) instead of
+        # the raw features (x).  The gate's softmax decision is based on x_normed,
+        # so the classification head must see the same scale.  Previously, using
+        # raw x here meant that a kernel topology with inherently larger output
+        # magnitudes (e.g. Kings graph with stronger 1/r^6 interactions) would
+        # dominate the classification head's input even when the gate assigned it
+        # a LOW alpha weight — the raw magnitude leaked through and overwhelmed
+        # the gate's attenuation.  This caused the CE loss to send inconsistent
+        # gradient signals back to the gate:
+        #   - Gate says "down-weight kernel 0" (low alpha)
+        #   - But kernel 0's raw magnitude still dominates the head's input
+        #   - CE loss blames the gate for kernel 0's influence and oscillates
+        #
+        # Using x_normed ensures that the head sees features whose relative
+        # contributions are purely determined by the gate's alpha weights,
+        # giving the gate clean, consistent gradient feedback.
         N = self.channels_per_kernel
         alpha_expanded = alpha.repeat_interleave(N, dim=1)  # (B, M*N, H, W)
-        out = x * alpha_expanded
+        out = x_normed * alpha_expanded
 
         return out

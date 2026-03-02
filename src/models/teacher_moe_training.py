@@ -494,9 +494,15 @@ def run_teacher_training(
         print(f"{'=' * 60}\n")
 
     # --- Plots ---
-    # Loss curves
+    # Loss curves (joint train/val + CE-only + entropy-only components)
     loss_path = os.path.join(output_dir, f"teacher_loss_curve_seed_{seed}.png")
-    plot_loss_curves(train_losses, val_losses, loss_path)
+    plot_loss_curves(
+        train_losses,
+        val_losses,
+        loss_path,
+        ce_losses=train_ce_losses,
+        ent_losses=train_ent_losses,
+    )
 
     # ROC curve
     roc_path = os.path.join(output_dir, f"teacher_roc_curve_seed_{seed}.png")

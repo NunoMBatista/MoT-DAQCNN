@@ -5,6 +5,8 @@ Includes loss functions, common training helpers, and the shared classification
 head factory used by DAQCNN, TeacherMoE, and FinalClassifier.
 """
 
+import math
+
 import torch
 import torch.nn as nn
 
@@ -38,7 +40,7 @@ def resolve_device(cfg: dict, verbose: bool = True) -> str:
 
 
 def entropy_loss(alpha):
-    """Compute the mean entropy of routing weights across all patches.
+    """Compute the **normalised** mean entropy of routing weights across all patches.
 
     Entropy is maximized when alpha is uniform (bad — indecisive routing)
     and minimized when alpha is one-hot (good — decisive routing).
@@ -47,20 +49,40 @@ def entropy_loss(alpha):
     we penalize indecisive routing and encourage the SE block to commit
     to a single kernel per patch.
 
+    **Normalisation (BUG FIX):** Raw entropy ranges from 0 to log(M), where
+    M is the number of kernels. Without normalisation, the entropy term's
+    magnitude scales with M, meaning the same ``lambda_max`` value produces
+    very different gradient magnitudes for 2-kernel vs 4-kernel configs.
+    With M=4, raw entropy can reach ~1.39, and ``lambda_max=0.5`` produces
+    a penalty of ~0.7 — comparable to the CE loss itself, causing the gate
+    and classification head to fight each other.
+
+    We now divide by log(M) so the returned value is always in [0, 1]:
+        0.0 = perfectly decisive (one-hot alpha)
+        1.0 = maximally indecisive (uniform alpha)
+
+    This makes ``lambda_max`` values interpretable consistently across any
+    number of kernels, and prevents the entropy penalty from overwhelming
+    the classification signal.
+
     Args:
         alpha: Tensor of shape (B, M, H, W) with softmax-normalized
             routing weights. M is the number of kernels.
 
     Returns:
-        Scalar tensor: mean entropy across all patches in the batch.
-            Range is [0, log(M)] where M = alpha.shape[1].
+        Scalar tensor: mean normalised entropy across all patches in the
+            batch.  Range is [0, 1] regardless of M.
     """
+    M = alpha.shape[1]
     # Small epsilon to avoid log(0)
     eps = 1e-8
     # Entropy per patch: -sum_k alpha_k * log(alpha_k), summed over M kernels
     # alpha shape: (B, M, H, W)
     h = -torch.sum(alpha * torch.log(alpha + eps), dim=1)  # (B, H, W)
-    return h.mean()
+    # Normalise by maximum possible entropy so the value is in [0, 1].
+    # For M=1 (degenerate case), max_entropy=0; guard against division by zero.
+    max_entropy = math.log(M) if M > 1 else 1.0
+    return h.mean() / max_entropy
 
 
 def build_classification_head(in_channels, num_classes, dropout=0.1, activation="relu"):
@@ -113,6 +135,18 @@ def compute_lambda(epoch, warmup_epochs, lambda_max, lambda_start=0.0):
     Lambda starts at ``lambda_start`` (typically 0 to let the network explore)
     and ramps linearly to ``lambda_max`` over ``warmup_epochs`` epochs.
     After that it stays at ``lambda_max``.
+
+    **Design note (stability fix):** Because ``entropy_loss`` is now
+    normalised to [0, 1], reasonable ``lambda_max`` values are:
+        - 0.01–0.05 for gentle encouragement of decisive routing
+        - 0.05–0.15 for moderate pressure
+        - >0.2 is aggressive and may fight the classification loss
+
+    Previously, with unnormalised entropy (range [0, log(M)]), the effective
+    penalty at ``lambda_max=0.5`` for M=4 kernels was ~0.5*1.39 ≈ 0.7,
+    which is comparable to the CE loss.  Now the same config produces
+    ~0.5*1.0 = 0.5 at worst.  Consider reducing ``lambda_max`` in your
+    configs if you were previously tuned for unnormalised entropy.
 
     Args:
         epoch: Current epoch (0-indexed).

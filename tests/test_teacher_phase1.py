@@ -251,15 +251,13 @@ class TestKernelChannelAttentionBlock:
 
 class TestLosses:
     def test_entropy_uniform_is_high(self):
-        """Uniform alpha (all equal) should give maximum entropy."""
+        """Uniform alpha (all equal) should give maximum normalised entropy (1.0)."""
         M = 4
         alpha = torch.ones(2, M, 3, 3) / M  # uniform
         ent = entropy_loss(alpha)
-        import math
-
-        max_entropy = math.log(M)
-        assert abs(ent.item() - max_entropy) < 0.01, (
-            f"Expected entropy ~{max_entropy:.4f}, got {ent.item():.4f}"
+        # After normalisation by log(M), uniform alpha should yield exactly 1.0
+        assert abs(ent.item() - 1.0) < 0.01, (
+            f"Expected normalised entropy ~1.0, got {ent.item():.4f}"
         )
 
     def test_entropy_one_hot_is_zero(self):

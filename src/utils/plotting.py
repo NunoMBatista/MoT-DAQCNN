@@ -129,9 +129,20 @@ def plot_alpha_histogram_combined(alpha_values_dict, epoch, save_path, num_bins=
         )
 
     # Reference lines
-    plt.axvline(0.0, color="red", linestyle="--", linewidth=1, alpha=0.6, label="0.0 (reject)")
-    plt.axvline(0.5, color="gray", linestyle="--", linewidth=1, alpha=0.6, label="0.5 (uncertain)")
-    plt.axvline(1.0, color="green", linestyle="--", linewidth=1, alpha=0.6, label="1.0 (select)")
+    plt.axvline(
+        0.0, color="red", linestyle="--", linewidth=1, alpha=0.6, label="0.0 (reject)"
+    )
+    plt.axvline(
+        0.5,
+        color="gray",
+        linestyle="--",
+        linewidth=1,
+        alpha=0.6,
+        label="0.5 (uncertain)",
+    )
+    plt.axvline(
+        1.0, color="green", linestyle="--", linewidth=1, alpha=0.6, label="1.0 (select)"
+    )
 
     plt.xlabel("Alpha value", fontsize=12)
     plt.ylabel("Number of patches", fontsize=12)
@@ -178,21 +189,55 @@ def plot_routing_ratio_over_epochs(routing_history, kernel_names, save_path):
 # ---------------------------------------------------------------------------
 
 
-def plot_loss_curves(train_losses, val_losses, save_path):
+def plot_loss_curves(
+    train_losses, val_losses, save_path, ce_losses=None, ent_losses=None
+):
     """Plot training and validation loss curves.
 
+    The blue (train) and red (val) lines show the **joint** loss that the
+    optimiser actually minimises (CE + λ·entropy for the Teacher).  When
+    ``ce_losses`` and/or ``ent_losses`` are provided, additional lines are
+    drawn so you can see how each component evolves independently:
+
+        - **Yellow** — pure cross-entropy component
+        - **Green**  — pure entropy regularisation component
+
     Args:
-        train_losses: List of training losses per epoch
-        val_losses: List of validation losses per epoch
-        save_path: Path to save the plot
+        train_losses: List of training losses per epoch (joint loss).
+        val_losses: List of validation losses per epoch (joint loss).
+        save_path: Path to save the plot.
+        ce_losses: Optional list of per-epoch CE-only losses (yellow line).
+        ent_losses: Optional list of per-epoch entropy-only losses (green line).
     """
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     epochs = range(1, len(train_losses) + 1)
 
     plt.figure(figsize=(10, 6))
-    plt.plot(epochs, train_losses, "b-", label="Train Loss", linewidth=2)
-    plt.plot(epochs, val_losses, "r-", label="Val Loss", linewidth=2)
+    plt.plot(epochs, train_losses, "b-", label="Train Loss (joint)", linewidth=2)
+    plt.plot(epochs, val_losses, "r-", label="Val Loss (joint)", linewidth=2)
+
+    if ce_losses is not None:
+        plt.plot(
+            epochs,
+            ce_losses,
+            color="#DAA520",
+            linestyle="-",
+            label="CE Loss",
+            linewidth=1.5,
+            alpha=0.85,
+        )
+    if ent_losses is not None:
+        plt.plot(
+            epochs,
+            ent_losses,
+            color="green",
+            linestyle="-",
+            label="Entropy Loss",
+            linewidth=1.5,
+            alpha=0.85,
+        )
+
     plt.xlabel("Epoch", fontsize=12)
     plt.ylabel("Loss", fontsize=12)
     plt.title("Training and Validation Loss", fontsize=14)
@@ -203,13 +248,29 @@ def plot_loss_curves(train_losses, val_losses, save_path):
     plt.close()
 
 
-def plot_multi_seed_loss_curves(all_train_losses, all_val_losses, save_path):
+def plot_multi_seed_loss_curves(
+    all_train_losses,
+    all_val_losses,
+    save_path,
+    all_ce_losses=None,
+    all_ent_losses=None,
+):
     """Plot loss curves with mean and std across multiple seeds.
 
+    When ``all_ce_losses`` and/or ``all_ent_losses`` are supplied (one list
+    per seed, same as the joint losses), additional mean ± std bands are
+    drawn so you can see how the individual Teacher loss components behave
+    across seeds:
+
+        - **Yellow band** — CE-only component
+        - **Green band**  — entropy regularisation component
+
     Args:
-        all_train_losses: List of lists, each inner list is train losses for one seed
-        all_val_losses: List of lists, each inner list is val losses for one seed
-        save_path: Path to save the plot
+        all_train_losses: List of lists, each inner list is train losses for one seed.
+        all_val_losses: List of lists, each inner list is val losses for one seed.
+        save_path: Path to save the plot.
+        all_ce_losses: Optional list of lists — per-seed CE-only losses.
+        all_ent_losses: Optional list of lists — per-seed entropy-only losses.
     """
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
@@ -241,6 +302,50 @@ def plot_multi_seed_loss_curves(all_train_losses, all_val_losses, save_path):
     plt.fill_between(
         epochs, val_mean - val_std, val_mean + val_std, color="r", alpha=0.2
     )
+
+    # --- Optional CE component ---
+    if all_ce_losses:
+        ce_arr = np.array([_pad(losses, max_len) for losses in all_ce_losses])
+        ce_mean = ce_arr.mean(axis=0)
+        ce_std = ce_arr.std(axis=0)
+        plt.plot(
+            epochs,
+            ce_mean,
+            color="#DAA520",
+            linestyle="-",
+            label="CE Loss (mean)",
+            linewidth=1.5,
+            alpha=0.85,
+        )
+        plt.fill_between(
+            epochs,
+            ce_mean - ce_std,
+            ce_mean + ce_std,
+            color="#DAA520",
+            alpha=0.15,
+        )
+
+    # --- Optional entropy component ---
+    if all_ent_losses:
+        ent_arr = np.array([_pad(losses, max_len) for losses in all_ent_losses])
+        ent_mean = ent_arr.mean(axis=0)
+        ent_std = ent_arr.std(axis=0)
+        plt.plot(
+            epochs,
+            ent_mean,
+            color="green",
+            linestyle="-",
+            label="Entropy Loss (mean)",
+            linewidth=1.5,
+            alpha=0.85,
+        )
+        plt.fill_between(
+            epochs,
+            ent_mean - ent_std,
+            ent_mean + ent_std,
+            color="green",
+            alpha=0.15,
+        )
 
     plt.xlabel("Epoch", fontsize=12)
     plt.ylabel("Loss", fontsize=12)

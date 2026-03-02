@@ -115,6 +115,8 @@ def main():
                 # Per-phase histories for TS-MoE multi-seed plots
                 "teacher_train_losses": teacher.get("train_losses", []),
                 "teacher_val_losses": teacher.get("val_losses", []),
+                "teacher_ce_losses": teacher.get("train_ce_losses", []),
+                "teacher_ent_losses": teacher.get("train_ent_losses", []),
                 "student_train_losses": student.get("train_losses", []),
                 "student_val_losses": student.get("val_losses", []),
                 "final_train_losses": final.get("train_losses", []),
@@ -250,7 +252,26 @@ def main():
                 phase_val = [r[val_key] for r in all_results if r.get(val_key)]
                 if phase_train and phase_val:
                     phase_plot_path = os.path.join(output_dir, filename)
-                    plot_multi_seed_loss_curves(phase_train, phase_val, phase_plot_path)
+                    # For the teacher phase, also pass CE and entropy components
+                    extra_kwargs = {}
+                    if phase_name == "teacher":
+                        phase_ce = [
+                            r["teacher_ce_losses"]
+                            for r in all_results
+                            if r.get("teacher_ce_losses")
+                        ]
+                        phase_ent = [
+                            r["teacher_ent_losses"]
+                            for r in all_results
+                            if r.get("teacher_ent_losses")
+                        ]
+                        if phase_ce:
+                            extra_kwargs["all_ce_losses"] = phase_ce
+                        if phase_ent:
+                            extra_kwargs["all_ent_losses"] = phase_ent
+                    plot_multi_seed_loss_curves(
+                        phase_train, phase_val, phase_plot_path, **extra_kwargs
+                    )
                     print(
                         f"TS-MoE {phase_name} multi-seed loss curve saved to: "
                         f"{phase_plot_path}\n"
