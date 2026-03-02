@@ -36,7 +36,7 @@ from src.utils.data import load_medmnist_dataset
 # =============================================================================
 
 # Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist", "tissue_mnist"
-DATASET_NAME = "tissue_mnist"
+DATASET_NAME = "breast_mnist"
 
 # Color space: "RGB", "HSV", or "GRAYSCALE"
 # HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
@@ -62,7 +62,7 @@ SCALING_FACTOR = 1
 EVOLUTION_TIME = 2.5
 
 # Batch size for processing (adjust based on your memory)
-BATCH_SIZE = 1024
+BATCH_SIZE = 1
 
 # Which splits to process
 SPLITS = ["train", "val", "test"]

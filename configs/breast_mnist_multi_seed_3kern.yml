@@ -9,9 +9,9 @@ model:
   num_classes: 2
   kernel_size: 3
   stride: 3
-  kernel_topology_names: ["kings", "horizontal", "ring", "cross"]
-  scaling_factor: 1000.0
-  evolution_time: 6.28
+  kernel_topology_names: ["kings", "horizontal", "cross", "ring"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
   mode: trotter
   dropout: 0.6
   activation: gelu # relu or gelu
