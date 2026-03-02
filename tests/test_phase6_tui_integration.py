@@ -146,7 +146,6 @@ def _create_fake_cached_dataset(tmpdir):
             "student_hidden_dims": [16, 8],
             "final_epochs": 2,
             "final_lr": 1e-3,
-            "use_mask_channel": False,
             "confidence_threshold": 0.0,
         },
         "misc": {"seed": 7},
@@ -376,12 +375,10 @@ class TestFinalClassifierModelLoading:
         model, ckpt = load_model_from_checkpoint(ckpt_path, device="cpu")
 
         metadata = ckpt["metadata"]
-        total_ch = metadata["out_channels"]
-        use_mask = ckpt.get("use_mask_channel", False)
-        in_channels = total_ch + (1 if use_mask else 0)
+        in_channels = metadata["out_channels"]
         ks = metadata["kernel_size"]
         stride = metadata["stride"]
-        spatial = (28 - ks) // stride + 1
+        spatial = metadata.get("feature_spatial_size", (28 - ks) // stride + 1)
 
         dummy = torch.randn(2, in_channels, spatial, spatial)
         with torch.no_grad():

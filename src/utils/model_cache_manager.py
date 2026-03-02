@@ -191,19 +191,24 @@ def _load_final_classifier(checkpoint: dict, device: str) -> torch.nn.Module:
 
     metadata = checkpoint["metadata"]
     num_classes = checkpoint.get("num_classes", 2)
-    use_mask = checkpoint.get("use_mask_channel", False)
-    total_ch = metadata["out_channels"]
-    in_channels = total_ch + (1 if use_mask else 0)
+    in_channels = metadata["out_channels"]
 
     model = FinalClassifier(
         in_channels=in_channels,
         num_classes=num_classes,
     )
 
-    # Initialize lazy layers before loading state dict
+    # Initialize lazy layers before loading state dict.
+    # feature_spatial_size is stored in metadata by run_teacher_training (and
+    # propagated through to the final classifier checkpoint via q_metadata).
+    # Fall back to computing from 28×28 for checkpoints produced before this
+    # field was added.
     ks = metadata["kernel_size"]
     stride = metadata["stride"]
-    spatial = (28 - ks) // stride + 1
+    spatial = metadata.get(
+        "feature_spatial_size",
+        (28 - ks) // stride + 1,  # legacy fallback
+    )
     dummy = torch.randn(1, in_channels, spatial, spatial)
     with torch.no_grad():
         model(dummy)

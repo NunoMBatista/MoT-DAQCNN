@@ -1,13 +1,12 @@
 """
 Shared utilities for the TS-MoE (Teacher-Student Mixture of Experts) pipeline.
 
-Includes loss functions and common training helpers.
-
-The key addition is entropy regularization, which pushes the SE block's
-alpha weights toward decisive (0 or 1) routing instead of 0uniform mixing.
+Includes loss functions, common training helpers, and the shared classification
+head factory used by DAQCNN, TeacherMoE, and FinalClassifier.
 """
 
 import torch
+import torch.nn as nn
 
 
 def resolve_device(cfg: dict, verbose: bool = True) -> str:
@@ -62,6 +61,50 @@ def entropy_loss(alpha):
     # alpha shape: (B, M, H, W)
     h = -torch.sum(alpha * torch.log(alpha + eps), dim=1)  # (B, H, W)
     return h.mean()
+
+
+def build_classification_head(in_channels, num_classes, dropout=0.1, activation="relu"):
+    """Build the shared CNN classification head used by DAQCNN, TeacherMoE, and FinalClassifier.
+
+    All three models use an identical head architecture so their results are
+    directly comparable.  Centralising it here means a single change propagates
+    everywhere and there is no risk of the copies drifting apart.
+
+    Architecture (mirrors the original paper):
+        Conv2d(in_channels -> 64, 2×2, stride=1, no padding)
+        BatchNorm2d(64)
+        Activation (ReLU or GELU)
+        MaxPool2d(2×2, stride=2)
+        Conv2d(64 -> 64, 2×2, stride=1, no padding)
+        Activation
+        Dropout(dropout)
+        Flatten
+        Dropout(dropout)
+        LazyLinear(num_classes)   ← infers spatial dim at first forward pass
+
+    Args:
+        in_channels: Number of input feature channels (M*N for quantum features).
+        num_classes: Number of output logits.
+        dropout: Dropout probability applied before and after Flatten.
+        activation: "relu" (default) or "gelu".
+
+    Returns:
+        nn.Sequential — the classification head, ready to be assigned as
+        ``self.head`` on any model.
+    """
+    act_fn = nn.GELU() if activation.lower() == "gelu" else nn.ReLU()
+    return nn.Sequential(
+        nn.Conv2d(in_channels, 64, kernel_size=2, stride=1, padding=0),
+        nn.BatchNorm2d(64),
+        act_fn,
+        nn.MaxPool2d(kernel_size=2, stride=2),
+        nn.Conv2d(64, 64, kernel_size=2, stride=1, padding=0),
+        act_fn,
+        nn.Dropout(dropout),
+        nn.Flatten(),
+        nn.Dropout(dropout),
+        nn.LazyLinear(num_classes),
+    )
 
 
 def compute_lambda(epoch, warmup_epochs, lambda_max, lambda_start=0.0):

@@ -29,6 +29,7 @@ from src.utils.kernel_mapping import (
     get_num_kernels,
     validate_kernel_map,
 )
+from src.utils.training_utils import build_classification_head
 
 
 class TeacherMoE(nn.Module):
@@ -87,18 +88,9 @@ class TeacherMoE(nn.Module):
 
         # Classification Head — the "Driver"
         # Same architecture as the original DAQCNN head so results are comparable.
-        act_fn = nn.GELU() if activation.lower() == "gelu" else nn.ReLU()
-        self.head = nn.Sequential(
-            nn.Conv2d(total_channels, 64, kernel_size=2, stride=1, padding=0),
-            nn.BatchNorm2d(64),
-            act_fn,
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 64, kernel_size=2, stride=1, padding=0),
-            act_fn,
-            nn.Dropout(dropout),
-            nn.Flatten(),
-            nn.Dropout(dropout),
-            nn.LazyLinear(num_classes),
+        # Built via the shared factory in training_utils so all three models stay in sync.
+        self.head = build_classification_head(
+            total_channels, num_classes, dropout, activation
         )
 
     @property

@@ -1398,8 +1398,6 @@ class DAQCNNTestUI(App):
                         kernel_size = metadata.get("kernel_size", 2)
                         stride = metadata.get("stride", 2)
                         color_space = metadata.get("color_space", "RGB")
-                        use_mask = checkpoint.get("use_mask_channel", False)
-
                         # Extract patches helper
                         import torch.nn as nn
 
@@ -1447,7 +1445,7 @@ class DAQCNNTestUI(App):
 
                             # Build sparse tensor
                             sparse = build_sparse_tensor_fast(
-                                q_features, routing_map, channel_groups, use_mask
+                                q_features, routing_map, channel_groups
                             )
                             all_sparse.append(sparse)
                             all_labels.append(q_labels.squeeze().long())

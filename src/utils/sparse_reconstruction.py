@@ -16,9 +16,7 @@ Example for M=2 kernels, N=9 channels per kernel:
 import torch
 
 
-def build_sparse_tensor_fast(
-    quantum_features, routing_map, channel_groups, use_mask_channel=False
-):
+def build_sparse_tensor_fast(quantum_features, routing_map, channel_groups):
     """Build a sparse tensor by routing each patch to its selected kernel.
 
     For every spatial position (i, j), the routing map says which kernel k
@@ -31,11 +29,10 @@ def build_sparse_tensor_fast(
         channel_groups: List of lists, where channel_groups[k] is the list
             of channel indices for kernel k. Must be ordered consistently
             with the routing map indices.
-        use_mask_channel: Whether to append a mask channel.
 
     Returns:
-        Sparse tensor of shape (B, M*N, H, W), or (B, M*N+1, H, W) if
-        use_mask_channel is True.
+        Sparse tensor of shape (B, M*N, H, W) where only the selected
+        kernel's channels are non-zero at each spatial position.
     """
     B, C, H, W = quantum_features.shape
     device = quantum_features.device
@@ -43,21 +40,14 @@ def build_sparse_tensor_fast(
     sparse = torch.zeros_like(quantum_features)
 
     for k, channels in enumerate(channel_groups):
-        mask = routing_map == k  # (B, H, W)
+        # (B, 1, H, W) boolean mask — True where kernel k was selected
+        mask = (routing_map == k).unsqueeze(1)  # (B, 1, H, W)
         if not mask.any():
             continue
 
-        mask_expanded = mask.unsqueeze(1)  # (B, 1, H, W)
-        for ch in channels:
-            sparse[:, ch, :, :] = torch.where(
-                mask_expanded[:, 0, :, :],
-                quantum_features[:, ch, :, :],
-                sparse[:, ch, :, :],
-            )
-
-    if use_mask_channel:
-        # Every patch is assigned exactly one kernel, so the mask is always all-ones.
-        mask_ch = torch.ones(B, 1, H, W, device=device, dtype=quantum_features.dtype)
-        sparse = torch.cat([sparse, mask_ch], dim=1)
+        ch_idx = torch.tensor(channels, device=device)
+        # quantum_features[:, ch_idx] has shape (B, N, H, W)
+        # mask broadcasts over the N channels in the group
+        sparse[:, ch_idx, :, :] = quantum_features[:, ch_idx, :, :] * mask
 
     return sparse

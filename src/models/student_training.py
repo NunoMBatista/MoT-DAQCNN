@@ -48,12 +48,12 @@ from src.models.student_gatekeeper import (
 from src.models.teacher_moe import build_teacher_from_metadata
 from src.utils.color_conversion import apply_color_conversion
 from src.utils.data import load_medmnist_dataset
-from src.utils.training_utils import resolve_device
 from src.utils.plotting import plot_loss_curves, plot_routing_confusion_matrix
 from src.utils.quantum_dataset_cache import (
     find_cached_quantum_dataset,
     load_cached_quantum_dataset,
 )
+from src.utils.training_utils import resolve_device
 
 # -------------------------------------------------------------------------
 # Label generation from the frozen Teacher
@@ -66,8 +66,8 @@ def generate_routing_labels(teacher, loader, device):
 
     For every sample in ``loader``, the Teacher produces alpha weights of shape
     (M, H, W). Taking argmax over M gives the routing decision for each patch.
-    The raw alpha values (before argmax) are also returned so the caller can
-    use them for soft-label distillation or confidence filtering.
+    The raw pre-softmax logits are also returned so the caller can use them for
+    temperature-scaled knowledge distillation or confidence filtering.
 
     Args:
         teacher: Trained TeacherMoE model (will be set to eval mode).
@@ -78,37 +78,38 @@ def generate_routing_labels(teacher, loader, device):
     Returns:
         routing_labels: LongTensor of shape (N, H, W) with values in
             {0, ..., M-1}, where N is the total number of samples.
-        soft_labels: FloatTensor of shape (N, M, H, W) — the Teacher's raw
-            alpha weights (after softmax over M), one distribution per patch.
-            Useful for soft-label distillation.
-        confidence: FloatTensor of shape (N, H, W) — max alpha value per
-            patch, in [0, 1].  Low values indicate the Teacher was uncertain.
+        routing_logits: FloatTensor of shape (N, M, H, W) — the Teacher's raw
+            PRE-SOFTMAX logits, one per patch.  These are intentionally not
+            softmax-ed here because the KD loss applies softmax with a
+            temperature, so passing logits keeps that flexibility.
+        confidence: FloatTensor of shape (N, H, W) — max alpha (post-softmax)
+            value per patch, in [0, 1].  Low values indicate the Teacher was
+            uncertain about its routing decision.
     """
     teacher.eval()
     all_labels = []
-    all_soft = []
+    all_routing_logits = []
     all_conf = []
 
     for features, _ in tqdm(loader, desc="Generating routing labels", leave=False):
         features = features.to(device)
         teacher(features)
-        alpha = teacher.last_alpha  # (B, M, H, W) - softmax probabilities
+        alpha = teacher.last_alpha  # (B, M, H, W) - post-softmax probabilities
         logits = teacher.last_logits  # (B, M, H, W) - pre-softmax logits
 
-        # Soft labels: use PRE-SOFTMAX logits for knowledge distillation
-        # The KD loss will apply softmax with temperature, so we must NOT apply it here
-        soft = logits  # (B, M, H, W)
-
+        # Store PRE-SOFTMAX logits for knowledge distillation.
+        # The KD loss will apply softmax with temperature scaling, so we must
+        # NOT apply softmax here — that would bake in T=1 and lose the benefit.
         winners = alpha.argmax(dim=1)  # (B, H, W)
         conf = alpha.max(dim=1).values  # (B, H, W)
 
         all_labels.append(winners.cpu())
-        all_soft.append(soft.cpu())
+        all_routing_logits.append(logits.cpu())
         all_conf.append(conf.cpu())
 
     return (
         torch.cat(all_labels, dim=0),  # (N, H, W)
-        torch.cat(all_soft, dim=0),  # (N, M, H, W)
+        torch.cat(all_routing_logits, dim=0),  # (N, M, H, W)  — raw logits, NOT probs
         torch.cat(all_conf, dim=0),  # (N, H, W)
     )
 
@@ -300,8 +301,8 @@ def create_student_dataloaders(
     num_workers=0,
     val_patches=None,
     val_routing_labels=None,
-    soft_labels=None,
-    val_soft_labels=None,
+    routing_logits=None,
+    val_routing_logits=None,
     confidence=None,
     val_confidence=None,
     confidence_threshold=0.0,
@@ -328,10 +329,12 @@ def create_student_dataloaders(
         num_workers: Number of DataLoader workers.
         val_patches: Optional validation patches.
         val_routing_labels: Optional validation routing labels.
-        soft_labels: Optional soft (Teacher alpha) labels for training,
+        routing_logits: Optional Teacher pre-softmax logits for training,
             shape (N, M, H, W).  When provided, included in the dataset
             so the training loop can use them for KL distillation.
-        val_soft_labels: Same as soft_labels but for validation.
+            These are RAW LOGITS, not probabilities — the loss applies
+            softmax with temperature internally.
+        val_routing_logits: Same as routing_logits but for validation.
         confidence: Optional per-patch confidence tensor, shape (N, H, W).
             Used for filtering when confidence_threshold > 0.
         val_confidence: Same for validation set.
@@ -346,7 +349,7 @@ def create_student_dataloaders(
 
     Returns:
         train_loader: DataLoader yielding (flat_patch, routing_label) or
-            (flat_patch, routing_label, soft_label) when soft_labels given.
+            (flat_patch, routing_label, routing_logits) when routing_logits given.
         val_loader: DataLoader for validation, or None if not provided.
         effective_patch_dim: int — the actual feature dimension of the
             patches in the loaders (may be larger than raw patch_dim when
@@ -365,12 +368,14 @@ def create_student_dataloaders(
         f"Patch count {flat_patches.shape[0]} != label count {flat_labels.shape[0]}"
     )
 
-    # Flatten soft labels if provided: (N, M, H, W) -> (N*H*W, M)
-    if soft_labels is not None:
-        M = soft_labels.shape[1]
-        flat_soft = soft_labels.permute(0, 2, 3, 1).reshape(-1, M)  # (N*H*W, M)
+    # Flatten routing logits if provided: (N, M, H, W) -> (N*H*W, M)
+    if routing_logits is not None:
+        M = routing_logits.shape[1]
+        flat_routing_logits = routing_logits.permute(0, 2, 3, 1).reshape(
+            -1, M
+        )  # (N*H*W, M)
     else:
-        flat_soft = None
+        flat_routing_logits = None
 
     # --- Confidence filtering ---
     if confidence is not None and confidence_threshold > 0.0:
@@ -379,8 +384,8 @@ def create_student_dataloaders(
         n_before = flat_patches.shape[0]
         flat_patches = flat_patches[keep_mask]
         flat_labels = flat_labels[keep_mask]
-        if flat_soft is not None:
-            flat_soft = flat_soft[keep_mask]
+        if flat_routing_logits is not None:
+            flat_routing_logits = flat_routing_logits[keep_mask]
         n_after = flat_patches.shape[0]
         frac_kept = n_after / max(n_before, 1)
         print(
@@ -449,8 +454,8 @@ def create_student_dataloaders(
     class_weights = class_weights / class_weights.sum() * num_classes  # re-scale
 
     # --- Build dataset ---
-    if flat_soft is not None:
-        train_ds = TensorDataset(flat_patches, flat_labels, flat_soft)
+    if flat_routing_logits is not None:
+        train_ds = TensorDataset(flat_patches, flat_labels, flat_routing_logits)
     else:
         train_ds = TensorDataset(flat_patches, flat_labels)
 
@@ -490,26 +495,30 @@ def create_student_dataloaders(
             vkeep = vflat_conf >= confidence_threshold
             vflat_patches = vflat_patches[vkeep]
             vflat_labels = vflat_labels[vkeep]
-            if val_soft_labels is not None:
-                M = val_soft_labels.shape[1]
-                vflat_soft = val_soft_labels.permute(0, 2, 3, 1).reshape(-1, M)
-                vflat_soft = vflat_soft[vkeep]
+            if val_routing_logits is not None:
+                M = val_routing_logits.shape[1]
+                vflat_routing_logits = val_routing_logits.permute(0, 2, 3, 1).reshape(
+                    -1, M
+                )
+                vflat_routing_logits = vflat_routing_logits[vkeep]
             else:
-                vflat_soft = None
+                vflat_routing_logits = None
         else:
-            if val_soft_labels is not None:
-                M = val_soft_labels.shape[1]
-                vflat_soft = val_soft_labels.permute(0, 2, 3, 1).reshape(-1, M)
+            if val_routing_logits is not None:
+                M = val_routing_logits.shape[1]
+                vflat_routing_logits = val_routing_logits.permute(0, 2, 3, 1).reshape(
+                    -1, M
+                )
             else:
-                vflat_soft = None
+                vflat_routing_logits = None
 
         if active_groups:
             vflat_patches = compute_patch_features(
                 vflat_patches, kernel_size, feature_flags
             )
 
-        if vflat_soft is not None:
-            val_ds = TensorDataset(vflat_patches, vflat_labels, vflat_soft)
+        if vflat_routing_logits is not None:
+            val_ds = TensorDataset(vflat_patches, vflat_labels, vflat_routing_logits)
         else:
             val_ds = TensorDataset(vflat_patches, vflat_labels)
 
@@ -570,8 +579,8 @@ def build_student_loss_fn(
         device: Device to place class_weights on.
 
     Returns:
-        loss_fn: callable(logits, hard_labels, soft_labels) -> scalar loss.
-            soft_labels may be None if kd_alpha == 0.
+        loss_fn: callable(logits, hard_labels, teacher_routing_logits) -> scalar loss.
+            teacher_routing_logits may be None if kd_alpha == 0.
     """
     if use_weighted_ce and class_weights is not None:
         weights = class_weights.to(device)
@@ -580,13 +589,14 @@ def build_student_loss_fn(
 
     ce_fn = nn.CrossEntropyLoss(weight=weights)
 
-    def loss_fn(logits, hard_labels, soft_labels=None):
+    def loss_fn(logits, hard_labels, teacher_routing_logits=None):
         """Compute student loss.
 
         Args:
             logits: (B, M) student output logits.
             hard_labels: (B,) integer class indices from Teacher argmax.
-            soft_labels: (B, M) Teacher softmax probabilities, or None.
+            teacher_routing_logits: (B, M) Teacher pre-softmax logits, or None.
+                These are RAW LOGITS — softmax with temperature is applied here.
 
         Returns:
             Scalar loss tensor.
@@ -594,13 +604,13 @@ def build_student_loss_fn(
         # Hard cross-entropy term
         hard_loss = ce_fn(logits, hard_labels)
 
-        if kd_alpha == 0.0 or soft_labels is None:
+        if kd_alpha == 0.0 or teacher_routing_logits is None:
             return hard_loss
 
         # Soft KL divergence term (knowledge distillation)
-        # Scale both distributions by temperature before computing KL.
+        # Apply temperature scaling to both student and teacher logits.
         student_log_soft = F.log_softmax(logits / kd_temperature, dim=1)
-        teacher_soft = F.softmax(soft_labels / kd_temperature, dim=1)
+        teacher_soft = F.softmax(teacher_routing_logits / kd_temperature, dim=1)
         # T^2 scaling is the standard KD correction (Hinton et al., 2015)
         kl_loss = F.kl_div(student_log_soft, teacher_soft, reduction="batchmean") * (
             kd_temperature**2
@@ -624,7 +634,7 @@ def train_student_one_epoch(
     Args:
         model: StudentGatekeeper instance.
         loader: DataLoader yielding (flat_patch, routing_label) or
-            (flat_patch, routing_label, soft_label).
+            (flat_patch, routing_label, teacher_routing_logits).
         optimizer: Torch optimizer.
         loss_fn: Callable returned by build_student_loss_fn.
         device: Device string.
@@ -643,18 +653,18 @@ def train_student_one_epoch(
     batch_pbar = tqdm(loader, desc="Student training", leave=False)
     for batch_idx, batch in enumerate(batch_pbar):
         if len(batch) == 3:
-            patches, labels, soft = batch
-            soft = soft.to(device)
+            patches, labels, teacher_routing_logits = batch
+            teacher_routing_logits = teacher_routing_logits.to(device)
         else:
             patches, labels = batch
-            soft = None
+            teacher_routing_logits = None
 
         patches = patches.to(device)
         labels = labels.to(device)
 
         optimizer.zero_grad()
         logits = model(patches)
-        loss = loss_fn(logits, labels, soft)
+        loss = loss_fn(logits, labels, teacher_routing_logits)
         loss.backward()
 
         if grad_clip:
@@ -682,7 +692,7 @@ def evaluate_student(model, loader, loss_fn, device):
     Args:
         model: StudentGatekeeper instance.
         loader: DataLoader yielding (flat_patch, routing_label) or
-            (flat_patch, routing_label, soft_label).
+            (flat_patch, routing_label, teacher_routing_logits).
         loss_fn: Callable returned by build_student_loss_fn.
         device: Device string.
 
@@ -697,17 +707,17 @@ def evaluate_student(model, loader, loss_fn, device):
 
     for batch in tqdm(loader, desc="Student eval", leave=False):
         if len(batch) == 3:
-            patches, labels, soft = batch
-            soft = soft.to(device)
+            patches, labels, teacher_routing_logits = batch
+            teacher_routing_logits = teacher_routing_logits.to(device)
         else:
             patches, labels = batch
-            soft = None
+            teacher_routing_logits = None
 
         patches = patches.to(device)
         labels = labels.to(device)
 
         logits = model(patches)
-        loss = loss_fn(logits, labels, soft)
+        loss = loss_fn(logits, labels, teacher_routing_logits)
 
         bs = labels.size(0)
         loss_sum += loss.item() * bs
@@ -824,12 +834,17 @@ def _load_teacher_from_checkpoint(ckpt_path, device):
     )
     teacher.to(device)
 
-    # Initialize lazy layers with a dummy forward pass
+    # Initialize lazy layers with a dummy forward pass.
+    # feature_spatial_size is saved in enhanced_metadata by run_teacher_training
+    # so we don't need to hardcode the image size.  Fall back to 28 (MedMNIST)
+    # for checkpoints produced before this field was added.
     total_channels = metadata["out_channels"]
     kernel_size = metadata["kernel_size"]
     stride = metadata["stride"]
-    # Spatial dim from a 28x28 image (standard MedMNIST size)
-    spatial = (28 - kernel_size) // stride + 1
+    spatial = metadata.get(
+        "feature_spatial_size",
+        (28 - kernel_size) // stride + 1,  # legacy fallback for old checkpoints
+    )
     dummy = torch.randn(1, total_channels, spatial, spatial, device=device)
     with torch.no_grad():
         teacher(dummy)
@@ -921,10 +936,10 @@ def run_student_training(
     if verbose:
         print("Generating routing labels from Teacher...")
     t0 = time.time()
-    train_routing_labels, train_soft_labels, train_confidence = generate_routing_labels(
-        teacher, q_train_loader, device
+    train_routing_labels, train_routing_logits, train_confidence = (
+        generate_routing_labels(teacher, q_train_loader, device)
     )
-    val_routing_labels, val_soft_labels, val_confidence = generate_routing_labels(
+    val_routing_labels, val_routing_logits, val_confidence = generate_routing_labels(
         teacher, q_val_loader, device
     )
     label_gen_time = time.time() - t0
@@ -1022,7 +1037,7 @@ def run_student_training(
     kd_temperature = float(ts_moe_cfg.get("student_kd_temperature", 4.0))
 
     # Only pass soft labels to the dataloader when KD is actually used
-    use_soft = kd_alpha > 0.0
+    use_kd = kd_alpha > 0.0
     if verbose:
         print(
             f"\nStudent dataset config:\n"
@@ -1044,8 +1059,8 @@ def run_student_training(
             num_workers=0,
             val_patches=val_patches,
             val_routing_labels=val_routing_labels,
-            soft_labels=train_soft_labels if use_soft else None,
-            val_soft_labels=val_soft_labels if use_soft else None,
+            routing_logits=train_routing_logits if use_kd else None,
+            val_routing_logits=val_routing_logits if use_kd else None,
             confidence=train_confidence,
             val_confidence=val_confidence,
             confidence_threshold=confidence_threshold,
@@ -1099,23 +1114,27 @@ def run_student_training(
         )
 
     # --- Build Student model ---
-    # effective_patch_dim may differ from raw patch_dim when augmented features are on
+    # effective_patch_dim may differ from the raw patch_dim when feature augmentation
+    # is enabled.  We know the correct dim from create_student_dataloaders, so we
+    # build with the right size directly instead of building twice.
     hidden_dims = tuple(ts_moe_cfg.get("student_hidden_dims", [32, 16]))
 
-    student, _ = build_student_from_metadata(
-        metadata=metadata,
-        hidden_dims=hidden_dims,
-        in_channels=student_in_channels,
-    )
-
-    # If feature augmentation enlarged the input, rebuild with the correct dim
-    if effective_patch_dim != student.patch_dim:
+    raw_patch_dim = student_in_channels * kernel_size * kernel_size
+    if effective_patch_dim != raw_patch_dim:
+        # Feature augmentation enlarged the input — build directly with the
+        # augmented dim rather than constructing and discarding a smaller model.
         from src.models.student_gatekeeper import StudentGatekeeper
 
         student = StudentGatekeeper(
             patch_dim=effective_patch_dim,
             num_kernels=num_kernels,
             hidden_dims=hidden_dims,
+        )
+    else:
+        student, _ = build_student_from_metadata(
+            metadata=metadata,
+            hidden_dims=hidden_dims,
+            in_channels=student_in_channels,
         )
 
     student.to(device)

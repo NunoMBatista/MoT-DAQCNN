@@ -20,7 +20,6 @@ from tqdm import tqdm
 
 from src.models.teacher_moe import build_teacher_from_metadata
 from src.utils.evaluate import accuracy, evaluate
-from src.utils.training_utils import compute_lambda, entropy_loss, resolve_device
 from src.utils.plotting import (
     plot_alpha_histogram_combined,
     plot_confusion_matrix,
@@ -32,6 +31,7 @@ from src.utils.quantum_dataset_cache import (
     find_cached_quantum_dataset,
     load_cached_quantum_dataset,
 )
+from src.utils.training_utils import compute_lambda, entropy_loss, resolve_device
 
 # -------------------------------------------------------------------------
 # Training helpers
@@ -338,10 +338,15 @@ def run_teacher_training(
     alpha_hist_dir = os.path.join(output_dir, "alpha_histograms")
     os.makedirs(alpha_hist_dir, exist_ok=True)
 
-    # Initialize LazyLinear by running one batch through the model
+    # Initialize LazyLinear by running one batch through the model.
+    # Also capture the spatial size of the feature map so we can store it in
+    # the checkpoint — this lets _load_teacher_from_checkpoint reconstruct a
+    # correct dummy input without hardcoding image dimensions.
     with torch.no_grad():
         sample_features, _ = next(iter(train_loader))
-        model(sample_features.to(device))
+        sample_features = sample_features.to(device)
+        model(sample_features)
+    feature_spatial_size = sample_features.shape[2]  # H (assumes H == W)
 
     if verbose:
         total_params = sum(p.numel() for p in model.parameters())
@@ -426,12 +431,15 @@ def run_teacher_training(
     # Extract head structure
     head_structure = get_teacher_head_structure(model)
 
-    # Enhance metadata with parameter counts, head structure, and SE config
+    # Enhance metadata with parameter counts, head structure, SE config, and
+    # the spatial size of the quantum feature map so checkpoint loading can
+    # construct a correctly-sized dummy input without hardcoding image dims.
     enhanced_metadata = metadata.copy()
     enhanced_metadata["total_params"] = total_params
     enhanced_metadata["trainable_params"] = trainable_params
     enhanced_metadata["head_structure"] = head_structure
     enhanced_metadata["attention_hidden_dim"] = attention_hidden_dim
+    enhanced_metadata["feature_spatial_size"] = feature_spatial_size
 
     final_model_path = os.path.join(output_dir, f"teacher_final_seed_{seed}.pt")
     torch.save(

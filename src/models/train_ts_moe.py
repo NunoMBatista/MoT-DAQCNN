@@ -116,11 +116,8 @@ def run_ts_moe_pipeline(
     student_dir = os.path.join(seed_dir, "student")
     os.makedirs(student_dir, exist_ok=True)
 
-    # Override student-specific hyperparameters from ts_moe config
-    student_cfg = _apply_student_overrides(cfg)
-
     student_result = run_student_training(
-        student_cfg,
+        cfg,
         seed,
         student_dir,
         teacher_ckpt_path=teacher_ckpt,
@@ -186,7 +183,6 @@ def run_ts_moe_pipeline(
             "final_val_acc": None,
             "kernel_names": student_result.get("kernel_names", []),
             "num_kernels": student_result.get("num_kernels"),
-            "use_mask_channel": cfg.get("ts_moe", {}).get("use_mask_channel", False),
             "comparison": {
                 "final_classifier_acc": None,
                 "teacher_oracle_acc": teacher_result.get("test_acc"),
@@ -204,11 +200,8 @@ def run_ts_moe_pipeline(
         final_dir = os.path.join(seed_dir, "final_classifier")
         os.makedirs(final_dir, exist_ok=True)
 
-        # Override final-classifier-specific hyperparameters
-        final_cfg = _apply_final_overrides(cfg)
-
         final_result = run_final_classifier_training(
-            final_cfg,
+            cfg,
             seed,
             final_dir,
             student_ckpt_path=student_ckpt,
@@ -263,44 +256,6 @@ def run_ts_moe_pipeline(
         "student": student_result,
         "final": final_result,
     }
-
-
-def _apply_student_overrides(cfg):
-    """Apply ts_moe student overrides to a copy of the config.
-
-    The Student training reads epochs/lr from ``optim``, so we copy
-    ``ts_moe.student_epochs`` and ``ts_moe.student_lr`` into ``optim``
-    if they are present.
-    """
-    import copy
-
-    cfg = copy.deepcopy(cfg)
-    ts = cfg.get("ts_moe", {})
-
-    if "student_epochs" in ts:
-        cfg.setdefault("optim", {})["epochs"] = ts["student_epochs"]
-    if "student_lr" in ts:
-        cfg.setdefault("optim", {})["lr"] = ts["student_lr"]
-
-    return cfg
-
-
-def _apply_final_overrides(cfg):
-    """Apply ts_moe final-classifier overrides to a copy of the config.
-
-    Copies ``ts_moe.final_epochs`` and ``ts_moe.final_lr`` into ``optim``.
-    """
-    import copy
-
-    cfg = copy.deepcopy(cfg)
-    ts = cfg.get("ts_moe", {})
-
-    if "final_epochs" in ts:
-        cfg.setdefault("optim", {})["epochs"] = ts["final_epochs"]
-    if "final_lr" in ts:
-        cfg.setdefault("optim", {})["lr"] = ts["final_lr"]
-
-    return cfg
 
 
 def main():

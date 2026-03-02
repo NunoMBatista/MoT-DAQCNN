@@ -3,10 +3,9 @@ Smoke and sanity tests for Phase 3: Sparse Reconstruction & Final Classifier.
 
 Tests cover:
     1. build_sparse_tensor_fast — shape, zeroing, channel selection
-    2. Mask channel (optional extra channel)
-    3. FinalClassifier forward pass and backward
-    4. Routing analysis helper
-    5. Mini training loop (end-to-end smoke test)
+    2. FinalClassifier forward pass and backward
+    3. Routing analysis helper
+    4. Mini training loop (end-to-end smoke test)
 
 Run with:
     python -m pytest tests/test_final_classifier_phase3.py -v
@@ -162,46 +161,6 @@ class TestSparseReconstruction:
                             assert (vals == 0).all()
 
 
-class TestMaskChannel:
-    def test_mask_channel_shape(self):
-        """With mask channel, output has M*N+1 channels."""
-        M, N, H, W, B = 2, 4, 5, 5, 3
-        features = torch.randn(B, M * N, H, W)
-        routing = torch.randint(0, M, (B, H, W))
-        channel_groups = [list(range(N)), list(range(N, 2 * N))]
-
-        sparse = build_sparse_tensor_fast(
-            features, routing, channel_groups, use_mask_channel=True
-        )
-        assert sparse.shape == (B, M * N + 1, H, W)
-
-    def test_mask_channel_all_ones(self):
-        """Mask channel should be 1.0 everywhere (every patch has a selection)."""
-        M, N, H, W, B = 2, 4, 5, 5, 2
-        features = torch.randn(B, M * N, H, W)
-        routing = torch.randint(0, M, (B, H, W))
-        channel_groups = [list(range(N)), list(range(N, 2 * N))]
-
-        sparse = build_sparse_tensor_fast(
-            features, routing, channel_groups, use_mask_channel=True
-        )
-        assert (sparse[:, -1, :, :] == 1.0).all()
-
-    def test_data_channels_unchanged_with_mask(self):
-        """First M*N channels should be identical with or without mask."""
-        M, N, H, W, B = 2, 4, 5, 5, 2
-        features = torch.randn(B, M * N, H, W)
-        routing = torch.randint(0, M, (B, H, W))
-        channel_groups = [list(range(N)), list(range(N, 2 * N))]
-
-        sparse_no_mask = build_sparse_tensor_fast(features, routing, channel_groups)
-        sparse_with_mask = build_sparse_tensor_fast(
-            features, routing, channel_groups, use_mask_channel=True
-        )
-
-        assert torch.allclose(sparse_no_mask, sparse_with_mask[:, : M * N, :, :])
-
-
 # =========================================================================
 # Tests: FinalClassifier Model
 # =========================================================================
@@ -212,16 +171,6 @@ class TestFinalClassifier:
         """Output shape should be (B, num_classes)."""
         in_channels = 18
         num_classes = 2
-        B, H, W = 4, 13, 13
-        model = FinalClassifier(in_channels, num_classes)
-        x = torch.randn(B, in_channels, H, W)
-        out = model(x)
-        assert out.shape == (B, num_classes)
-
-    def test_forward_with_mask_channel(self):
-        """Works when in_channels = M*N + 1 (mask channel)."""
-        in_channels = 19  # 18 + 1 mask
-        num_classes = 3
         B, H, W = 4, 13, 13
         model = FinalClassifier(in_channels, num_classes)
         x = torch.randn(B, in_channels, H, W)
@@ -247,18 +196,13 @@ class TestFinalClassifier:
         assert has_grad
 
     def test_build_from_metadata(self):
-        """Factory function should produce correct in_channels."""
+        """Factory function should produce correct in_channels (M*N, no mask)."""
         kernel_names = ["kings", "horizontal"]
         metadata = make_fake_metadata(kernel_names, kernel_size=3)
         num_classes = 2
 
         model = build_final_classifier_from_metadata(metadata, num_classes)
-        assert model.in_channels == 18  # 2 * 9
-
-        model_mask = build_final_classifier_from_metadata(
-            metadata, num_classes, use_mask_channel=True
-        )
-        assert model_mask.in_channels == 19  # 2 * 9 + 1
+        assert model.in_channels == 18  # 2 kernels * 9 channels each
 
     def test_different_activations(self):
         """Both relu and gelu activations should work."""
@@ -443,24 +387,6 @@ class TestEndToEndSparse:
         sparse = build_sparse_tensor_fast(features, routing, channel_groups)
 
         model = FinalClassifier(M * N, num_classes)
-        logits = model(sparse)
-        assert logits.shape == (B, num_classes)
-
-    def test_sparse_with_mask_to_classifier(self):
-        """Sparse tensors with mask channel should work too."""
-        M, N = 2, 9
-        B, H, W = 4, 13, 13
-        num_classes = 3
-
-        features = torch.randn(B, M * N, H, W)
-        routing = torch.randint(0, M, (B, H, W))
-        channel_groups = [list(range(N)), list(range(N, 2 * N))]
-
-        sparse = build_sparse_tensor_fast(
-            features, routing, channel_groups, use_mask_channel=True
-        )
-
-        model = FinalClassifier(M * N + 1, num_classes)
         logits = model(sparse)
         assert logits.shape == (B, num_classes)
 

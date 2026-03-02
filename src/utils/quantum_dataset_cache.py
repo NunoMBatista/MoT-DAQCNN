@@ -159,12 +159,23 @@ def load_cached_quantum_dataset(
         cached_channel_map = metadata["channel_kernel_map"]
         kernel_to_channels = build_kernel_to_channels_map(cached_channel_map)
 
-        # Collect channel indices for requested kernels
+        # Collect channel indices for requested kernels.
+        # IMPORTANT: iterate in channel-index order (the order kernels appear in
+        # the feature tensor), NOT alphabetical order.  get_kernel_names() uses
+        # the same ordering (sorted by first channel index), so the rebuilt
+        # channel_kernel_map stays consistent with what KernelChannelAttentionBlock
+        # will derive from it.  Alphabetical order would silently misalign channels
+        # whenever kernel names don't sort the same way as their channel positions.
         channel_indices = []
         new_channel_map = []
         new_out_idx = 0
 
-        for kernel_name in sorted(requested_kernels):
+        # Sort requested kernels by their first channel index in the cached dataset
+        requested_sorted_by_channel = sorted(
+            requested_kernels, key=lambda name: kernel_to_channels[name][0]
+        )
+
+        for kernel_name in requested_sorted_by_channel:
             if kernel_name in kernel_to_channels:
                 old_indices = sorted(kernel_to_channels[kernel_name])
                 channel_indices.extend(old_indices)
@@ -186,7 +197,7 @@ def load_cached_quantum_dataset(
 
         # Update metadata to reflect the subset
         metadata = metadata.copy()
-        metadata["kernel_topology_names"] = sorted(requested_kernels)
+        metadata["kernel_topology_names"] = requested_sorted_by_channel
         metadata["num_kernels"] = len(requested_kernels)
         metadata["out_channels"] = len(channel_indices)
         metadata["channel_kernel_map"] = new_channel_map
@@ -197,7 +208,7 @@ def load_cached_quantum_dataset(
             f"{len(requested_kernels)}/{len(cached_kernels)} kernels "
             f"({len(channel_indices)}/{len(cached_channel_map)} channels)"
         )
-        print(f"   Requested: {sorted(requested_kernels)}")
+        print(f"   Requested: {requested_sorted_by_channel}")
         print(f"   Available: {sorted(cached_kernels)}")
     else:
         channel_indices = None  # Use all channels

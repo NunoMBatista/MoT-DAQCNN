@@ -154,7 +154,6 @@ def _create_fake_cached_dataset(tmpdir):
             "student_hidden_dims": [16, 8],
             "final_epochs": FINAL_EPOCHS,
             "final_lr": 1e-3,
-            "use_mask_channel": False,
             "confidence_threshold": 0.0,
         },
         "misc": {"seed": 42},
@@ -522,7 +521,6 @@ class TestFinalClassifierOutputs:
             "num_classes",
             "kernel_names",
             "metadata",
-            "use_mask_channel",
             "test_accuracy",
         ]:
             assert key in ckpt, f"Missing key in final checkpoint: {key}"
@@ -881,18 +879,17 @@ class TestCheckpointReloadability:
         )
         ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
-        total_ch = ckpt["metadata"]["out_channels"]
-        use_mask = ckpt["use_mask_channel"]
-        in_channels = total_ch + (1 if use_mask else 0)
+        in_channels = ckpt["metadata"]["out_channels"]
 
         model = FinalClassifier(
             in_channels=in_channels,
             num_classes=ckpt["num_classes"],
         )
-        # Initialize lazy layers
+        # Initialize lazy layers using feature_spatial_size stored in metadata,
+        # falling back to the 28x28 derivation for old checkpoints.
         stride = ckpt["metadata"]["stride"]
         ks = ckpt["metadata"]["kernel_size"]
-        spatial = (28 - ks) // stride + 1
+        spatial = ckpt["metadata"].get("feature_spatial_size", (28 - ks) // stride + 1)
         dummy = torch.randn(1, in_channels, spatial, spatial)
         with torch.no_grad():
             model(dummy)
@@ -909,8 +906,8 @@ class TestCheckpointReloadability:
 # =========================================================================
 
 
-class TestMaskChannelPipeline:
-    """Run a separate pipeline with use_mask_channel=True and verify."""
+class TestSecondSeedPipeline:
+    """Run a second independent pipeline to verify multi-seed correctness."""
 
     @pytest.fixture(autouse=True)
     def setup(self, tmp_path):
@@ -918,56 +915,51 @@ class TestMaskChannelPipeline:
         self.datasets_dir, self.cfg, self.split_counts = _create_fake_cached_dataset(
             self.tmpdir
         )
-        self.cfg["ts_moe"]["use_mask_channel"] = True
         self.raw_datasets = _make_synthetic_images(self.split_counts)
 
-    def test_mask_channel_pipeline_completes(self):
-        """Pipeline with mask channel enabled should complete successfully."""
-        output_dir = os.path.join(self.tmpdir, "outputs", "mask_pipeline")
+    def test_second_seed_pipeline_completes(self):
+        """Pipeline with a different seed should complete and produce valid results."""
+        output_dir = os.path.join(self.tmpdir, "outputs", "seed2_pipeline")
         os.makedirs(output_dir, exist_ok=True)
 
         result = run_ts_moe_pipeline(
             self.cfg,
-            seed=42,
+            seed=99,
             output_dir=output_dir,
             verbose=False,
             datasets_dir=self.datasets_dir,
             raw_image_datasets=self.raw_datasets,
         )
 
-        assert result["final"]["use_mask_channel"] is True
+        assert isinstance(result["final"]["test_acc"], float)
         assert result["final"]["test_acc"] >= 0.0
 
-    def test_mask_channel_increases_input_channels(self):
-        """With mask channel, final classifier input should be M*N + 1."""
-        from src.models.ts_moe_classification_head import FinalClassifier
-
-        output_dir = os.path.join(self.tmpdir, "outputs", "mask_pipeline2")
+    def test_final_classifier_input_channels_match_metadata(self):
+        """Final classifier in_channels should equal M*N from metadata."""
+        output_dir = os.path.join(self.tmpdir, "outputs", "seed2_pipeline2")
         os.makedirs(output_dir, exist_ok=True)
 
-        result = run_ts_moe_pipeline(
+        run_ts_moe_pipeline(
             self.cfg,
-            seed=42,
+            seed=99,
             output_dir=output_dir,
             verbose=False,
             datasets_dir=self.datasets_dir,
             raw_image_datasets=self.raw_datasets,
         )
 
-        # Load the checkpoint and verify in_channels
-        seed_dir = os.path.join(output_dir, "seed_42")
+        seed_dir = os.path.join(output_dir, "seed_99")
         ckpt_path = os.path.join(
-            seed_dir, "final_classifier", "final_classifier_seed_42.pt"
+            seed_dir, "final_classifier", "final_classifier_seed_99.pt"
         )
         ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
         total_ch = ckpt["metadata"]["out_channels"]
-        assert ckpt["use_mask_channel"] is True
-        # The model's first conv layer should have total_ch + 1 input channels
         state = ckpt["model_state_dict"]
         conv1_weight_key = "head.0.weight"
         assert conv1_weight_key in state
-        assert state[conv1_weight_key].shape[1] == total_ch + 1
+        # in_channels should be exactly M*N (no mask channel)
+        assert state[conv1_weight_key].shape[1] == total_ch
 
 
 # =========================================================================

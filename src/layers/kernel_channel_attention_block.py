@@ -138,11 +138,13 @@ class KernelChannelAttentionBlock(nn.Module):
         )
 
         # --- Normalize: BatchNorm each kernel group independently ---
-        # This prevents topologies with larger raw magnitudes from
-        # dominating the gate decision purely through scale.
-        x_normed = torch.zeros_like(x)
-        for k, group in enumerate(self.channel_groups):
-            x_normed[:, group, :, :] = self.group_norms[k](x[:, group, :, :])
+        # Each group is a contiguous slice (channels_per_kernel channels wide).
+        # We split, norm each slice, then reassemble — no Python-level loop,
+        # no temporary zero-filled buffer.
+        # split() returns a tuple of (B, N, H, W) tensors, one per kernel group.
+        groups = x.split(self.channels_per_kernel, dim=1)  # tuple of M × (B, N, H, W)
+        normed_groups = [self.group_norms[k](g) for k, g in enumerate(groups)]
+        x_normed = torch.cat(normed_groups, dim=1)  # (B, M*N, H, W)
 
         # --- Gate: produce M weights per patch from ALL normalized channels ---
         # (B, M*N, H, W) -> (B, M, H, W)
@@ -155,12 +157,12 @@ class KernelChannelAttentionBlock(nn.Module):
         self.last_alpha = alpha.detach()
 
         # --- Excite: multiply alpha_k into all N channels of kernel group k ---
-        # Uses the ORIGINAL (un-normalized) features so the classification
-        # head still sees the true quantum output magnitudes — only the
-        # routing decision was made on normalized inputs.
-        out = torch.zeros_like(x)
-        for k, group in enumerate(self.channel_groups):
-            # alpha[:, k:k+1, :, :] has shape (B, 1, H, W) — broadcasts over N channels
-            out[:, group, :, :] = x[:, group, :, :] * alpha[:, k : k + 1, :, :]
+        # Expand alpha from (B, M, H, W) to (B, M*N, H, W) by repeating each
+        # scalar weight N times so it broadcasts directly over the channel group.
+        # Uses the ORIGINAL (un-normalized) features so the classification head
+        # sees the true quantum output magnitudes.
+        N = self.channels_per_kernel
+        alpha_expanded = alpha.repeat_interleave(N, dim=1)  # (B, M*N, H, W)
+        out = x * alpha_expanded
 
         return out

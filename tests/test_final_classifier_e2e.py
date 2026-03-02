@@ -24,9 +24,9 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from src.models.ts_moe_classification_head_training import run_final_classifier_training
 from src.models.student_training import run_student_training
 from src.models.teacher_moe_training import run_teacher_training
+from src.models.ts_moe_classification_head_training import run_final_classifier_training
 
 # =========================================================================
 # Helpers
@@ -141,7 +141,6 @@ def create_fake_cached_dataset(tmpdir, kernel_names, kernel_size, num_classes):
             "final_epochs": 3,
             "final_lr": 1e-3,
             "final_patience": None,
-            "use_mask_channel": False,
         },
         "misc": {
             "seed": 42,
@@ -302,8 +301,8 @@ def test_run_final_classifier_e2e():
 
 
 def test_final_classifier_with_mask_channel():
-    """Final Classifier with the optional mask channel enabled."""
-    print("\n--- test_final_classifier_with_mask_channel ---")
+    """Final Classifier runs correctly with 3x3 kernel size."""
+    print("\n--- test_final_classifier_3x3_kernels ---")
     kernel_names = ["a", "b"]
     kernel_size = 3
     num_classes = 2
@@ -312,7 +311,6 @@ def test_final_classifier_with_mask_channel():
         _, datasets_dir, cfg, split_counts = create_fake_cached_dataset(
             tmpdir, kernel_names, kernel_size, num_classes
         )
-        cfg["ts_moe"]["use_mask_channel"] = True
 
         raw_datasets = make_synthetic_image_datasets(
             split_counts, in_channels=1, num_classes=num_classes
@@ -323,7 +321,7 @@ def test_final_classifier_with_mask_channel():
             tmpdir, cfg, datasets_dir, teacher_ckpt, raw_datasets
         )
 
-        final_output = os.path.join(tmpdir, "outputs", "final_mask")
+        final_output = os.path.join(tmpdir, "outputs", "final_3x3")
         os.makedirs(final_output, exist_ok=True)
 
         result = run_final_classifier_training(
@@ -336,7 +334,6 @@ def test_final_classifier_with_mask_channel():
             raw_image_datasets=raw_datasets,
         )
 
-        assert result["use_mask_channel"] is True
         assert isinstance(result["test_acc"], float)
         print("PASS")
 
@@ -426,19 +423,20 @@ def test_final_classifier_checkpoint_loadable():
         assert ckpt["num_classes"] == num_classes
 
         # Rebuild model and load weights
-        from src.models.ts_moe_classification_head import build_final_classifier_from_metadata
+        from src.models.ts_moe_classification_head import (
+            build_final_classifier_from_metadata,
+        )
 
         model = build_final_classifier_from_metadata(
             ckpt["metadata"],
             ckpt["num_classes"],
-            use_mask_channel=ckpt.get("use_mask_channel", False),
         )
 
         # Initialize lazy layers
         total_ch = ckpt["metadata"]["out_channels"]
         ks = ckpt["metadata"]["kernel_size"]
         stride = ckpt["metadata"]["stride"]
-        spatial = (28 - ks) // stride + 1
+        spatial = ckpt["metadata"].get("feature_spatial_size", (28 - ks) // stride + 1)
         dummy = torch.randn(1, total_ch, spatial, spatial)
         model(dummy)
 
@@ -556,7 +554,6 @@ def test_result_dict_format():
             "final_val_acc",
             "kernel_names",
             "num_kernels",
-            "use_mask_channel",
             "comparison",
             "routing_analysis",
             "routing_time_s",

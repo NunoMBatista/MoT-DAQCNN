@@ -270,12 +270,16 @@ class TestGenerateRoutingLabels:
         teacher, total_ch, spatial = _make_teacher(kernel_names, 3, 3)
         loader = _make_quantum_loader(16, total_ch, spatial)
 
-        labels = generate_routing_labels(teacher, loader, "cpu")
+        labels, routing_logits, confidence = generate_routing_labels(
+            teacher, loader, "cpu"
+        )
 
         assert labels.shape == (16, spatial, spatial)
         assert labels.dtype == torch.long
         assert labels.min() >= 0
         assert labels.max() < 2
+        assert routing_logits.shape == (16, 2, spatial, spatial)
+        assert confidence.shape == (16, spatial, spatial)
 
     def test_label_values_match_argmax(self):
         kernel_names = ["kings", "horizontal"]
@@ -286,7 +290,9 @@ class TestGenerateRoutingLabels:
             TensorDataset(features, torch.zeros(4)), batch_size=4, shuffle=False
         )
 
-        labels = generate_routing_labels(teacher, loader, "cpu")
+        labels, routing_logits, confidence = generate_routing_labels(
+            teacher, loader, "cpu"
+        )
 
         # Verify against manual argmax
         teacher.eval()
@@ -296,22 +302,34 @@ class TestGenerateRoutingLabels:
             expected = alpha.argmax(dim=1)
 
         assert torch.equal(labels, expected)
+        # routing_logits must be pre-softmax (logits), not probabilities
+        assert routing_logits.shape == (4, 2, spatial, spatial)
+        # confidence is max alpha (post-softmax), so must be in [0, 1]
+        assert confidence.min() >= 0.0
+        assert confidence.max() <= 1.0
 
     def test_4_kernels(self):
         kernel_names = ["kings", "horizontal", "cross", "ring"]
         teacher, total_ch, spatial = _make_teacher(kernel_names, 3, 3)
         loader = _make_quantum_loader(8, total_ch, spatial)
 
-        labels = generate_routing_labels(teacher, loader, "cpu")
+        labels, routing_logits, confidence = generate_routing_labels(
+            teacher, loader, "cpu"
+        )
         assert labels.max() < 4
+        assert routing_logits.shape[1] == 4
 
     def test_multiple_batches(self):
         kernel_names = ["kings", "horizontal"]
         teacher, total_ch, spatial = _make_teacher(kernel_names, 3, 3)
         loader = _make_quantum_loader(20, total_ch, spatial, batch_size=4)
 
-        labels = generate_routing_labels(teacher, loader, "cpu")
+        labels, routing_logits, confidence = generate_routing_labels(
+            teacher, loader, "cpu"
+        )
         assert labels.shape[0] == 20
+        assert routing_logits.shape[0] == 20
+        assert confidence.shape[0] == 20
 
     def test_teacher_stays_in_eval(self):
         kernel_names = ["kings", "horizontal"]
@@ -319,7 +337,7 @@ class TestGenerateRoutingLabels:
         teacher.train()
         loader = _make_quantum_loader(4, total_ch, spatial)
 
-        generate_routing_labels(teacher, loader, "cpu")
+        _, _, _ = generate_routing_labels(teacher, loader, "cpu")
         assert not teacher.training, "Teacher should be in eval mode after label gen"
 
 
@@ -396,7 +414,7 @@ class TestCreateStudentDataloaders:
         patches = torch.randn(N, n_patches, patch_dim)
         labels = torch.randint(0, 2, (N, 9, 9))  # H=W=9
 
-        train_loader, val_loader = create_student_dataloaders(
+        train_loader, val_loader, _, _ = create_student_dataloaders(
             patches, labels, batch_size=32
         )
 
@@ -413,7 +431,7 @@ class TestCreateStudentDataloaders:
         val_patches = torch.randn(Nv, n_patches, patch_dim)
         val_labels = torch.randint(0, 2, (Nv, 9, 9))
 
-        train_loader, val_loader = create_student_dataloaders(
+        train_loader, val_loader, _, _ = create_student_dataloaders(
             patches,
             labels,
             batch_size=32,
@@ -430,7 +448,9 @@ class TestCreateStudentDataloaders:
         patches = torch.randn(N, n_patches, patch_dim)
         labels = torch.randint(0, 2, (N, 4, 4))
 
-        train_loader, _ = create_student_dataloaders(patches, labels, batch_size=10)
+        train_loader, _, _, _ = create_student_dataloaders(
+            patches, labels, batch_size=10
+        )
 
         batch_x, batch_y = next(iter(train_loader))
         assert batch_x.shape[1] == patch_dim
@@ -468,8 +488,11 @@ class TestTrainStudentOneEpoch:
         epoch_pbar = MagicMock()
         epoch_pbar.set_description = MagicMock()
 
+        from src.models.student_training import build_student_loss_fn
+
+        loss_fn = build_student_loss_fn(num_kernels=2)
         loss, acc = train_student_one_epoch(
-            model, loader, optimizer, "cpu", grad_clip=0, epoch_pbar=epoch_pbar
+            model, loader, optimizer, loss_fn, "cpu", grad_clip=0, epoch_pbar=epoch_pbar
         )
 
         assert isinstance(loss, float)
@@ -490,13 +513,22 @@ class TestTrainStudentOneEpoch:
 
         from unittest.mock import MagicMock
 
+        from src.models.student_training import build_student_loss_fn
+
         epoch_pbar = MagicMock()
         epoch_pbar.set_description = MagicMock()
 
+        loss_fn = build_student_loss_fn(num_kernels=2)
         losses = []
         for _ in range(5):
             loss, acc = train_student_one_epoch(
-                model, loader, optimizer, "cpu", grad_clip=0, epoch_pbar=epoch_pbar
+                model,
+                loader,
+                optimizer,
+                loss_fn,
+                "cpu",
+                grad_clip=0,
+                epoch_pbar=epoch_pbar,
             )
             losses.append(loss)
 
@@ -517,8 +549,17 @@ class TestTrainStudentOneEpoch:
         epoch_pbar = MagicMock()
         epoch_pbar.set_description = MagicMock()
 
+        from src.models.student_training import build_student_loss_fn
+
+        loss_fn = build_student_loss_fn(num_kernels=2)
         loss, acc = train_student_one_epoch(
-            model, loader, optimizer, "cpu", grad_clip=1.0, epoch_pbar=epoch_pbar
+            model,
+            loader,
+            optimizer,
+            loss_fn,
+            "cpu",
+            grad_clip=1.0,
+            epoch_pbar=epoch_pbar,
         )
         assert isinstance(loss, float)
 
@@ -532,7 +573,10 @@ class TestEvaluateStudent:
         labels = torch.randint(0, 2, (32,))
         loader = DataLoader(TensorDataset(patches, labels), batch_size=16)
 
-        loss, acc = evaluate_student(model, loader, "cpu")
+        from src.models.student_training import build_student_loss_fn
+
+        loss_fn = build_student_loss_fn(num_kernels=2)
+        loss, acc = evaluate_student(model, loader, loss_fn, "cpu")
 
         assert isinstance(loss, float)
         assert isinstance(acc, float)
@@ -558,7 +602,10 @@ class TestEvaluateStudent:
         labels = torch.zeros(20).long()
         loader = DataLoader(TensorDataset(patches, labels), batch_size=20)
 
-        loss, acc = evaluate_student(model, loader, "cpu")
+        from src.models.student_training import build_student_loss_fn
+
+        loss_fn = build_student_loss_fn(num_kernels=2)
+        loss, acc = evaluate_student(model, loader, loss_fn, "cpu")
         assert acc > 0.99, f"Expected near-perfect accuracy, got {acc}"
 
     def test_model_in_eval_mode(self):
@@ -568,7 +615,10 @@ class TestEvaluateStudent:
         labels = torch.randint(0, 2, (8,))
         loader = DataLoader(TensorDataset(patches, labels), batch_size=8)
 
-        evaluate_student(model, loader, "cpu")
+        from src.models.student_training import build_student_loss_fn
+
+        loss_fn = build_student_loss_fn(num_kernels=2)
+        evaluate_student(model, loader, loss_fn, "cpu")
         assert not model.training, "Model should be in eval mode after evaluation"
 
 
@@ -785,8 +835,8 @@ class TestEndToEndSmoke:
         )
 
         # Generate routing labels
-        train_labels = generate_routing_labels(teacher, q_train_loader, "cpu")
-        val_labels = generate_routing_labels(teacher, q_val_loader, "cpu")
+        train_labels, _, _ = generate_routing_labels(teacher, q_train_loader, "cpu")
+        val_labels, _, _ = generate_routing_labels(teacher, q_val_loader, "cpu")
 
         assert train_labels.shape == (N_train, spatial, spatial)
         assert val_labels.shape == (N_val, spatial, spatial)
@@ -799,7 +849,7 @@ class TestEndToEndSmoke:
         val_patches = extract_patches(val_images, kernel_size, stride)
 
         # Create student DataLoaders
-        train_loader, val_loader = create_student_dataloaders(
+        train_loader, val_loader, _, _ = create_student_dataloaders(
             train_patches,
             train_labels,
             batch_size=64,
@@ -816,21 +866,25 @@ class TestEndToEndSmoke:
 
         from unittest.mock import MagicMock
 
+        from src.models.student_training import build_student_loss_fn
+
         epoch_pbar = MagicMock()
         epoch_pbar.set_description = MagicMock()
 
+        loss_fn = build_student_loss_fn(num_kernels=len(kernel_names))
         for _ in range(3):
             train_student_one_epoch(
                 student,
                 train_loader,
                 optimizer,
+                loss_fn,
                 "cpu",
                 grad_clip=0,
                 epoch_pbar=epoch_pbar,
             )
 
         # Evaluate
-        val_loss, val_acc = evaluate_student(student, val_loader, "cpu")
+        val_loss, val_acc = evaluate_student(student, val_loader, loss_fn, "cpu")
         assert isinstance(val_loss, float)
         assert 0 <= val_acc <= 1
 

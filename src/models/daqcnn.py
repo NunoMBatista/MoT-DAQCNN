@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from src.layers.quantum_convolution import QuantumConv2d
+from src.utils.training_utils import build_classification_head
 
 
 class DAQCNN(nn.Module):
@@ -81,27 +82,7 @@ class DAQCNN(nn.Module):
             if in_channels == 3:
                 out_ch *= 3
 
-        # Select activation function
-        act_fn = nn.GELU() if activation.lower() == "gelu" else nn.ReLU()
-
-        # Paper-like classical head:
-        # Conv2D (out_ch -> 64, 2x2, stride=1, no padding) -> BN -> Activation
-        # MaxPool2D (2x2, stride=2)
-        # Conv2D (64 -> 64, 2x2, stride=1) -> Activation
-        # Dropout -> Flatten -> Dropout -> Dense
-        self.head = nn.Sequential(
-            nn.Conv2d(out_ch, 64, kernel_size=2, stride=1, padding=0),
-            nn.BatchNorm2d(64),
-            act_fn,
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 64, kernel_size=2, stride=1, padding=0),
-            # nn.GELU() if activation.lower() == "gelu" else nn.ReLU(),
-            act_fn,
-            nn.Dropout(dropout),
-            nn.Flatten(),
-            nn.Dropout(dropout),
-            nn.LazyLinear(num_classes),
-        )
+        self.head = build_classification_head(out_ch, num_classes, dropout, activation)
 
         if classical_device is not None:
             self.to(classical_device)

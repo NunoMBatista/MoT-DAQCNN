@@ -37,7 +37,6 @@ from src.models.ts_moe_classification_head import build_final_classifier_from_me
 from src.utils.data import load_medmnist_dataset
 from src.utils.evaluate import accuracy, evaluate
 from src.utils.kernel_mapping import build_kernel_to_channels_map, get_kernel_names
-from src.utils.training_utils import resolve_device
 from src.utils.plotting import (
     plot_confusion_matrix,
     plot_loss_curves,
@@ -48,6 +47,7 @@ from src.utils.quantum_dataset_cache import (
     load_cached_quantum_dataset,
 )
 from src.utils.sparse_reconstruction import build_sparse_tensor_fast
+from src.utils.training_utils import resolve_device
 
 # -------------------------------------------------------------------------
 # Sparse dataset construction
@@ -71,7 +71,6 @@ def build_sparse_dataset(
     color_space,
     channel_groups,
     device,
-    use_mask_channel=False,
     feature_flags=None,
 ):
     """Route an entire split through the Student and produce sparse tensors.
@@ -91,7 +90,6 @@ def build_sparse_dataset(
         channel_groups: List of lists — channel_groups[k] is the channel
             indices for kernel k.
         device: Device for student inference.
-        use_mask_channel: Whether to append an extra mask channel.
 
     Returns:
         sparse_features: Tensor (N, C_out, H, W).
@@ -142,9 +140,7 @@ def build_sparse_dataset(
         routing_map = routing_flat.reshape(B, H, W)
 
         # Build sparse tensor for this batch
-        sparse = build_sparse_tensor_fast(
-            q_features, routing_map, channel_groups, use_mask_channel
-        )
+        sparse = build_sparse_tensor_fast(q_features, routing_map, channel_groups)
 
         all_sparse.append(sparse)
         all_routing.append(routing_map)
@@ -397,7 +393,6 @@ def run_final_classifier_training(
     stride = q_metadata["stride"]
 
     ts_moe_cfg = cfg.get("ts_moe", {})
-    use_mask_channel = ts_moe_cfg.get("use_mask_channel", False)
 
     effective_data_root = data_root or cfg.get("dataset", {}).get(
         "data_root", str(DATA_DIR)
@@ -430,7 +425,6 @@ def run_final_classifier_training(
         color_space,
         channel_groups,
         device,
-        use_mask_channel,
         feature_flags=feature_flags,
     )
     sparse_val, labels_val, routing_val = build_sparse_dataset(
@@ -442,7 +436,6 @@ def run_final_classifier_training(
         color_space,
         channel_groups,
         device,
-        use_mask_channel,
         feature_flags=feature_flags,
     )
     sparse_test, labels_test, routing_test = build_sparse_dataset(
@@ -454,7 +447,6 @@ def run_final_classifier_training(
         color_space,
         channel_groups,
         device,
-        use_mask_channel,
         feature_flags=feature_flags,
     )
 
@@ -492,7 +484,6 @@ def run_final_classifier_training(
     model = build_final_classifier_from_metadata(
         metadata=q_metadata,
         num_classes=num_classes,
-        use_mask_channel=use_mask_channel,
         dropout=model_cfg.get("dropout", 0.1),
         activation=model_cfg.get("activation", "relu"),
     )
@@ -667,7 +658,6 @@ def run_final_classifier_training(
             "num_classes": num_classes,
             "kernel_names": ordered_kernel_names,
             "metadata": q_metadata,
-            "use_mask_channel": use_mask_channel,
             "test_accuracy": test_metrics["accuracy"],
         },
         final_model_path,
@@ -686,7 +676,6 @@ def run_final_classifier_training(
                 "best_val_loss": best_val_loss,
                 "kernel_names": ordered_kernel_names,
                 "metadata": q_metadata,
-                "use_mask_channel": use_mask_channel,
                 "test_accuracy": test_metrics["accuracy"],
             },
             best_path,
@@ -745,7 +734,6 @@ def run_final_classifier_training(
         "final_val_acc": val_accs[-1],
         "kernel_names": ordered_kernel_names,
         "num_kernels": num_kernels,
-        "use_mask_channel": use_mask_channel,
         "comparison": comparison,
         "routing_analysis": {
             str(c): {name: frac for name, frac in per_kernel.items()}

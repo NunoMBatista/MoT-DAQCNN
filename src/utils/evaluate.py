@@ -173,15 +173,10 @@ def compute_kta(X, y, max_samples=10000):
     K = X_normalized @ X_normalized.T
 
     # Compute target kernel Y (Y_ij = 1 if y_i == y_j, else 0)
-    # This is equivalent to a one-hot dot product: correct for multiclass
+    # Vectorized outer equality: broadcasts y as a column and a row, no Python loop.
     # Example: y = [0, 0, 7, 7] produces Y = [[1,1,0,0], [1,1,0,0], [0,0,1,1], [0,0,1,1]]
-    # Note: Uses EQUALITY comparison (y[i] == y[j]), not arithmetic with label values
-    # So class 7 is NOT treated as "bigger" than class 0 - only equality matters!
-    n = len(y)
-    Y = np.zeros((n, n))
-    for i in range(n):
-        for j in range(n):
-            Y[i, j] = 1.0 if y[i] == y[j] else 0.0
+    # Note: Uses EQUALITY comparison, so class 7 is NOT treated as "bigger" than class 0.
+    Y = (y[:, None] == y[None, :]).astype(np.float64)
 
     # Compute KTA = <K, Y> / (||K|| * ||Y||)
     # Frobenius inner product: <K, Y> = trace(K.T @ Y) = sum(K * Y)

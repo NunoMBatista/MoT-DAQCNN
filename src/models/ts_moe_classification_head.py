@@ -24,6 +24,7 @@ from src.utils.kernel_mapping import (
     get_kernel_names,
     get_num_kernels,
 )
+from src.utils.training_utils import build_classification_head
 
 
 class FinalClassifier(nn.Module):
@@ -47,19 +48,8 @@ class FinalClassifier(nn.Module):
         self.in_channels = in_channels
         self.num_classes = num_classes
 
-        act_fn = nn.GELU() if activation.lower() == "gelu" else nn.ReLU()
-
-        self.head = nn.Sequential(
-            nn.Conv2d(in_channels, 64, kernel_size=2, stride=1, padding=0),
-            nn.BatchNorm2d(64),
-            act_fn,
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 64, kernel_size=2, stride=1, padding=0),
-            act_fn,
-            nn.Dropout(dropout),
-            nn.Flatten(),
-            nn.Dropout(dropout),
-            nn.LazyLinear(num_classes),
+        self.head = build_classification_head(
+            in_channels, num_classes, dropout, activation
         )
 
     def forward(self, x):
@@ -75,7 +65,7 @@ class FinalClassifier(nn.Module):
 
 
 def build_final_classifier_from_metadata(
-    metadata, num_classes, use_mask_channel=False, dropout=0.1, activation="relu"
+    metadata, num_classes, dropout=0.1, activation="relu"
 ):
     """Build a FinalClassifier from cached dataset metadata.
 
@@ -83,16 +73,13 @@ def build_final_classifier_from_metadata(
         metadata: Dict from ``load_cached_quantum_dataset()``. Must contain
             "out_channels".
         num_classes: Number of output classes.
-        use_mask_channel: If True, expects an extra mask channel appended
-            to the sparse tensor (in_channels = M*N + 1).
         dropout: Dropout for the classification head.
         activation: Activation function ("relu" or "gelu").
 
     Returns:
         FinalClassifier instance.
     """
-    total_channels = metadata["out_channels"]
-    in_channels = total_channels + (1 if use_mask_channel else 0)
+    in_channels = metadata["out_channels"]
 
     return FinalClassifier(
         in_channels=in_channels,
