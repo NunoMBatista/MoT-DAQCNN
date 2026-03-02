@@ -4,6 +4,7 @@ dataset:
   batch_size: 32
   num_workers: 2
   download: true
+  color_space: GRAYSCALE
 
 model:
   num_classes: 2

@@ -22,7 +22,6 @@ from src.models.teacher_moe import build_teacher_from_metadata
 from src.utils.evaluate import accuracy, evaluate
 from src.utils.losses import compute_lambda, entropy_loss
 from src.utils.plotting import (
-    plot_alpha_histogram,
     plot_alpha_histogram_combined,
     plot_confusion_matrix,
     plot_loss_curves,
@@ -111,59 +110,53 @@ def train_teacher_one_epoch(
 
 
 @torch.no_grad()
-def collect_alpha_weights(model, loader, device):
-    """Collect alpha routing weights for the entire dataset.
+def evaluate_teacher(model, loader, device):
+    """Single-pass validation: loss, accuracy, routing ratios, and alpha weights.
 
-    Runs the model in eval mode over every batch in ``loader`` and
-    concatenates the alpha weights.
-
-    Args:
-        model: TeacherMoE instance.
-        loader: DataLoader (typically the validation set).
-        device: Device string.
+    Replaces the previous three separate passes (evaluate + compute_routing_ratio
+    + collect_alpha_weights) with one loop over the val loader.
 
     Returns:
-        dict mapping kernel_name -> 1-D CPU tensor of alpha values
-        across all patches in the dataset.
+        val_loss:      float
+        val_acc:       float
+        routing_ratio: dict[kernel_name -> fraction of patches where that kernel won]
+        alpha_vals:    dict[kernel_name -> 1-D CPU tensor of all alpha values]
     """
     model.eval()
+    loss_fn = nn.CrossEntropyLoss()
+
+    total_loss, total_acc, total_count = 0.0, 0.0, 0
+    wins = {name: 0 for name in model.kernel_names}
+    total_patches = 0
     all_alphas = {name: [] for name in model.kernel_names}
 
-    for features, _ in loader:
+    for features, labels in loader:
         features = features.to(device)
-        model(features)
-        stats = model.get_routing_stats()
-        for name in model.kernel_names:
-            all_alphas[name].append(stats["alpha_flat"][name])
+        labels = labels.squeeze().long().to(device)
 
-    # Concatenate
-    for name in model.kernel_names:
-        all_alphas[name] = torch.cat(all_alphas[name], dim=0)
+        logits = model(features)
 
-    return all_alphas
+        bs = labels.size(0)
+        total_loss += loss_fn(logits, labels).item() * bs
+        total_acc += accuracy(logits, labels) * bs
+        total_count += bs
 
-
-@torch.no_grad()
-def compute_routing_ratio(model, loader, device):
-    """Compute global routing ratio across a full dataset.
-
-    Returns:
-        dict mapping kernel_name -> fraction of patches where that kernel won.
-    """
-    model.eval()
-    wins = {name: 0 for name in model.kernel_names}
-    total = 0
-
-    for features, _ in loader:
-        features = features.to(device)
-        model(features)
-        alpha = model.last_alpha  # (B, M, H, W)
+        alpha = model.last_alpha  # (B, M, H, W) — detached, set during forward
         winners = alpha.argmax(dim=1)  # (B, H, W)
         for k, name in enumerate(model.kernel_names):
             wins[name] += (winners == k).sum().item()
-        total += winners.numel()
+            all_alphas[name].append(alpha[:, k, :, :].reshape(-1).cpu())
+        total_patches += winners.numel()
 
-    return {name: wins[name] / max(total, 1) for name in model.kernel_names}
+    n = max(total_count, 1)
+    routing_ratio = {
+        name: wins[name] / max(total_patches, 1) for name in model.kernel_names
+    }
+    alpha_vals = {
+        name: torch.cat(all_alphas[name], dim=0) for name in model.kernel_names
+    }
+
+    return total_loss / n, total_acc / n, routing_ratio, alpha_vals
 
 
 def get_teacher_head_structure(model):
@@ -380,8 +373,10 @@ def run_teacher_training(
             model, train_loader, optimizer, device, grad_clip, lam, epoch_pbar
         )
 
-        # Validate (uses existing evaluate() — returns (loss, acc))
-        val_loss, val_acc = evaluate(model, val_loader, device, split_name="Val")
+        # Single validation pass: loss + acc + routing ratios + alpha weights
+        val_loss, val_acc, routing_ratio, alpha_vals = evaluate_teacher(
+            model, val_loader, device
+        )
 
         # Record
         train_losses.append(total_loss)
@@ -390,15 +385,11 @@ def run_teacher_training(
         train_accs.append(train_acc)
         val_losses.append(val_loss)
         val_accs.append(val_acc)
+        routing_history.append(routing_ratio)
 
         dt = time.time() - t0
 
-        # Routing stats on validation set
-        routing_ratio = compute_routing_ratio(model, val_loader, device)
-        routing_history.append(routing_ratio)
-
         # Alpha histograms — combined plot with all kernels in different colors
-        alpha_vals = collect_alpha_weights(model, val_loader, device)
         hist_path = os.path.join(alpha_hist_dir, f"epoch_{epoch:03d}_all_kernels.png")
         plot_alpha_histogram_combined(alpha_vals, epoch, hist_path)
 
