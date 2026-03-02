@@ -66,12 +66,12 @@ TS-MoE runs are labeled with 🔀 in the model tree and display pipeline summary
 ```
 src/
 ├── layers/
-│   ├── grouped_se_block.py      # Patch-wise SE routing (Teacher core)
+│   ├── kernel_channel_attention_block.py  # Patch-wise kernel routing (Teacher core)
 │   ├── daqk.py                  # Digital-analog quantum kernel
 │   └── quantum_convolution.py   # Quantum convolution layer
 ├── models/
 │   ├── daqcnn.py                # Original DAQCNN model
-│   ├── teacher_moe.py           # Teacher with Grouped SE routing
+│   ├── teacher_moe.py           # Teacher with Kernel Channel Attention routing
 │   ├── student_gatekeeper.py    # Lightweight routing MLP
 │   ├── ts_moe_classification_head.py  # Final classifier on sparse features
 │   ├── teacher_moe_training.py  # Teacher training loop

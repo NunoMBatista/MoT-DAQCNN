@@ -809,16 +809,17 @@ def _load_teacher_from_checkpoint(ckpt_path, device):
     num_classes = ckpt["num_classes"]
     kernel_names = ckpt["kernel_names"]
 
-    # Get SE block config from metadata (saved during teacher training)
-    se_hidden_dim = metadata.get("se_hidden_dim", None)
-    se_use_std = metadata.get("se_use_std", False)
+    # Get attention block config from metadata (saved during teacher training)
+    # Backward compat: fall back to old se_hidden_dim key from pre-v2 checkpoints
+    attention_hidden_dim = metadata.get(
+        "attention_hidden_dim", metadata.get("se_hidden_dim", None)
+    )
 
     teacher = build_teacher_from_metadata(
         metadata=metadata,
         num_classes=num_classes,
         dropout=0.0,  # no dropout needed in eval mode
-        se_hidden_dim=se_hidden_dim,
-        se_use_std=se_use_std,
+        attention_hidden_dim=attention_hidden_dim,
     )
     teacher.to(device)
 

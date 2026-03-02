@@ -1,27 +1,39 @@
 """
-Grouped Squeeze-and-Excitation Block for patch-wise kernel routing.
+Kernel Channel Attention Block for patch-wise kernel routing.
 
 This block is the core "Judge" of the Teacher model. Given quantum features
 from M kernel topologies (each producing N channels), it decides how much
 to weight each kernel's output at every spatial position (patch).
+
+Unlike the original Squeeze-and-Excitation approach, this block does NOT
+squeeze (average) each kernel group down to a single scalar. Instead, the
+gate sees ALL raw channels — the full qubit activation pattern — so it can
+make routing decisions based on the complete quantum texture fingerprint
+rather than a lossy summary.
+
+A per-group BatchNorm2d normalizes each kernel group's channels before the
+gate, preventing topologies with inherently larger raw output magnitudes
+(e.g., Kings graph with its stronger 1/r^6 interactions) from dominating
+the routing decision purely through scale.
 
 Key design choices:
     - Operates PATCH-WISE: each spatial position (i, j) gets its own M weights.
     - Outputs M weights (one per kernel group), NOT M*N (not per channel).
     - Uses 1x1 convolutions for spatial efficiency (equivalent to per-pixel MLP).
     - Alpha weights are softmax-normalized across kernel groups.
+    - BatchNorm2d applied per kernel group before gating for scale fairness.
 """
 
 import torch
 import torch.nn as nn
 
 
-class GroupedSEBlock(nn.Module):
-    """Grouped Squeeze-and-Excitation block for kernel routing.
+class KernelChannelAttentionBlock(nn.Module):
+    """Kernel Channel Attention block for kernel routing.
 
-    Takes a tensor with M*N channels (M kernels, N channels each), groups them
-    by kernel, squeezes each group to a single value via average pooling, and
-    produces M soft routing weights per spatial position.
+    Takes a tensor with M*N channels (M kernels, N channels each), normalizes
+    each kernel group via BatchNorm2d, feeds ALL raw channels into a gating
+    MLP, and produces M soft routing weights per spatial position.
 
     Args:
         num_kernels: Number of kernel topologies (M).
@@ -30,9 +42,13 @@ class GroupedSEBlock(nn.Module):
             channel indices belonging to kernel k. If None, assumes sequential
             grouping: kernel 0 = channels [0..N-1], kernel 1 = [N..2N-1], etc.
         hidden_dim: Hidden dimension for the gating MLP. Defaults to
-            max(num_kernels, 4) to keep it small but expressive.
-        use_std: If True, use both mean and std for squeeze (input becomes 2*M).
-            If False, use only mean (input is M). Default: False.
+            max(total_channels // 2, num_kernels * 2, 8).
+        gate_zero_init: If True, zero-initialize the weights and bias of the
+            last Conv2d in the gate so that initial alpha values are uniform
+            (1/M) across all kernels for every patch. This removes random-init
+            asymmetry and ensures symmetry is broken by data gradients rather
+            than by the initial weight lottery. Default False for backward
+            compatibility.
 
     Input shape:  (B, M*N, H, W)
     Output shape: (B, M*N, H, W) — same shape, but channels are reweighted.
@@ -48,14 +64,13 @@ class GroupedSEBlock(nn.Module):
         channels_per_kernel,
         channel_groups=None,
         hidden_dim=None,
-        use_std=False,
+        gate_zero_init=False,
     ):
         super().__init__()
 
         self.num_kernels = num_kernels  # M
         self.channels_per_kernel = channels_per_kernel  # N
         self.total_channels = num_kernels * channels_per_kernel  # M * N
-        self.use_std = use_std  # Whether to include std in squeeze
 
         # Channel groups: which channel indices belong to each kernel.
         # Stored as a list of lists, ordered by kernel index.
@@ -71,19 +86,32 @@ class GroupedSEBlock(nn.Module):
                 for k in range(num_kernels)
             ]
 
-        # Gating network: small bottleneck MLP implemented as 1x1 convolutions
-        # so it processes all spatial positions in parallel.
-        if hidden_dim is None:
-            hidden_dim = max(num_kernels, 4)
+        # Per-group BatchNorm2d: normalizes each kernel group's channels
+        # independently, so topologies with different raw output scales
+        # are put on equal footing before the gate makes its decision.
+        self.group_norms = nn.ModuleList(
+            [nn.BatchNorm2d(channels_per_kernel) for _ in range(num_kernels)]
+        )
 
-        # Input to gate is M (mean only) or 2*M (mean + std)
-        gate_input_channels = 2 * num_kernels if use_std else num_kernels
+        # Gating network: MLP implemented as 1x1 convolutions so it
+        # processes all spatial positions in parallel.
+        # Input is ALL M*N channels (no squeeze).
+        if hidden_dim is None:
+            hidden_dim = max(self.total_channels // 2, num_kernels * 2, 8)
 
         self.gate = nn.Sequential(
-            nn.Conv2d(gate_input_channels, hidden_dim, kernel_size=1, bias=True),
+            nn.Conv2d(self.total_channels, hidden_dim, kernel_size=1, bias=True),
             nn.ReLU(inplace=True),
             nn.Conv2d(hidden_dim, num_kernels, kernel_size=1, bias=True),
         )
+
+        # Optionally zero-init the last gate layer so that initial logits are
+        # all zero -> softmax produces uniform 1/M alphas on the first forward
+        # pass, regardless of seed. Symmetry is then broken by gradients.
+        if gate_zero_init:
+            last_conv = self.gate[-1]
+            nn.init.zeros_(last_conv.weight)
+            nn.init.zeros_(last_conv.bias)
 
         # Stored after each forward pass:
         # - live version keeps gradients (for entropy loss backprop)
@@ -94,7 +122,7 @@ class GroupedSEBlock(nn.Module):
         self.last_logits = None
 
     def forward(self, x):
-        """Forward pass: squeeze, gate, and reweight.
+        """Forward pass: normalize, gate, and reweight.
 
         Args:
             x: Tensor of shape (B, M*N, H, W) with quantum features from
@@ -109,27 +137,16 @@ class GroupedSEBlock(nn.Module):
             f"Expected {self.total_channels} channels, got {C}"
         )
 
-        # --- Squeeze: average each kernel group (optionally include std) ---
-        # Result: (B, M, H, W) if use_std=False, or (B, 2*M, H, W) if use_std=True
-        if self.use_std:
-            # Use both mean and std: more information about each kernel group
-            pooled = torch.zeros(
-                B, 2 * self.num_kernels, H, W, device=x.device, dtype=x.dtype
-            )
-            for k, group in enumerate(self.channel_groups):
-                pooled[:, 2 * k, :, :] = x[:, group, :, :].mean(dim=1)  # mean
-                pooled[:, 2 * k + 1, :, :] = x[:, group, :, :].std(dim=1)  # std
-        else:
-            # Use only mean (original behavior)
-            pooled = torch.zeros(
-                B, self.num_kernels, H, W, device=x.device, dtype=x.dtype
-            )
-            for k, group in enumerate(self.channel_groups):
-                pooled[:, k, :, :] = x[:, group, :, :].mean(dim=1)
+        # --- Normalize: BatchNorm each kernel group independently ---
+        # This prevents topologies with larger raw magnitudes from
+        # dominating the gate decision purely through scale.
+        x_normed = torch.zeros_like(x)
+        for k, group in enumerate(self.channel_groups):
+            x_normed[:, group, :, :] = self.group_norms[k](x[:, group, :, :])
 
-        # --- Gate: produce M weights per patch via small MLP ---
-        # (B, M or 2*M, H, W) -> (B, M, H, W)
-        alpha_logits = self.gate(pooled)  # pre-softmax logits
+        # --- Gate: produce M weights per patch from ALL normalized channels ---
+        # (B, M*N, H, W) -> (B, M, H, W)
+        alpha_logits = self.gate(x_normed)  # pre-softmax logits
         alpha = torch.softmax(alpha_logits, dim=1)  # normalize across kernels
 
         # Store logits (for KD), live alpha (for entropy loss), and detached alpha (for logging)
@@ -138,6 +155,9 @@ class GroupedSEBlock(nn.Module):
         self.last_alpha = alpha.detach()
 
         # --- Excite: multiply alpha_k into all N channels of kernel group k ---
+        # Uses the ORIGINAL (un-normalized) features so the classification
+        # head still sees the true quantum output magnitudes — only the
+        # routing decision was made on normalized inputs.
         out = torch.zeros_like(x)
         for k, group in enumerate(self.channel_groups):
             # alpha[:, k:k+1, :, :] has shape (B, 1, H, W) — broadcasts over N channels

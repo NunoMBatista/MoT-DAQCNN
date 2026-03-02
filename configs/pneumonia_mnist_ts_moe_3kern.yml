@@ -36,15 +36,8 @@ ts_moe:
   lambda_entropy: 0.0 # entropy regularisation weight on Teacher routing (prevents collapse)
   lambda_max: 0.1 # max-alpha regularisation weight (encourages confident routing)
   lambda_warmup_epochs: 50 # ramp lambda_entropy/lambda_max up over this many epochs
-  se_hidden_dim: 32 # SE bottleneck hidden dim; null = auto (num_kernels)
-
-  # SE squeeze operation: by default, each kernel group's N channels are averaged
-  # to a single value (mean). Set se_use_std to true to also compute std, giving
-  # the SE gating network richer information about variance within each kernel.
-  # This doubles the input to the SE MLP (from M to 2*M channels), which may help
-  # if the Teacher struggles to route accurately with mean alone.
-  # Recommended: try false first (simpler), then true if Teacher accuracy is poor.
-  se_use_std: true # use mean+std instead of mean-only in SE squeeze
+  attention_hidden_dim: 32 # Attention gate hidden dim; null = auto (total_channels // 2)
+  attention_gate_zero_init: true # Zero-init last gate layer so initial alphas are uniform (1/M)
 
   # -----------------------------------------------------------------------
   # Phase 2: Student gatekeeper
@@ -169,5 +162,5 @@ optim:
   scheduler_eta_min: 0.0
 
 misc:
-  seed: [343, 4123, 10]
+  seed: [343, 4123, 10, 131, 1541, 1354, 635, 5213, 63256, 62554, 655, 12542]
   log_every: 50

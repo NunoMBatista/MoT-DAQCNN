@@ -32,7 +32,7 @@ if PROJECT_ROOT not in sys.path:
 
 from torch.utils.data import DataLoader, TensorDataset
 
-from src.layers.grouped_se_block import GroupedSEBlock
+from src.layers.kernel_channel_attention_block import KernelChannelAttentionBlock
 from src.models.student_gatekeeper import (
     StudentGatekeeper,
     build_student_from_metadata,

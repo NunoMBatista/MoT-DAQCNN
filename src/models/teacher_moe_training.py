@@ -76,12 +76,12 @@ def train_teacher_one_epoch(
         ce = ce_fn(logits, labels)
 
         # Entropy regularization on the routing weights.
-        # The SE block stores a live (gradient-attached) alpha during forward,
-        # so the entropy loss can backprop through the gate parameters.
+        # The attention block stores a live (gradient-attached) alpha during
+        # forward, so the entropy loss can backprop through the gate parameters.
         # This gives the gate two gradient signals:
         #   1. From CE loss (via weighted features) — "which routing helps classification"
         #   2. From entropy loss (via alpha directly) — "be more decisive"
-        alpha_live = model.se_block.last_alpha_live  # (B, M, H, W)
+        alpha_live = model.attention_block.last_alpha_live  # (B, M, H, W)
         ent = entropy_loss(alpha_live)
 
         loss = ce + lam * ent
@@ -295,16 +295,16 @@ def run_teacher_training(
     # --- Build model ---
     num_classes = model_cfg.get("num_classes", n_classes)
     ts_moe_cfg = cfg.get("ts_moe", {})
-    se_hidden_dim = ts_moe_cfg.get("se_hidden_dim", None)
-    se_use_std = ts_moe_cfg.get("se_use_std", False)
+    attention_hidden_dim = ts_moe_cfg.get("attention_hidden_dim", None)
+    gate_zero_init = ts_moe_cfg.get("attention_gate_zero_init", False)
 
     model = build_teacher_from_metadata(
         metadata=metadata,
         num_classes=num_classes,
         dropout=model_cfg.get("dropout", 0.1),
         activation=model_cfg.get("activation", "relu"),
-        se_hidden_dim=se_hidden_dim,
-        se_use_std=se_use_std,
+        attention_hidden_dim=attention_hidden_dim,
+        gate_zero_init=gate_zero_init,
     )
     model.to(device)
 
@@ -450,8 +450,7 @@ def run_teacher_training(
     enhanced_metadata["total_params"] = total_params
     enhanced_metadata["trainable_params"] = trainable_params
     enhanced_metadata["head_structure"] = head_structure
-    enhanced_metadata["se_hidden_dim"] = se_hidden_dim
-    enhanced_metadata["se_use_std"] = se_use_std
+    enhanced_metadata["attention_hidden_dim"] = attention_hidden_dim
 
     final_model_path = os.path.join(output_dir, f"teacher_final_seed_{seed}.pt")
     torch.save(

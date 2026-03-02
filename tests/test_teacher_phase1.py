@@ -3,7 +3,7 @@ Smoke and sanity tests for Phase 1: Teacher MoE components.
 
 Tests cover:
     1. kernel_mapping utilities
-    2. GroupedSEBlock shape transformations and behavior
+    2. KernelChannelAttentionBlock shape transformations and behavior
     3. Entropy loss and lambda annealing
     4. TeacherMoE model forward pass and routing stats
     5. Alpha histogram plotting (file creation)
@@ -28,7 +28,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from src.layers.grouped_se_block import GroupedSEBlock
+from src.layers.kernel_channel_attention_block import KernelChannelAttentionBlock
 from src.models.teacher_moe import TeacherMoE, build_teacher_from_metadata
 from src.utils.kernel_mapping import (
     build_kernel_to_channels_map,
@@ -139,15 +139,15 @@ class TestKernelMapping:
 
 
 # =========================================================================
-# 2. GroupedSEBlock tests
+# 2. KernelChannelAttentionBlock tests
 # =========================================================================
 
 
-class TestGroupedSEBlock:
+class TestKernelChannelAttentionBlock:
     def test_output_shape_matches_input(self):
         """Output shape must equal input shape."""
         M, N = 2, 4
-        block = GroupedSEBlock(num_kernels=M, channels_per_kernel=N)
+        block = KernelChannelAttentionBlock(num_kernels=M, channels_per_kernel=N)
         x = torch.randn(3, M * N, 5, 5)
         out = block(x)
         assert out.shape == x.shape, f"Expected {x.shape}, got {out.shape}"
@@ -155,7 +155,7 @@ class TestGroupedSEBlock:
     def test_output_shape_3_kernels_9ch(self):
         """3 kernels x 9 channels = 27 total channels."""
         M, N = 3, 9
-        block = GroupedSEBlock(num_kernels=M, channels_per_kernel=N)
+        block = KernelChannelAttentionBlock(num_kernels=M, channels_per_kernel=N)
         x = torch.randn(4, 27, 7, 7)
         out = block(x)
         assert out.shape == (4, 27, 7, 7)
@@ -163,7 +163,7 @@ class TestGroupedSEBlock:
     def test_alpha_shape(self):
         """Alpha should have shape (B, M, H, W)."""
         M, N = 2, 4
-        block = GroupedSEBlock(num_kernels=M, channels_per_kernel=N)
+        block = KernelChannelAttentionBlock(num_kernels=M, channels_per_kernel=N)
         x = torch.randn(3, 8, 5, 5)
         block(x)
         assert block.last_alpha.shape == (3, M, 5, 5)
@@ -171,7 +171,7 @@ class TestGroupedSEBlock:
     def test_alpha_sums_to_one(self):
         """Alpha values across kernels should sum to 1 at every spatial position."""
         M, N = 4, 9
-        block = GroupedSEBlock(num_kernels=M, channels_per_kernel=N)
+        block = KernelChannelAttentionBlock(num_kernels=M, channels_per_kernel=N)
         x = torch.randn(2, M * N, 3, 3)
         block(x)
         alpha_sum = block.last_alpha.sum(dim=1)  # (B, H, W)
@@ -181,7 +181,7 @@ class TestGroupedSEBlock:
 
     def test_alpha_in_valid_range(self):
         """All alpha values should be in [0, 1]."""
-        block = GroupedSEBlock(num_kernels=3, channels_per_kernel=4)
+        block = KernelChannelAttentionBlock(num_kernels=3, channels_per_kernel=4)
         x = torch.randn(5, 12, 4, 4)
         block(x)
         assert block.last_alpha.min() >= 0.0
@@ -191,7 +191,7 @@ class TestGroupedSEBlock:
         """Non-sequential channel groups should work."""
         # Kernel 0 uses channels [0, 2, 4], kernel 1 uses [1, 3, 5]
         groups = [[0, 2, 4], [1, 3, 5]]
-        block = GroupedSEBlock(
+        block = KernelChannelAttentionBlock(
             num_kernels=2, channels_per_kernel=3, channel_groups=groups
         )
         x = torch.randn(2, 6, 3, 3)
@@ -199,8 +199,8 @@ class TestGroupedSEBlock:
         assert out.shape == x.shape
 
     def test_gradients_flow(self):
-        """Gradients should flow through the SE block."""
-        block = GroupedSEBlock(num_kernels=2, channels_per_kernel=4)
+        """Gradients should flow through the attention block."""
+        block = KernelChannelAttentionBlock(num_kernels=2, channels_per_kernel=4)
         x = torch.randn(2, 8, 3, 3, requires_grad=True)
         out = block(x)
         loss = out.sum()
@@ -212,7 +212,7 @@ class TestGroupedSEBlock:
 
     def test_live_alpha_has_grad(self):
         """last_alpha_live should be part of the computation graph."""
-        block = GroupedSEBlock(num_kernels=2, channels_per_kernel=4)
+        block = KernelChannelAttentionBlock(num_kernels=2, channels_per_kernel=4)
         x = torch.randn(2, 8, 3, 3)
         block(x)
         assert block.last_alpha_live.requires_grad, (
@@ -224,7 +224,7 @@ class TestGroupedSEBlock:
 
     def test_single_kernel(self):
         """Edge case: M=1 kernel should work (alpha always 1.0)."""
-        block = GroupedSEBlock(num_kernels=1, channels_per_kernel=4)
+        block = KernelChannelAttentionBlock(num_kernels=1, channels_per_kernel=4)
         x = torch.randn(2, 4, 3, 3)
         out = block(x)
         assert out.shape == x.shape
@@ -235,7 +235,7 @@ class TestGroupedSEBlock:
 
     def test_wrong_channels_raises(self):
         """Passing wrong number of channels should raise."""
-        block = GroupedSEBlock(num_kernels=2, channels_per_kernel=4)
+        block = KernelChannelAttentionBlock(num_kernels=2, channels_per_kernel=4)
         x = torch.randn(2, 10, 3, 3)  # 10 != 2*4 = 8
         try:
             block(x)
@@ -382,12 +382,12 @@ class TestTeacherMoE:
 
         logits = model(x)
         ce = nn.CrossEntropyLoss()(logits, labels)
-        ent = entropy_loss(model.se_block.last_alpha_live)
+        ent = entropy_loss(model.attention_block.last_alpha_live)
         loss = ce + 0.1 * ent
         loss.backward()
 
         # Gate parameters should have gradients from both terms
-        for p in model.se_block.gate.parameters():
+        for p in model.attention_block.gate.parameters():
             assert p.grad is not None, "Gate parameter missing gradient"
             assert p.grad.abs().sum() > 0, "Gate gradient is all zeros"
 
@@ -471,7 +471,7 @@ class TestMiniTraining:
                 optimizer.zero_grad()
                 logits = model(features)
                 ce = ce_fn(logits, labels)
-                ent = entropy_loss(model.se_block.last_alpha_live)
+                ent = entropy_loss(model.attention_block.last_alpha_live)
                 loss = ce + lam * ent
                 loss.backward()
                 optimizer.step()
@@ -588,7 +588,7 @@ def run_all_tests():
     """Run all test classes and report results."""
     test_classes = [
         TestKernelMapping,
-        TestGroupedSEBlock,
+        TestKernelChannelAttentionBlock,
         TestLosses,
         TestTeacherMoE,
         TestPlotting,

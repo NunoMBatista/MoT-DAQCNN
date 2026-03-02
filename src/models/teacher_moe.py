@@ -2,9 +2,9 @@
 Teacher model for the Mixture-of-Topologies (MoT) pipeline.
 
 The Teacher runs ALL kernel topologies on every patch (brute force via cached
-quantum features), then uses a Grouped SE Block to learn which kernel is best
-for each patch. A classification head trains on the soft-weighted features,
-providing gradients that teach the SE block to route decisively.
+quantum features), then uses a Kernel Channel Attention Block to learn which
+kernel is best for each patch. A classification head trains on the soft-weighted
+features, providing gradients that teach the attention block to route decisively.
 
 This model works with pre-computed quantum features loaded from cached datasets.
 It never runs quantum circuits itself — it just learns how to weight and
@@ -12,7 +12,7 @@ classify the quantum outputs.
 
 Architecture:
     Cached quantum features (B, M*N, H, W)
-        -> Grouped SE Block (soft routing weights per patch)
+        -> Kernel Channel Attention Block (soft routing weights per patch)
         -> Weighted features (B, M*N, H, W)
         -> Classification head (same as original DAQCNN head)
         -> Logits (B, num_classes)
@@ -21,7 +21,7 @@ Architecture:
 import torch
 import torch.nn as nn
 
-from src.layers.grouped_se_block import GroupedSEBlock
+from src.layers.kernel_channel_attention_block import KernelChannelAttentionBlock
 from src.utils.kernel_mapping import (
     build_kernel_to_channels_map,
     get_channels_per_kernel,
@@ -32,7 +32,7 @@ from src.utils.kernel_mapping import (
 
 
 class TeacherMoE(nn.Module):
-    """Teacher model with Grouped SE routing over kernel topologies.
+    """Teacher model with Kernel Channel Attention routing over kernel topologies.
 
     Args:
         num_classes: Number of output classes for classification.
@@ -41,11 +41,11 @@ class TeacherMoE(nn.Module):
             Built from cached dataset metadata via ``build_kernel_to_channels_map()``.
         dropout: Dropout probability for the classification head.
         activation: Activation function name ("relu" or "gelu").
-        se_hidden_dim: Hidden dimension for the SE gating MLP. If None, uses
-            a sensible default based on the number of kernels.
+        attention_hidden_dim: Hidden dimension for the attention gating MLP.
+            If None, uses a sensible default based on total channels.
 
     Attributes:
-        se_block: The Grouped SE Block that produces routing weights.
+        attention_block: The Kernel Channel Attention Block that produces routing weights.
         head: Classification CNN head (mirrors the original DAQCNN head).
         kernel_names: Ordered list of kernel topology names.
         num_kernels: Number of kernel topologies (M).
@@ -59,8 +59,8 @@ class TeacherMoE(nn.Module):
         kernel_to_channels,
         dropout=0.1,
         activation="relu",
-        se_hidden_dim=None,
-        se_use_std=False,
+        attention_hidden_dim=None,
+        gate_zero_init=False,
     ):
         super().__init__()
 
@@ -76,13 +76,13 @@ class TeacherMoE(nn.Module):
         # Build ordered channel groups (list of lists, matching kernel_names order)
         channel_groups = [kernel_to_channels[name] for name in self.kernel_names]
 
-        # Grouped SE Block — the "Judge"
-        self.se_block = GroupedSEBlock(
+        # Kernel Channel Attention Block — the "Judge"
+        self.attention_block = KernelChannelAttentionBlock(
             num_kernels=self.num_kernels,
             channels_per_kernel=self.channels_per_kernel,
             channel_groups=channel_groups,
-            hidden_dim=se_hidden_dim,
-            use_std=se_use_std,
+            hidden_dim=attention_hidden_dim,
+            gate_zero_init=gate_zero_init,
         )
 
         # Classification Head — the "Driver"
@@ -103,26 +103,26 @@ class TeacherMoE(nn.Module):
 
     @property
     def last_alpha(self):
-        """Access the most recent alpha weights from the SE block.
+        """Access the most recent alpha weights from the attention block.
 
         Shape: (B, M, H, W) where M = num_kernels.
         Available after a forward pass. Used for:
             - Logging alpha histograms during training
             - Generating distillation labels for the student
         """
-        return self.se_block.last_alpha
+        return self.attention_block.last_alpha
 
     @property
     def last_logits(self):
-        """Access the most recent pre-softmax logits from the SE block.
+        """Access the most recent pre-softmax logits from the attention block.
 
         Shape: (B, M, H, W) where M = num_kernels.
         Available after a forward pass. Used for knowledge distillation.
         """
-        return self.se_block.last_logits
+        return self.attention_block.last_logits
 
     def forward(self, x):
-        """Forward pass through SE block and classification head.
+        """Forward pass through attention block and classification head.
 
         Args:
             x: Quantum features of shape (B, M*N, H, W) from cached dataset.
@@ -134,8 +134,8 @@ class TeacherMoE(nn.Module):
             After calling forward(), ``self.last_alpha`` contains the
             routing weights (B, M, H, W) for this batch.
         """
-        # SE block: learn per-patch kernel routing weights and reweight channels
-        x = self.se_block(x)
+        # Attention block: learn per-patch kernel routing weights and reweight channels
+        x = self.attention_block(x)
 
         # Classification head
         logits = self.head(x)
@@ -184,8 +184,8 @@ def build_teacher_from_metadata(
     num_classes,
     dropout=0.1,
     activation="relu",
-    se_hidden_dim=None,
-    se_use_std=False,
+    attention_hidden_dim=None,
+    gate_zero_init=False,
 ):
     """Convenience factory: build a TeacherMoE directly from cached dataset metadata.
 
@@ -195,8 +195,9 @@ def build_teacher_from_metadata(
         num_classes: Number of output classes.
         dropout: Dropout for the classification head.
         activation: Activation function ("relu" or "gelu").
-        se_hidden_dim: Hidden dimension for SE gating MLP.
-        se_use_std: Whether to use both mean and std in SE squeeze (default: False).
+        attention_hidden_dim: Hidden dimension for attention gating MLP.
+        gate_zero_init: If True, zero-init the last gate layer for uniform
+            initial alphas.
 
     Returns:
         TeacherMoE instance.
@@ -212,6 +213,6 @@ def build_teacher_from_metadata(
         kernel_to_channels=kernel_to_channels,
         dropout=dropout,
         activation=activation,
-        se_hidden_dim=se_hidden_dim,
-        se_use_std=se_use_std,
+        attention_hidden_dim=attention_hidden_dim,
+        gate_zero_init=gate_zero_init,
     )

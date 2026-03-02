@@ -36,7 +36,7 @@ from src.utils.data import load_medmnist_dataset
 # =============================================================================
 
 # Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist", "tissue_mnist"
-DATASET_NAME = "pneumonia_mnist"
+DATASET_NAME = "tissue_mnist"
 
 # Color space: "RGB", "HSV", or "GRAYSCALE"
 # HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
@@ -44,16 +44,16 @@ DATASET_NAME = "pneumonia_mnist"
 COLOR_SPACE = "GRAYSCALE"
 
 # Kernel size: 2 for 2x2 or 3 for 3x3
-KERNEL_SIZE = 2
+KERNEL_SIZE = 3
 
 # Stride for the convolution (use kernel_size for non-overlapping patches)
-STRIDE = 2
+STRIDE = 3
 
 # Which topologies to use
 # For 2x2: ["kings", "horizontal", "vertical", "u_shape"]
 # For 3x3: ["kings", "horizontal", "vertical", "cross", "ring"]
-KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
-# KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "cross", "ring"]
+# KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
+KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "cross", "ring"]
 # KERNEL_TOPOLOGY_NAMES = ["kings"]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
@@ -62,7 +62,7 @@ SCALING_FACTOR = 1
 EVOLUTION_TIME = 2.5
 
 # Batch size for processing (adjust based on your memory)
-BATCH_SIZE = 256
+BATCH_SIZE = 1024
 
 # Which splits to process
 SPLITS = ["train", "val", "test"]

@@ -26,12 +26,12 @@ KERNEL_NAMES = [
     "cross",
     "ring",
 ]  # Available: kings, horizontal, vertical, u_shape (2x2) or kings, horizontal, vertical, cross, ring (3x3)
-KERNEL_NAMES = ["kings", "horizontal", "vertical", "u_shape"]  # 2x2 KERNELS
+# KERNEL_NAMES = ["kings", "horizontal", "vertical", "u_shape"]  # 2x2 KERNELS
 
-KERNEL_SIZE = 2  # 2 for 2x2 or 3 for 3x3
-STRIDE = 2  # Stride for convolution (use kernel_size for no overlap)
+KERNEL_SIZE = 3  # 2 for 2x2 or 3 for 3x3
+STRIDE = 3  # Stride for convolution (use kernel_size for no overlap)
 SCALING_FACTOR = 1  # Interaction strength for Rydberg Hamiltonian
-EVOLUTION_TIME = 3.14  # Time interval for quantum evolution
+EVOLUTION_TIME = 2.5  # Time interval for quantum evolution
 
 # Paper's parameters (probably too weak?)
 # SCALING_FACTOR = 1
