@@ -210,6 +210,7 @@ def run_ts_moe_pipeline(
             datasets_dir=datasets_dir,
             raw_image_datasets=raw_image_datasets,
             teacher_test_acc=teacher_result["test_acc"],
+            teacher_ckpt_path=teacher_ckpt,
         )
 
     pipeline_time = time.time() - t_pipeline_start

@@ -16,11 +16,16 @@ Example for M=2 kernels, N=9 channels per kernel:
 import torch
 
 
-def build_sparse_tensor_fast(quantum_features, routing_map, channel_groups):
+def build_sparse_tensor_fast(quantum_features, routing_map, channel_groups, group_norms=None):
     """Build a sparse tensor by routing each patch to its selected kernel.
 
     For every spatial position (i, j), the routing map says which kernel k
     was selected. We keep that kernel's channels and zero out the rest.
+
+    When ``group_norms`` is provided, each kernel group's channels are
+    normalised BEFORE masking.  This matches the Teacher's behavior, where
+    per-group BatchNorm is applied before routing weights, and ensures the
+    Final Classifier sees the same feature scale the Teacher learned.
 
     Args:
         quantum_features: (B, M*N, H, W) tensor with all kernels' quantum outputs.
@@ -29,6 +34,10 @@ def build_sparse_tensor_fast(quantum_features, routing_map, channel_groups):
         channel_groups: List of lists, where channel_groups[k] is the list
             of channel indices for kernel k. Must be ordered consistently
             with the routing map indices.
+        group_norms: Optional nn.ModuleList of BatchNorm2d layers (one per
+            kernel group).  When provided, normalises each group's channels
+            before applying the sparse mask.  Should be the Teacher's trained
+            ``attention_block.group_norms`` for consistency.
 
     Returns:
         Sparse tensor of shape (B, M*N, H, W) where only the selected
@@ -36,6 +45,16 @@ def build_sparse_tensor_fast(quantum_features, routing_map, channel_groups):
     """
     B, C, H, W = quantum_features.shape
     device = quantum_features.device
+
+    # --- Per-group normalisation (matches Teacher behavior) ---
+    # Normalise ALL groups first, THEN apply sparse mask.  This way the
+    # BatchNorm statistics are computed over the full (non-sparse) features,
+    # exactly as the Teacher does.
+    if group_norms is not None:
+        channels_per_kernel = len(channel_groups[0])
+        groups = quantum_features.split(channels_per_kernel, dim=1)
+        normed_groups = [group_norms[k](g) for k, g in enumerate(groups)]
+        quantum_features = torch.cat(normed_groups, dim=1)
 
     sparse = torch.zeros_like(quantum_features)
 
