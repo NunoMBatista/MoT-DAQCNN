@@ -33,6 +33,7 @@ ts_moe:
   # -----------------------------------------------------------------------
   # Phase 1: Teacher training
   # -----------------------------------------------------------------------
+  lambda_start_epoch: 0
   lambda_entropy_start: 0.0 # entropy regularisation weight on Teacher routing (prevents collapse)
   lambda_max: 0.1 # max-alpha regularisation weight (encourages confident routing)
   lambda_warmup_epochs: 50 # ramp lambda_entropy/lambda_max up over this many epochs
@@ -68,7 +69,6 @@ ts_moe:
   student_agreement_patience: 5 # consecutive epochs above threshold to stop
 
   # -----------------------------------------------------------------------
-  # FIX A: Label imbalance
   #
   # When one kernel is selected by the Teacher for most patches, the Student
   # learns to always predict that kernel (minimises CE by predicting majority).
@@ -86,7 +86,6 @@ ts_moe:
   student_balanced_sampler: false
 
   # -----------------------------------------------------------------------
-  # FIX B: Noisy / low-confidence Teacher labels
   #
   # When the Teacher's alpha weights are nearly uniform across kernels, the
   # argmax label is essentially random noise.  Training on these patches
@@ -118,7 +117,6 @@ ts_moe:
   student_kd_temperature: 4.0 # temperature for softening Teacher/Student distributions
 
   # -----------------------------------------------------------------------
-  # FIX C: Insufficient input information
   #
   # Very small patches (e.g. 2×2 = 4 pixels) carry little raw information.
   # Each group below appends a few extra scalar features to the raw pixel

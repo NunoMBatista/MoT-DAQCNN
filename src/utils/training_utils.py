@@ -49,7 +49,7 @@ def entropy_loss(alpha):
     we penalize indecisive routing and encourage the SE block to commit
     to a single kernel per patch.
 
-    **Normalisation (BUG FIX):** Raw entropy ranges from 0 to log(M), where
+    **Normalisation:** Raw entropy ranges from 0 to log(M), where
     M is the number of kernels. Without normalisation, the entropy term's
     magnitude scales with M, meaning the same ``lambda_max`` value produces
     very different gradient magnitudes for 2-kernel vs 4-kernel configs.

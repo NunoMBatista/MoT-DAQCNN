@@ -53,12 +53,14 @@ def build_sparse_tensor_fast(quantum_features, routing_map, channel_groups, grou
         # Move features to same device as group_norms (they may be on CUDA)
         norm_device = next(group_norms.parameters()).device
         quantum_features = quantum_features.to(norm_device)
+        routing_map = routing_map.to(norm_device)
         channels_per_kernel = len(channel_groups[0])
         groups = quantum_features.split(channels_per_kernel, dim=1)
         normed_groups = [group_norms[k](g) for k, g in enumerate(groups)]
         quantum_features = torch.cat(normed_groups, dim=1)
 
     device = quantum_features.device
+    routing_map = routing_map.to(device)  # Ensure routing_map is on same device
     sparse = torch.zeros_like(quantum_features)
 
     for k, channels in enumerate(channel_groups):

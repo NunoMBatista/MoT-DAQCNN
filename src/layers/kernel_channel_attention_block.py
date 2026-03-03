@@ -160,7 +160,7 @@ class KernelChannelAttentionBlock(nn.Module):
         # Expand alpha from (B, M, H, W) to (B, M*N, H, W) by repeating each
         # scalar weight N times so it broadcasts directly over the channel group.
         #
-        # BUG FIX: Apply alpha to the NORMALISED features (x_normed) instead of
+        # Apply alpha to the NORMALISED features (x_normed) instead of
         # the raw features (x).  The gate's softmax decision is based on x_normed,
         # so the classification head must see the same scale.  Previously, using
         # raw x here meant that a kernel topology with inherently larger output
