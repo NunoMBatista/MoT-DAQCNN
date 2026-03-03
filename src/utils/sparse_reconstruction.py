@@ -44,18 +44,21 @@ def build_sparse_tensor_fast(quantum_features, routing_map, channel_groups, grou
         kernel's channels are non-zero at each spatial position.
     """
     B, C, H, W = quantum_features.shape
-    device = quantum_features.device
 
     # --- Per-group normalisation (matches Teacher behavior) ---
     # Normalise ALL groups first, THEN apply sparse mask.  This way the
     # BatchNorm statistics are computed over the full (non-sparse) features,
     # exactly as the Teacher does.
     if group_norms is not None:
+        # Move features to same device as group_norms (they may be on CUDA)
+        norm_device = next(group_norms.parameters()).device
+        quantum_features = quantum_features.to(norm_device)
         channels_per_kernel = len(channel_groups[0])
         groups = quantum_features.split(channels_per_kernel, dim=1)
         normed_groups = [group_norms[k](g) for k, g in enumerate(groups)]
         quantum_features = torch.cat(normed_groups, dim=1)
 
+    device = quantum_features.device
     sparse = torch.zeros_like(quantum_features)
 
     for k, channels in enumerate(channel_groups):

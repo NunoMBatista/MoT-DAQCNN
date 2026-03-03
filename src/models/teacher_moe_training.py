@@ -317,10 +317,12 @@ def run_teacher_training(
     lambda_start = float(ts_moe_cfg.get("lambda_entropy_start", 0.0))
     lambda_max = float(ts_moe_cfg.get("lambda_max", 0.1))
     lambda_warmup = int(ts_moe_cfg.get("lambda_warmup_epochs", epochs // 2))
+    lambda_start_epoch = int(ts_moe_cfg.get("lambda_start_epoch", 0))
 
     if verbose:
         print(
-            f"Entropy regularization: lambda_start={lambda_start}, lambda_max={lambda_max}, warmup={lambda_warmup} epochs"
+            f"Entropy regularization: lambda_start={lambda_start}, lambda_max={lambda_max}, "
+            f"start_epoch={lambda_start_epoch}, warmup={lambda_warmup} epochs"
         )
 
     # --- Training loop ---
@@ -360,7 +362,9 @@ def run_teacher_training(
         t0 = time.time()
 
         # Current lambda
-        lam = compute_lambda(epoch - 1, lambda_warmup, lambda_max, lambda_start)
+        lam = compute_lambda(
+            epoch - 1, lambda_warmup, lambda_max, lambda_start, lambda_start_epoch
+        )
         lambda_history.append(lam)
 
         # Train

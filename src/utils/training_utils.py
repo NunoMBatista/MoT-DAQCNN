@@ -129,24 +129,11 @@ def build_classification_head(in_channels, num_classes, dropout=0.1, activation=
     )
 
 
-def compute_lambda(epoch, warmup_epochs, lambda_max, lambda_start=0.0):
+def compute_lambda(epoch, warmup_epochs, lambda_max, lambda_start=0.0, start_epoch=0):
     """Compute the entropy regularization weight with linear annealing.
 
-    Lambda starts at ``lambda_start`` (typically 0 to let the network explore)
-    and ramps linearly to ``lambda_max`` over ``warmup_epochs`` epochs.
-    After that it stays at ``lambda_max``.
-
-    **Design note (stability fix):** Because ``entropy_loss`` is now
-    normalised to [0, 1], reasonable ``lambda_max`` values are:
-        - 0.01–0.05 for gentle encouragement of decisive routing
-        - 0.05–0.15 for moderate pressure
-        - >0.2 is aggressive and may fight the classification loss
-
-    Previously, with unnormalised entropy (range [0, log(M)]), the effective
-    penalty at ``lambda_max=0.5`` for M=4 kernels was ~0.5*1.39 ≈ 0.7,
-    which is comparable to the CE loss.  Now the same config produces
-    ~0.5*1.0 = 0.5 at worst.  Consider reducing ``lambda_max`` in your
-    configs if you were previously tuned for unnormalised entropy.
+    Lambda stays at ``lambda_start`` until ``start_epoch``, then ramps
+    linearly to ``lambda_max`` over ``warmup_epochs`` epochs.
 
     Args:
         epoch: Current epoch (0-indexed).
@@ -154,11 +141,14 @@ def compute_lambda(epoch, warmup_epochs, lambda_max, lambda_start=0.0):
             If 0, lambda is always lambda_max.
         lambda_max: Maximum value of lambda.
         lambda_start: Starting value of lambda (default 0.0).
+        start_epoch: Epoch at which lambda starts growing (default 0).
 
     Returns:
         float: Current lambda value.
     """
+    if epoch < start_epoch:
+        return lambda_start
     if warmup_epochs <= 0:
         return lambda_max
-    progress = min(epoch / warmup_epochs, 1.0)
+    progress = min((epoch - start_epoch) / warmup_epochs, 1.0)
     return lambda_start + (lambda_max - lambda_start) * progress
