@@ -233,7 +233,7 @@ def plot_loss_curves(
             ent_losses,
             color="green",
             linestyle="-",
-            label="Entropy Loss",
+            label="λ·Entropy Loss",
             linewidth=1.5,
             alpha=0.85,
         )

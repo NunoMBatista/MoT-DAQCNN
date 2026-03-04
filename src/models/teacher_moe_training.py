@@ -53,7 +53,9 @@ def train_teacher_one_epoch(
         epoch_pbar: Outer progress bar for description updates.
 
     Returns:
-        Tuple of (avg_total_loss, avg_ce_loss, avg_ent_loss, avg_acc).
+        Tuple of (avg_total_loss, avg_ce_loss, avg_weighted_ent_loss, avg_acc).
+        avg_weighted_ent_loss is ``lambda * entropy``, i.e. the actual
+        contribution of the entropy term to the total loss.
     """
     model.train()
     ce_fn = nn.CrossEntropyLoss()
@@ -95,13 +97,13 @@ def train_teacher_one_epoch(
         bs = labels.size(0)
         total_loss_sum += loss.item() * bs
         ce_loss_sum += ce.item() * bs
-        ent_loss_sum += ent.item() * bs
+        ent_loss_sum += (lam * ent).item() * bs
         acc_sum += accuracy(logits, labels) * bs
         count += bs
 
         batch_pbar.set_description(
             f"Train {batch_idx + 1}/{len(loader)} | "
-            f"loss={loss.item():.4f} ce={ce.item():.4f} ent={ent.item():.4f}"
+            f"loss={loss.item():.4f} ce={ce.item():.4f} λ·ent={(lam * ent).item():.4f}"
         )
 
     batch_pbar.close()
@@ -403,7 +405,7 @@ def run_teacher_training(
             )
             tqdm.write(
                 f"Epoch {epoch}/{epochs} | "
-                f"total={total_loss:.4f} ce={ce_loss:.4f} ent={ent_loss:.4f} "
+                f"total={total_loss:.4f} ce={ce_loss:.4f} λ·ent={ent_loss:.4f} "
                 f"lambda={lam:.4f} | "
                 f"train_acc={train_acc:.4f} val_loss={val_loss:.4f} val_acc={val_acc:.4f} | "
                 f"routing: {routing_str} | {dt:.1f}s"

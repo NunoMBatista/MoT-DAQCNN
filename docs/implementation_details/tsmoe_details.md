@@ -422,20 +422,25 @@ def build_sparse_tensor_fast(quantum_features, routing_map, channel_groups, grou
 
 ### Group Normalization at Inference
 
-**Critical Detail:** The Teacher applies per-group BatchNorm BEFORE computing alpha weights. For the Final Classifier to see the same feature scale, we must apply the same normalization to sparse features.
+**Why normalise at all?** Different kernel topologies produce quantum features with inherently different output magnitudes. Without normalisation one kernel group could dominate the Final Classifier's input purely through scale, regardless of routing decisions.
+
+**Approach:** Before building the sparse tensor, each kernel group's channels are normalised using per-group mean and std computed from the **Phase 3 training split**:
 
 ```python
-if group_norms is not None:
-    # Normalize ALL groups first, THEN apply sparse mask
-    channels_per_kernel = len(channel_groups[0])
-    groups = quantum_features.split(channels_per_kernel, dim=1)
-    normed_groups = [group_norms[k](g) for k, g in enumerate(groups)]
-    quantum_features = torch.cat(normed_groups, dim=1)
+# Computed once from the training quantum loader before building any sparse tensors
+per_group_stats = compute_per_group_stats(q_train_unshuffled, channel_groups)
+
+# Inside build_sparse_tensor_fast, applied to ALL groups before masking
+for k, g in enumerate(groups):
+    mean, std = per_group_stats[k]
+    normed_groups.append((g - mean) / std.clamp(min=1e-6))
 ```
 
-**Why normalize before masking?** The BatchNorm statistics must be computed over the full (non-sparse) features, exactly as the Teacher does. This ensures consistent feature scales between training and inference.
+**Why not reuse the Teacher's BatchNorm layers?** The Teacher's `group_norms` were in *train mode* during Teacher training, meaning the classification head always saw features normalised by the *current batch's* statistics. The stored `running_mean`/`running_var` are only a side-effect EMA — the Teacher's head was never trained on running-stat-normalised features. Passing those frozen layers in eval mode to Phase 3 would introduce a subtle distribution mismatch between what the Teacher's head learned and what the Final Classifier trains on.
 
-The `group_norms` are extracted from the Teacher checkpoint (`attention_block.group_norms`) and passed to the sparse reconstruction function.
+**Why normalise before masking?** Statistics must be computed over the full (non-sparse) features. Computing them after masking would include the structural zeros introduced by routing and give biased estimates.
+
+All three splits (train, val, test) are normalised with the same fixed training-split statistics, so there is no train/eval inconsistency anywhere in Phase 3.
 
 ### Final Classification Head
 

@@ -34,8 +34,8 @@ ts_moe:
   # Phase 1: Teacher training
   # -----------------------------------------------------------------------
   lambda_start_epoch: 0
-  lambda_entropy: 0.0 # entropy regularisation weight on Teacher routing (prevents collapse)
-  lambda_max: 0.4 # max-alpha regularisation weight (encourages confident routing)
+  lambda_entropy_start: 0.0 # entropy regularisation weight on Teacher routing (prevents collapse)
+  lambda_max: 1 # max-alpha regularisation weight (encourages confident routing)
   lambda_warmup_epochs: 50 # ramp lambda_entropy/lambda_max up over this many epochs
   attention_hidden_dim: 32 # Attention gate hidden dim; null = auto (total_channels // 2)
   attention_gate_zero_init: true # Zero-init last gate layer so initial alphas are uniform (1/M)

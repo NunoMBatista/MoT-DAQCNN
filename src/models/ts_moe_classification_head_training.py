@@ -13,9 +13,11 @@ Pipeline:
     1. Load trained Student checkpoint and cached quantum features.
     2. Load original images for patch extraction (Student needs raw patches).
     3. Route each patch through the Student to get per-patch kernel decisions.
-    4. Build sparse tensors: keep selected kernel's channels, zero others.
-    5. Train a new classification head on the sparse tensors.
-    6. Evaluate and compare with Teacher oracle and original DAQCNN baseline.
+    4. Compute per-group mean/std from the Phase 3 training split.
+    5. Build sparse tensors: normalise each kernel group, keep selected
+       kernel's channels, zero others.
+    6. Train a new classification head on the sparse tensors.
+    7. Evaluate and compare with Teacher oracle and original DAQCNN baseline.
 
 Uses existing utilities for evaluation, plotting, and dataset loading.
 """
@@ -54,6 +56,65 @@ from src.utils.training_utils import resolve_device
 # -------------------------------------------------------------------------
 
 
+@torch.no_grad()
+def compute_per_group_stats(quantum_loader, channel_groups):
+    """Compute per-group mean and std from the Phase 3 training split.
+
+    Iterates over the quantum training loader once and accumulates the
+    mean and variance of each kernel group's channels across the entire
+    training set.  The resulting statistics are later used to normalise
+    all three splits (train / val / test) consistently.
+
+    Doing this from the Phase 3 training data — rather than reusing the
+    Teacher's BatchNorm running statistics — avoids the train/eval mode
+    inconsistency: the Teacher's head was trained on per-batch-normalised
+    features, not on running-stat-normalised features, so those running
+    stats would introduce a subtle distribution mismatch.
+
+    Args:
+        quantum_loader: DataLoader yielding (quantum_features, labels).
+            Should be unshuffled so results are reproducible, though the
+            statistics themselves are order-independent.
+        channel_groups: List of lists — channel_groups[k] is the channel
+            indices belonging to kernel group k.
+
+    Returns:
+        List of (mean, std) pairs, one per kernel group.  Each mean and std
+        has shape (1, N, 1, 1) so it broadcasts directly over (B, N, H, W).
+    """
+    num_groups = len(channel_groups)
+    channels_per_group = len(channel_groups[0])
+
+    # Welford-style online accumulation: sum and sum-of-squares per group.
+    # We accumulate over (B, H, W) — i.e., every spatial position in every
+    # sample — treating each channel independently.
+    running_sum = [torch.zeros(channels_per_group) for _ in range(num_groups)]
+    running_sq = [torch.zeros(channels_per_group) for _ in range(num_groups)]
+    count = 0
+
+    for features, _ in tqdm(quantum_loader, desc="Computing group stats", leave=False):
+        # features: (B, M*N, H, W)
+        B, C, H, W = features.shape
+        groups = features.split(channels_per_group, dim=1)  # M × (B, N, H, W)
+        n = B * H * W  # number of spatial positions in this batch
+        for k, g in enumerate(groups):
+            # g: (B, N, H, W) — move to CPU for accumulation
+            g_cpu = g.cpu().float()
+            # Sum over the (B, H, W) axes, keep channel dim
+            running_sum[k] += g_cpu.sum(dim=(0, 2, 3))
+            running_sq[k] += (g_cpu**2).sum(dim=(0, 2, 3))
+        count += n
+
+    per_group_stats = []
+    for k in range(num_groups):
+        mean = (running_sum[k] / count).reshape(1, -1, 1, 1)
+        var = (running_sq[k] / count) - (running_sum[k] / count) ** 2
+        std = var.clamp(min=0).sqrt().reshape(1, -1, 1, 1)
+        per_group_stats.append((mean, std))
+
+    return per_group_stats
+
+
 def _extract_patches(images, kernel_size, stride):
     """Extract patches from a batch of images, same grid as quantum conv."""
     unfold = nn.Unfold(kernel_size=kernel_size, stride=stride)
@@ -72,7 +133,7 @@ def build_sparse_dataset(
     channel_groups,
     device,
     feature_flags=None,
-    group_norms=None,
+    per_group_stats=None,
 ):
     """Route an entire split through the Student and produce sparse tensors.
 
@@ -92,9 +153,10 @@ def build_sparse_dataset(
             indices for kernel k.
         device: Device for student inference.
         feature_flags: Optional dict of feature augmentation flags.
-        group_norms: Optional nn.ModuleList of BatchNorm2d layers (one per
-            kernel group).  When provided, normalises each group's channels
-            before applying the sparse mask (matches Teacher behavior).
+        per_group_stats: Optional list of (mean, std) pairs computed from
+            the Phase 3 training split by ``compute_per_group_stats()``.
+            When provided, each kernel group's channels are normalised as
+            (x - mean) / std before sparse masking.
 
     Returns:
         sparse_features: Tensor (N, C_out, H, W).
@@ -144,11 +206,11 @@ def build_sparse_dataset(
         routing_flat = student.predict(flat_patches).cpu()  # (B*n_patches,)
         routing_map = routing_flat.reshape(B, H, W)
 
-        # Build sparse tensor for this batch
-        # If group_norms are provided, they normalise each kernel group's
-        # channels BEFORE masking (same as Teacher behavior).
+        # Build sparse tensor for this batch.
+        # If per_group_stats are provided, each kernel group's channels are
+        # normalised BEFORE masking using training-split statistics.
         sparse = build_sparse_tensor_fast(
-            q_features, routing_map, channel_groups, group_norms=group_norms
+            q_features, routing_map, channel_groups, per_group_stats=per_group_stats
         )
 
         all_sparse.append(sparse)
@@ -333,9 +395,7 @@ def run_final_classifier_training(
         teacher_test_acc: Teacher oracle accuracy for comparison logging.
         baseline_test_acc: Original DAQCNN baseline accuracy for comparison.
         teacher_ckpt_path: Optional path to the trained Teacher checkpoint (.pt).
-            When provided, the Teacher's per-group BatchNorm layers are used to
-            normalise quantum features before sparse masking, ensuring the Final
-            Classifier sees the same feature scale the Teacher learned.
+            Used only for comparison logging; no longer used for normalisation.
 
     Returns:
         dict with all metrics.
@@ -359,48 +419,6 @@ def run_final_classifier_training(
     )
     if verbose:
         print(f"Student loaded: {num_kernels} kernels ({kernel_names})")
-
-    # --- Load Teacher's group_norms for per-group normalisation ---
-    # The Teacher's KernelChannelAttentionBlock applies BatchNorm to each
-    # kernel group before routing.  Using these same norms ensures the Final
-    # Classifier sees the same feature scale the Teacher learned.
-    group_norms = None
-    if teacher_ckpt_path is not None:
-        if verbose:
-            print(f"Loading Teacher group_norms from: {teacher_ckpt_path}")
-        teacher_ckpt = torch.load(
-            teacher_ckpt_path, map_location=device, weights_only=False
-        )
-        teacher_state = teacher_ckpt["model_state_dict"]
-
-        # Extract the BatchNorm layers from the Teacher's attention block.
-        # Keys look like: attention_block.group_norms.0.weight, .bias, etc.
-        from src.layers.kernel_channel_attention_block import (
-            KernelChannelAttentionBlock,
-        )
-
-        channels_per_kernel = metadata["kernel_size"] ** 2
-        group_norms = nn.ModuleList(
-            [nn.BatchNorm2d(channels_per_kernel) for _ in range(num_kernels)]
-        )
-        # Load matching state_dict entries
-        group_norm_state = {}
-        for key, val in teacher_state.items():
-            if key.startswith("attention_block.group_norms."):
-                # Strip prefix: "attention_block.group_norms." -> "0.weight", etc.
-                new_key = key.replace("attention_block.group_norms.", "")
-                group_norm_state[new_key] = val
-        group_norms.load_state_dict(group_norm_state)
-        group_norms.to(device)
-        group_norms.eval()  # Use running stats, don't update
-        if verbose:
-            print(f"  Loaded {num_kernels} group BatchNorm layers from Teacher")
-    else:
-        if verbose:
-            print(
-                "  No teacher_ckpt_path provided — sparse tensors will use "
-                "raw (unnormalised) quantum features."
-            )
 
     # --- Load cached quantum dataset ---
     cached_path = find_cached_quantum_dataset(cfg, datasets_dir=datasets_dir)
@@ -442,6 +460,21 @@ def run_final_classifier_training(
     ordered_kernel_names = get_kernel_names(kernel_to_channels)
     channel_groups = [kernel_to_channels[name] for name in ordered_kernel_names]
 
+    # --- Per-group normalisation statistics ---
+    # Compute mean and std for each kernel group's channels from the Phase 3
+    # training split.  All three splits are then normalised with these same
+    # fixed statistics, so there is no train/eval mode inconsistency and no
+    # dependence on the Teacher's internal BatchNorm running statistics.
+    if verbose:
+        print("Computing per-group normalisation statistics from training split...")
+    per_group_stats = compute_per_group_stats(q_train_unshuffled, channel_groups)
+    if verbose:
+        for k, (mean, std) in enumerate(per_group_stats):
+            print(
+                f"  Group {k} ({ordered_kernel_names[k]}): "
+                f"mean={mean.mean().item():.4f}, std={std.mean().item():.4f}"
+            )
+
     # --- Load raw images ---
     dataset_name = cfg.get("dataset", {}).get("name", "pneumonia_mnist")
     color_space = cfg.get("dataset", {}).get("color_space", "RGB")
@@ -482,7 +515,7 @@ def run_final_classifier_training(
         channel_groups,
         device,
         feature_flags=feature_flags,
-        group_norms=group_norms,
+        per_group_stats=per_group_stats,
     )
     sparse_val, labels_val, routing_val = build_sparse_dataset(
         q_val_loader,
@@ -494,7 +527,7 @@ def run_final_classifier_training(
         channel_groups,
         device,
         feature_flags=feature_flags,
-        group_norms=group_norms,
+        per_group_stats=per_group_stats,
     )
     sparse_test, labels_test, routing_test = build_sparse_dataset(
         q_test_loader,
@@ -506,7 +539,7 @@ def run_final_classifier_training(
         channel_groups,
         device,
         feature_flags=feature_flags,
-        group_norms=group_norms,
+        per_group_stats=per_group_stats,
     )
 
     routing_time = time.time() - t0_route

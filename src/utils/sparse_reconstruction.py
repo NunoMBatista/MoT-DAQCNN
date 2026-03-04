@@ -16,16 +16,20 @@ Example for M=2 kernels, N=9 channels per kernel:
 import torch
 
 
-def build_sparse_tensor_fast(quantum_features, routing_map, channel_groups, group_norms=None):
+def build_sparse_tensor_fast(
+    quantum_features, routing_map, channel_groups, per_group_stats=None
+):
     """Build a sparse tensor by routing each patch to its selected kernel.
 
     For every spatial position (i, j), the routing map says which kernel k
     was selected. We keep that kernel's channels and zero out the rest.
 
-    When ``group_norms`` is provided, each kernel group's channels are
-    normalised BEFORE masking.  This matches the Teacher's behavior, where
-    per-group BatchNorm is applied before routing weights, and ensures the
-    Final Classifier sees the same feature scale the Teacher learned.
+    When ``per_group_stats`` is provided, each kernel group's channels are
+    normalised BEFORE masking using the supplied per-group mean and std.
+    These statistics should be computed from the Phase 3 training split so
+    that the Final Classifier trains and is evaluated on a consistently
+    normalised feature space — with no dependence on the Teacher's internal
+    BatchNorm running statistics or training dynamics.
 
     Args:
         quantum_features: (B, M*N, H, W) tensor with all kernels' quantum outputs.
@@ -34,33 +38,36 @@ def build_sparse_tensor_fast(quantum_features, routing_map, channel_groups, grou
         channel_groups: List of lists, where channel_groups[k] is the list
             of channel indices for kernel k. Must be ordered consistently
             with the routing map indices.
-        group_norms: Optional nn.ModuleList of BatchNorm2d layers (one per
-            kernel group).  When provided, normalises each group's channels
-            before applying the sparse mask.  Should be the Teacher's trained
-            ``attention_block.group_norms`` for consistency.
+        per_group_stats: Optional list of (mean, std) pairs, one per kernel
+            group. Each mean and std has shape (1, N, 1, 1) so it broadcasts
+            over (B, N, H, W). When provided, each group's channels are
+            normalised as (x - mean) / std before masking. std is clamped to
+            a minimum of 1e-6 to avoid division by zero.
 
     Returns:
         Sparse tensor of shape (B, M*N, H, W) where only the selected
         kernel's channels are non-zero at each spatial position.
     """
     B, C, H, W = quantum_features.shape
+    device = quantum_features.device
+    routing_map = routing_map.to(device)
 
-    # --- Per-group normalisation (matches Teacher behavior) ---
-    # Normalise ALL groups first, THEN apply sparse mask.  This way the
-    # BatchNorm statistics are computed over the full (non-sparse) features,
-    # exactly as the Teacher does.
-    if group_norms is not None:
-        # Move features to same device as group_norms (they may be on CUDA)
-        norm_device = next(group_norms.parameters()).device
-        quantum_features = quantum_features.to(norm_device)
-        routing_map = routing_map.to(norm_device)
+    # --- Per-group normalisation ---
+    # Normalise ALL groups first, THEN apply the sparse mask.  This way
+    # statistics are computed over the full (non-sparse) features, which is
+    # the only consistent thing to do — computing stats after masking would
+    # include the structural zeros introduced by routing.
+    if per_group_stats is not None:
         channels_per_kernel = len(channel_groups[0])
-        groups = quantum_features.split(channels_per_kernel, dim=1)
-        normed_groups = [group_norms[k](g) for k, g in enumerate(groups)]
+        groups = quantum_features.split(channels_per_kernel, dim=1)  # M × (B, N, H, W)
+        normed_groups = []
+        for k, g in enumerate(groups):
+            mean, std = per_group_stats[k]
+            mean = mean.to(device)
+            std = std.to(device)
+            normed_groups.append((g - mean) / std.clamp(min=1e-6))
         quantum_features = torch.cat(normed_groups, dim=1)
 
-    device = quantum_features.device
-    routing_map = routing_map.to(device)  # Ensure routing_map is on same device
     sparse = torch.zeros_like(quantum_features)
 
     for k, channels in enumerate(channel_groups):
