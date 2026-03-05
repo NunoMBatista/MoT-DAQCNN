@@ -1,0 +1,170 @@
+# Breast MNIST with Teacher-Student Mixture-of-Topologies (TS-MoE) — 4×4 kernels
+#
+# This config runs the full TS-MoE pipeline:
+#   Phase 1: Teacher with Kernel Channel Attention routing over all 5 kernels
+#   Phase 2: Student gatekeeper distilled from Teacher
+#   Phase 3: Final classifier on sparse routed features
+#
+# Key differences vs the 3×3 config (breast_mnist_ts_moe_3kern.yml):
+#
+#   Kernel / qubit count
+#     3×3 → 9 qubits,  Hilbert dim =     512,  4 topologies, 36 channels total
+#     4×4 → 16 qubits, Hilbert dim = 65,536,  5 topologies, 80 channels total
+#
+#   Quantum feature map spatial size (28×28 input, stride = kernel_size)
+#     3×3 → 9×9 patches
+#     4×4 → 7×7 patches
+#
+#   Classification head spatial chain (Conv2d k=2 → MaxPool k=2 → Conv2d k=2)
+#     4×4:  7×7 → 6×6 → 3×3 → 2×2  (flat = 64 × 2 × 2 = 256)  — verified OK
+#
+#   Student patch_dim (grayscale, no feature augmentation)
+#     3×3 →  9 raw pixels + 10 augmented = 19
+#     4×4 → 16 raw pixels + 10 augmented = 26
+#
+#   Recommended device for cache generation (see create_quantum_dataset.py):
+#     QUANTUM_DEVICE = "lightning.gpu"  |  INTERFACE = "autograd"
+#     (~13 min / topology / split on RTX 4090, ~245 min for all 5 topologies)
+
+dataset:
+  name: breast_mnist
+  data_root: ./data
+  batch_size: 32
+  num_workers: 2
+  download: true
+  color_space: GRAYSCALE
+
+model:
+  architecture: "TS-MoE"
+  num_classes: 2
+  kernel_size: 4
+  stride: 4
+  # All five 4×4 topologies (defined in src/physics/kernel_topologies.py):
+  #   kings           — full 4×4 grid, all nearest/diagonal neighbours coupled
+  #   horizontal_chains — 4 independent row chains, rows decoupled
+  #   vertical_chains   — 4 independent column chains, columns decoupled
+  #   diagonal_chains   — main diagonal + anti-diagonal chains only
+  #   block_2x2         — four independent 2×2 quadrant clusters
+  kernel_topology_names:
+    - kings
+    - horizontal_chains
+    - vertical_chains
+    - diagonal_chains
+    - block_2x2
+  scaling_factor: 1
+  evolution_time: 2.5
+  mode: trotter
+  dropout: 0.6
+  activation: gelu
+  quantum_device: default.qubit   # overridden at cache-generation time; not used during TS-MoE training
+  quantum_device_kwargs: {}
+  classical_device: auto
+
+# Teacher-Student MoE parameters
+ts_moe:
+  # -----------------------------------------------------------------------
+  # Phase 1: Teacher training
+  #
+  # Total quantum feature channels: 5 topologies × 16 qubits = 80
+  # -----------------------------------------------------------------------
+
+  # Entropy regularisation: ramp from 0 → lambda_max over lambda_warmup_epochs.
+  # With 5 kernels the routing space is larger than with 4, so a small entropy
+  # push helps the Teacher commit to decisive per-patch decisions rather than
+  # spreading weight uniformly across all five topologies.
+  lambda_start_epoch: 10          # let CE loss stabilise before entropy kicks in
+  lambda_entropy_start: 0.0
+  lambda_max: 0.1
+  lambda_warmup_epochs: 40        # reach lambda_max by epoch 50
+
+  # Attention gate hidden dim.
+  # total_channels = 80 → auto would give 40.
+  # Using 64 gives the gate a little extra capacity to discriminate 5 topologies.
+  attention_hidden_dim: 64
+
+  # Zero-init the last gate layer so all 5 kernels start with equal alpha (1/5).
+  # Symmetry is broken by data gradients rather than random weight initialisation,
+  # which is especially important when going from 4 to 5 kernels.
+  attention_gate_zero_init: true
+
+  # -----------------------------------------------------------------------
+  # Phase 2: Student gatekeeper
+  #
+  # patch_dim = 1 × 4² = 16 raw pixels
+  # With all three augmentation groups enabled:
+  #   stats (+4), range_energy (+3), gradients (+3) → effective input dim = 26
+  #
+  #   A) Label imbalance  -> student_weighted_ce / student_balanced_sampler
+  #   B) Noisy labels     -> confidence_threshold / student_kd_alpha
+  #   C) Low information  -> student_augment_features / student_hidden_dims
+  # -----------------------------------------------------------------------
+
+  # --- Model capacity ---
+  # 4×4 patches carry more spatial information than 3×3 (16 vs 9 raw pixels),
+  # and the Student now routes across 5 classes instead of 4.
+  # [128, 64] gives enough capacity without overfitting on the small patch dataset.
+  student_hidden_dims: [128, 64]
+
+  # --- Training schedule ---
+  student_epochs: 50              # more epochs — 5-class routing is harder
+  student_lr: 1e-3
+  student_batch_size: 256
+
+  # Early stopping — relax threshold slightly vs 3-kern (0.98) since routing
+  # 5 topologies is genuinely harder; 0.90 is a solid target.
+  student_agreement_threshold: 0.90
+  student_agreement_patience: 5
+
+  # -----------------------------------------------------------------------
+  # Label imbalance
+  # -----------------------------------------------------------------------
+  student_weighted_ce: true       # penalise mis-classification of rare kernels
+  student_balanced_sampler: false # combined with weighted_ce this is usually enough
+
+  # -----------------------------------------------------------------------
+  # Noisy label filtering
+  # -----------------------------------------------------------------------
+
+  # Keep only patches where the Teacher's max alpha ≥ 0.3.
+  # With 5 kernels, uniform alpha = 0.20, so 0.3 already filters out the most
+  # ambiguous patches while retaining the majority of the dataset.
+  confidence_threshold: 0.3
+
+  # Soft knowledge distillation: blend hard argmax labels with the Teacher's
+  # full softmax distribution over the 5 kernels.
+  student_kd_alpha: 0.5           # equal blend of hard CE and soft KL
+  student_kd_temperature: 4.0     # soften distributions before KL divergence
+
+  # -----------------------------------------------------------------------
+  # Patch feature augmentation
+  # A 4×4 patch (16 pixels) has enough spatial extent for gradient features
+  # to be genuinely informative for distinguishing directional topologies
+  # (horizontal_chains, vertical_chains, diagonal_chains) from isotropic ones
+  # (kings, block_2x2).
+  # -----------------------------------------------------------------------
+  student_features_stats: true         # mean, std, min, max             (+4)
+  student_features_range_energy: true  # range, L2 energy, L1 norm       (+3)
+  student_features_gradients: true     # h-grad, v-grad, magnitude        (+3)
+
+  # -----------------------------------------------------------------------
+  # Phase 3: Final classifier
+  # -----------------------------------------------------------------------
+  use_mask_channel: false
+  final_epochs: 100
+  final_lr: 1e-4
+
+# Optimizer — used for Teacher (Phase 1) training only.
+# Student and Final Classifier have their own lr settings above.
+optim:
+  lr: 1e-4
+  weight_decay: 1e-7
+  epochs: 100
+  grad_clip: 1.0
+  patience: 10
+  use_scheduler: true
+  scheduler_T_max: 100
+  scheduler_eta_min: 0.0
+
+misc:
+  seed: [343, 4123, 10, 131, 1541, 1354, 635, 5213, 63256, 62554, 655, 12542]
+  log_every: 50

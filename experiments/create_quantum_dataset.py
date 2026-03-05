@@ -7,7 +7,8 @@ as a "quantum dataset" for later comparison and analysis.
 Usage:
     python experiments/create_quantum_dataset.py
 
-Modify the parameters below to change dataset, kernel size, topologies, etc.
+Modify the PARAMETERS section below to configure everything — dataset, kernel,
+device, and interface — before running.
 """
 
 import json
@@ -43,26 +44,80 @@ DATASET_NAME = "breast_mnist"
 # GRAYSCALE: RGB is converted to single grayscale channel
 COLOR_SPACE = "GRAYSCALE"
 
-# Kernel size: 2 for 2x2 or 3 for 3x3
-KERNEL_SIZE = 3
+# Kernel size: 2, 3, or 4
+KERNEL_SIZE = 4
 
 # Stride for the convolution (use kernel_size for non-overlapping patches)
-STRIDE = 3
+STRIDE = 4
 
 # Which topologies to use
 # For 2x2: ["kings", "horizontal", "vertical", "u_shape"]
 # For 3x3: ["kings", "horizontal", "vertical", "cross", "ring"]
-# KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "vertical", "u_shape"]
-KERNEL_TOPOLOGY_NAMES = ["kings", "horizontal", "cross", "ring"]
-# KERNEL_TOPOLOGY_NAMES = ["kings"]
+# For 4x4: ["kings", "horizontal_chains", "vertical_chains", "diagonal_chains", "block_2x2"]
+KERNEL_TOPOLOGY_NAMES = [
+    "kings",
+    "horizontal_chains",
+    "vertical_chains",
+    "diagonal_chains",
+    "block_2x2",
+]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
 SCALING_FACTOR = 1
+
 # Evolution time for quantum dynamics
 EVOLUTION_TIME = 2.5
 
-# Batch size for processing (adjust based on your memory)
-BATCH_SIZE = 1
+# Evolution mode: "trotter" (discrete steps, faster) or "exact" (ODE solver, slower)
+EVOLUTION_MODE = "trotter"
+
+# -----------------------------------------------------------------------------
+# Device & interface — benchmark results (breast_mnist train, single topology):
+#
+#   Kernel 2x2  (16-dim  Hilbert space) — overhead-dominated, GPU not worth it
+#     lightning.qubit | autograd  →   5.6 ms/patch  ~10 min   ★ fastest
+#     lightning.qubit | torch     →   5.7 ms/patch  ~10 min
+#     default.qubit   | autograd  →   9.2 ms/patch  ~16 min
+#     default.qubit   | torch     →  11.9 ms/patch  ~21 min
+#     lightning.gpu   | autograd  →  32.5 ms/patch  ~58 min
+#
+#   Kernel 3x3  (512-dim Hilbert space) — both CPU and GPU competitive
+#     lightning.qubit | torch     →  10.4 ms/patch   ~8 min   ★ fastest
+#     lightning.gpu   | autograd  →  12.1 ms/patch   ~9 min
+#     lightning.qubit | autograd  →  22.9 ms/patch  ~17 min
+#     default.qubit   | autograd  →  32.5 ms/patch  ~24 min
+#
+#   Kernel 4x4  (65536-dim Hilbert space) — GPU wins clearly
+#     lightning.gpu   | autograd  →  29.9 ms/patch  ~13 min   ★ fastest
+#     lightning.qubit | torch     →  68.2 ms/patch  ~30 min
+#     lightning.qubit | autograd  →  81.9 ms/patch  ~37 min
+#     default.qubit   | torch     → 244.9 ms/patch ~109 min
+#
+#   NOTE: JAX (jit or no-jit) was consistently slow across all sizes — avoid.
+#   NOTE: lightning.gpu only supports "autograd" interface, not "torch".
+#   NOTE: lightning.qubit does not support "jax" interface.
+# -----------------------------------------------------------------------------
+
+# PennyLane device to use for simulation.
+# Options: "default.qubit", "lightning.qubit", "lightning.gpu"
+QUANTUM_DEVICE = "lightning.gpu"
+
+# Interface connecting PennyLane to the rest of the pipeline.
+# Options: "autograd", "torch"
+# lightning.gpu  → must use "autograd"
+# lightning.qubit → "torch" is fastest (see table above)
+# default.qubit  → "autograd" is fastest
+INTERFACE = "autograd"
+
+# Batch size for processing (adjust based on memory).
+# Benchmark results (lightning.gpu + autograd, 4x4 kernel, breast_mnist):
+#   Batch  1 → 4073 ms/image  (baseline)
+#   Batch  8 → 3771 ms/image  ★ fastest — sweet spot, no gain beyond this
+#   Batch 16 → 3773 ms/image  (effectively tied with 8)
+#   Batch 32 → 3778 ms/image  (effectively tied with 8)
+# The bottleneck is statevector simulation, not data movement, so larger
+# batches only marginally amortise Python/device overhead. 8 is the sweet spot.
+BATCH_SIZE = 8
 
 # Which splits to process
 SPLITS = ["train", "val", "test"]
@@ -194,6 +249,9 @@ def main():
     print(f"  Topologies:       {KERNEL_TOPOLOGY_NAMES}")
     print(f"  Scaling factor:   {SCALING_FACTOR}")
     print(f"  Evolution time:   {EVOLUTION_TIME}")
+    print(f"  Evolution mode:   {EVOLUTION_MODE}")
+    print(f"  Quantum device:   {QUANTUM_DEVICE}")
+    print(f"  Interface:        {INTERFACE}")
     print(f"  Batch size:       {BATCH_SIZE}")
     print()
 
@@ -232,8 +290,9 @@ def main():
         kernel_topology_names=KERNEL_TOPOLOGY_NAMES,
         scaling_factor=SCALING_FACTOR,
         evolution_time=EVOLUTION_TIME,
-        mode="trotter",
-        quantum_device="default.qubit",
+        mode=EVOLUTION_MODE,
+        quantum_device=QUANTUM_DEVICE,
+        interface=INTERFACE,
     )
 
     # Store the output channels info
