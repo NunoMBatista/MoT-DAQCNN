@@ -2,7 +2,11 @@ import torch
 import torch.nn as nn
 
 from src.layers.daqk import DAQKLayer
-from src.physics.kernel_topologies import get_2x2_kernel_set, get_3x3_kernel_set
+from src.physics.kernel_topologies import (
+    get_2x2_kernel_set,
+    get_3x3_kernel_set,
+    get_4x4_kernel_set,
+)
 
 
 class QuantumConv2d(nn.Module):
@@ -66,10 +70,12 @@ class QuantumConv2d(nn.Module):
                 default_names = list(get_2x2_kernel_set().keys())
             elif kernel_size == 3:
                 default_names = list(get_3x3_kernel_set().keys())
+            elif kernel_size == 4:
+                default_names = list(get_4x4_kernel_set().keys())
             else:
                 default_names = ["kings"]
                 print(
-                    "QuantumConv2d: No kernel_topology_names provided for kernel_size > 3, defaulting to ('kings',)"
+                    "QuantumConv2d: No kernel_topology_names provided for kernel_size > 4, defaulting to ('kings',)"
                 )
         else:
             default_names = kernel_topology_names
