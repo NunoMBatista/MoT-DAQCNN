@@ -146,15 +146,15 @@ ts_moe:
   # -----------------------------------------------------------------------
   use_mask_channel: false # whether to append the routing mask as an extra channel
   final_epochs: 100
-  final_lr: 1e-3
+  final_lr: 1e-4
 
 # Optimizer (used for Teacher training; Student/Final have their own lr above)
 optim:
   lr: 1e-4
-  weight_decay: 1e-4
+  weight_decay: 1e-7
   epochs: 100
   grad_clip: 1.0
-  patience: null
+  patience: 10
   use_scheduler: true
   scheduler_T_max: 100
   scheduler_eta_min: 0.0

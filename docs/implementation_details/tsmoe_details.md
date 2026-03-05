@@ -651,7 +651,3 @@ ts_moe:
   final_epochs: 100
   final_lr: 1e-3
 ```
-
----
-
-*Document generated: March 2026*
