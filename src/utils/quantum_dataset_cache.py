@@ -20,19 +20,32 @@ def _match_metadata(meta, cfg):
     Check whether the metadata dict from a cached quantum dataset matches
     the quantum-relevant parameters in the training config.
 
-    We compare: dataset_name, kernel_size, stride, kernel_topology_names
-    (order-insensitive or subset), num_kernels, scaling_factor, evolution_time, color_space.
+    We compare: dataset_name, image_size, kernel_size, stride,
+    kernel_topology_names (order-insensitive or subset), num_kernels,
+    scaling_factor, evolution_time, color_space.
 
     Returns:
         "exact" if perfect match, "subset" if requested kernels are a subset of cached,
         False otherwise.
     """
+    from src.config import DATASET_IMAGE_SIZE
+
     model_cfg = cfg.get("model", {})
     dataset_cfg = cfg.get("dataset", {})
     dataset_name = dataset_cfg.get("name")
 
     # Dataset name
     if meta.get("dataset_name") != dataset_name:
+        return False
+
+    # Image resolution — must match so 28px and 64px caches are never confused.
+    # Configs may supply dataset.image_size explicitly; otherwise we derive it
+    # from the dataset name (e.g. "oct_mnist_64" → 64).
+    config_image_size = dataset_cfg.get(
+        "image_size", DATASET_IMAGE_SIZE.get(dataset_name, 28)
+    )
+    cached_image_size = meta.get("image_size", 28)  # legacy caches omit this → 28
+    if cached_image_size != config_image_size:
         return False
 
     # Color space (default to RGB for backward compatibility)

@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
 
-from src.config import DATA_DIR, DATASET_CHANNELS, DATASET_REGISTRY
+from src.config import DATA_DIR, DATASET_CHANNELS, DATASET_IMAGE_SIZE, DATASET_REGISTRY
 
 
 def get_dataset_channels(dataset_name: str) -> int:
@@ -18,6 +18,23 @@ def get_dataset_channels(dataset_name: str) -> int:
         Number of channels (1 for grayscale, 3 for RGB)
     """
     return DATASET_CHANNELS.get(dataset_name, 1)
+
+
+def get_dataset_image_size(dataset_name: str) -> int:
+    """
+    Get the image resolution for a dataset.
+
+    Standard MedMNIST datasets are 28×28.  Higher-resolution MedMNIST+ variants
+    use the ``_64``, ``_128``, or ``_224`` suffix convention and return the
+    corresponding size, which is passed as ``size=`` to the MedMNIST constructor.
+
+    Args:
+        dataset_name: Name of the dataset (key in DATASET_REGISTRY)
+
+    Returns:
+        Integer image size (e.g. 28, 64, 128, 224)
+    """
+    return DATASET_IMAGE_SIZE.get(dataset_name, 28)
 
 
 def check_model_dataset_compatibility(
@@ -82,6 +99,10 @@ def get_medmnist_loaders(cfg, dataset_name):
     info = INFO[data_flag]
     n_classes = len(info["label"])
 
+    # Resolve image size: config key takes priority, falls back to registry default.
+    # Standard MedMNIST is 28; MedMNIST+ _64/_128/_224 names carry their size.
+    image_size = cfg["dataset"].get("image_size", get_dataset_image_size(dataset_name))
+
     transform = transforms.Compose([transforms.ToTensor()])
 
     def build_split(split):
@@ -92,6 +113,7 @@ def get_medmnist_loaders(cfg, dataset_name):
             download=cfg["dataset"].get("download", True),
             root=root,
             transform=transform,
+            size=image_size,
         )
 
     train_ds = build_split("train")
@@ -131,7 +153,9 @@ def get_medmnist_loaders(cfg, dataset_name):
     return train_loader, val_loader, test_loader, n_classes
 
 
-def load_medmnist_dataset(dataset_name, split, data_root=None, download=True):
+def load_medmnist_dataset(
+    dataset_name, split, data_root=None, download=True, image_size=None
+):
     """Load a raw MedMNIST dataset for a given split.
 
     This is the centralized loader used across the codebase for loading
@@ -140,10 +164,13 @@ def load_medmnist_dataset(dataset_name, split, data_root=None, download=True):
 
     Args:
         dataset_name: Name of dataset from DATASET_REGISTRY keys
-            (e.g., "pneumonia_mnist", "breast_mnist", etc.)
+            (e.g., "pneumonia_mnist", "breast_mnist", "oct_mnist_64", etc.)
         split: Split name - "train", "val", or "test"
         data_root: Root directory for data storage. If None, uses DATA_DIR
         download: Whether to download the dataset if not present
+        image_size: Override the image resolution (e.g. 28, 64, 128).
+            If None, the size is inferred from DATASET_IMAGE_SIZE using the
+            dataset name, so passing "oct_mnist_64" automatically uses 64.
 
     Returns:
         MedMNIST dataset object with .transform = ToTensor()
@@ -155,7 +182,11 @@ def load_medmnist_dataset(dataset_name, split, data_root=None, download=True):
     Example:
         >>> train_ds = load_medmnist_dataset("pneumonia_mnist", "train")
         >>> img, label = train_ds[0]
-        >>> print(img.shape, label)
+        >>> print(img.shape, label)  # torch.Size([1, 28, 28])
+
+        >>> train_ds_64 = load_medmnist_dataset("oct_mnist_64", "train")
+        >>> img, label = train_ds_64[0]
+        >>> print(img.shape, label)  # torch.Size([1, 64, 64])
     """
     if dataset_name not in DATASET_REGISTRY:
         raise ValueError(
@@ -180,12 +211,18 @@ def load_medmnist_dataset(dataset_name, split, data_root=None, download=True):
 
     os.makedirs(data_root, exist_ok=True)
 
+    # Resolve size: explicit arg > registry default derived from name suffix
+    size = (
+        image_size if image_size is not None else get_dataset_image_size(dataset_name)
+    )
+
     transform = transforms.ToTensor()
     return dataset_class(
         split=split,
         download=download,
         root=data_root,
         transform=transform,
+        size=size,
     )
 
 
@@ -193,3 +230,20 @@ def get_dataloaders(cfg):
     """Get dataloaders based on config. Auto-selects from DATASET_REGISTRY."""
     dataset_name = cfg.get("dataset", {}).get("name", "pneumonia_mnist")
     return get_medmnist_loaders(cfg, dataset_name)
+
+
+def get_dataset_info(dataset_name: str) -> dict:
+    """Return a summary dict of key properties for a dataset name.
+
+    Useful for logging and sanity-checking configs before training.
+
+    Returns:
+        dict with keys: name, image_size, channels, medmnist_flag, class_name
+    """
+    return {
+        "name": dataset_name,
+        "image_size": get_dataset_image_size(dataset_name),
+        "channels": get_dataset_channels(dataset_name),
+        "medmnist_flag": DATASET_REGISTRY[dataset_name][0],
+        "class_name": DATASET_REGISTRY[dataset_name][1],
+    }

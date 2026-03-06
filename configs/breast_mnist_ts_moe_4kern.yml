@@ -52,7 +52,7 @@ model:
     - diagonal_chains
     - block_2x2
   scaling_factor: 1
-  evolution_time: 2.5
+  evolution_time: 1.0
   mode: trotter
   dropout: 0.6
   activation: gelu

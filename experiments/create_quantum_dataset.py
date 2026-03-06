@@ -36,13 +36,27 @@ from src.utils.data import load_medmnist_dataset
 # PARAMETERS - Edit these to configure the quantum dataset generation
 # =============================================================================
 
-# Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist", "tissue_mnist"
+# Which dataset to use — any key from DATASET_REGISTRY in src/config.py, including
+# MedMNIST+ higher-resolution variants:
+#   28×28 (standard): "pneumonia_mnist", "breast_mnist", "tissue_mnist", "oct_mnist", ...
+#   64×64 (MedMNIST+): "pneumonia_mnist_64", "oct_mnist_64", "tissue_mnist_64", ...
+#   128×128 (MedMNIST+): "pneumonia_mnist_128", "oct_mnist_128", ...
+# The image resolution is derived automatically from the dataset name via
+# DATASET_IMAGE_SIZE in src/config.py, or can be overridden with IMAGE_SIZE below.
 DATASET_NAME = "breast_mnist"
 
 # Color space: "RGB", "HSV", or "GRAYSCALE"
 # HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
 # GRAYSCALE: RGB is converted to single grayscale channel
 COLOR_SPACE = "GRAYSCALE"
+
+# Image resolution passed to the MedMNIST dataset constructor as `size=`.
+# Set to None to infer automatically from DATASET_NAME (recommended):
+#   "breast_mnist"    -> 28
+#   "oct_mnist_64"    -> 64
+#   "oct_mnist_128"   -> 128
+# Override here only if you want a resolution that differs from the name convention.
+IMAGE_SIZE = None  # None = auto-infer from DATASET_NAME
 
 # Kernel size: 2, 3, or 4
 KERNEL_SIZE = 4
@@ -131,13 +145,20 @@ SPLITS = ["train", "val", "test"]
 def generate_output_filename(params):
     """
     Generate a descriptive filename for the quantum dataset.
-    Format: {dataset}__k{kernel}_s{stride}_t{topologies}_ev{evo}_sc{scale}[_hsv].npz
+    Format: {dataset}__res{size}_k{kernel}_s{stride}_t{topologies}_ev{evo}_sc{scale}[_gray|_hsv].npz
+
+    The ``res{size}`` segment is omitted for legacy 28×28 datasets so that
+    existing cached files are not renamed.
     """
     # Shorten topology names for filename
     topo_short = "-".join([t[:3] for t in params["kernel_topology_names"]])
 
+    image_size = params.get("image_size", 28)
+    size_segment = f"res{image_size}_" if image_size != 28 else ""
+
     filename = (
         f"{params['dataset_name']}__"
+        f"{size_segment}"
         f"k{params['kernel_size']}_"
         f"s{params['stride']}_"
         f"t{topo_short}_"
@@ -242,7 +263,17 @@ def main():
 
     # Print current parameters
     print(f"\nParameters:")
+    # Resolve image size: explicit IMAGE_SIZE overrides auto-detection from name
+    from src.config import DATASET_IMAGE_SIZE
+
+    resolved_image_size = (
+        IMAGE_SIZE
+        if IMAGE_SIZE is not None
+        else DATASET_IMAGE_SIZE.get(DATASET_NAME, 28)
+    )
+
     print(f"  Dataset:          {DATASET_NAME}")
+    print(f"  Image size:       {resolved_image_size}x{resolved_image_size}")
     print(f"  Color space:      {COLOR_SPACE}")
     print(f"  Kernel size:      {KERNEL_SIZE}x{KERNEL_SIZE}")
     print(f"  Stride:           {STRIDE}")
@@ -261,7 +292,9 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Load one sample to detect number of input channels
-    sample_ds = load_medmnist_dataset(DATASET_NAME, "train", data_root)
+    sample_ds = load_medmnist_dataset(
+        DATASET_NAME, "train", data_root, image_size=resolved_image_size
+    )
     sample_img, _ = sample_ds[0]
     in_channels = sample_img.shape[0]  # (C, H, W)
     print(f"Detected {in_channels} input channel(s)")
@@ -331,7 +364,9 @@ def main():
         print(f"--- Processing {split} split ---")
 
         # Load the classical dataset
-        ds = load_medmnist_dataset(DATASET_NAME, split, data_root)
+        ds = load_medmnist_dataset(
+            DATASET_NAME, split, data_root, image_size=resolved_image_size
+        )
         print(f"Loaded {len(ds)} images")
 
         # Process through quantum layer
@@ -348,6 +383,7 @@ def main():
     # Build metadata dict (will be saved as JSON string in the npz)
     metadata = {
         "dataset_name": DATASET_NAME,
+        "image_size": resolved_image_size,
         "in_channels": in_channels,
         "color_space": COLOR_SPACE,
         "kernel_size": KERNEL_SIZE,
