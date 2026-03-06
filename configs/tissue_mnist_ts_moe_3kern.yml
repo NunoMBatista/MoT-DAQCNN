@@ -1,0 +1,164 @@
+# Pneumonia MNIST with Teacher-Student Mixture-of-Topologies (TS-MoE)
+#
+# This config runs the full TS-MoE pipeline:
+#   Phase 1: Teacher with Grouped SE routing over all kernels
+#   Phase 2: Student gatekeeper distilled from Teacher
+#   Phase 3: Final classifier on sparse routed features
+
+dataset:
+  name: pneumonia_mnist
+  data_root: ./data
+  batch_size: 32
+  num_workers: 2
+  download: true
+  color_space: GRAYSCALE
+
+model:
+  architecture: "TS-MoE" # "original" for DAQCNN, "TS-MoE" for Teacher-Student pipeline
+  num_classes: 2
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["kings", "horizontal", "cross", "ring"]
+  scaling_factor: 1
+  evolution_time: 2.5
+  mode: trotter
+  dropout: 0.5
+  activation: relu
+  quantum_device: default.qubit
+  quantum_device_kwargs: {}
+  classical_device: auto
+
+# Teacher-Student MoE parameters
+ts_moe:
+  # -----------------------------------------------------------------------
+  # Phase 1: Teacher training
+  # -----------------------------------------------------------------------
+  lambda_start_epoch: 0
+  lambda_entropy_start: 0.0 # entropy regularisation weight on Teacher routing (prevents collapse)
+  lambda_max: 0.1 # max-alpha regularisation weight (encourages confident routing)
+  lambda_warmup_epochs: 50 # ramp lambda_entropy/lambda_max up over this many epochs
+  attention_hidden_dim: 64 # Attention gate hidden dim; null = auto (total_channels // 2)
+  attention_gate_zero_init: true # Zero-init last gate layer so initial alphas are uniform (1/M)
+
+  # -----------------------------------------------------------------------
+  # Phase 2: Student gatekeeper
+  #
+  # The Student is a small MLP trained to mimic the Teacher's per-patch
+  # routing decisions.  When the Teacher routes multiple kernels, the Student
+  # can collapse to predicting the majority class.  The options below address
+  # the three main causes of that failure:
+  #
+  #   A) Label imbalance  -> student_weighted_ce / student_balanced_sampler
+  #   B) Noisy labels     -> confidence_threshold / student_kd_alpha
+  #   C) Low information  -> student_augment_features / student_hidden_dims
+  # -----------------------------------------------------------------------
+
+  # --- Model capacity ---
+  # Hidden layer sizes for the Student MLP.
+  # Default [32, 16] keeps the model under ~5k params for 2x2 patches.
+  # Increase (e.g. [128, 64]) if the student under-fits (low train accuracy).
+  student_hidden_dims: [128, 64]
+
+  # --- Training schedule ---
+  student_epochs: 30 # maximum number of training epochs
+  student_lr: 1e-3 # Adam learning rate for the Student
+  student_batch_size: 256 # batch size for patch-level training
+
+  # Early stopping: stop once val agreement stays above threshold for N epochs
+  student_agreement_threshold: 0.90 # target Teacher-Student agreement (0-1)
+  student_agreement_patience: 5 # consecutive epochs above threshold to stop
+
+  # -----------------------------------------------------------------------
+  #
+  # When one kernel is selected by the Teacher for most patches, the Student
+  # learns to always predict that kernel (minimises CE by predicting majority).
+  # -----------------------------------------------------------------------
+
+  # Weighted cross-entropy: class k gets weight ∝ 1/frequency(k).
+  # Penalises mis-classifying rare kernels more strongly.
+  # Recommended: set to true whenever you see skewed label distributions.
+  student_weighted_ce: true
+
+  # Balanced sampler: use WeightedRandomSampler so that each kernel class
+  # appears equally often in each training batch, regardless of its true
+  # frequency in the dataset.
+  # More aggressive than weighted_ce; combine both or use one at a time.
+  student_balanced_sampler: false
+
+  # -----------------------------------------------------------------------
+  #
+  # When the Teacher's alpha weights are nearly uniform across kernels, the
+  # argmax label is essentially random noise.  Training on these patches
+  # hurts more than it helps.
+  # -----------------------------------------------------------------------
+
+  # Confidence threshold: discard patches where max(Teacher alpha) < this value.
+  # 0.0 = keep all patches (no filtering).
+  # Try 0.3–0.5 to remove the most ambiguous routing decisions.
+  # A diagnostic summary of Teacher confidence is printed at the start of
+  # student training to help you choose a good value.
+  confidence_threshold: 0.3
+
+  # Knowledge distillation (soft labels):
+  #   Instead of training on hard argmax labels only, also train against the
+  #   Teacher's full softmax distribution over kernels.  This preserves the
+  #   relative "preference" signal even when the Teacher is uncertain.
+  #
+  #   student_kd_alpha controls the mix:
+  #     0.0 -> hard CE only (original behaviour)
+  #     1.0 -> soft KL divergence only
+  #     0.5 -> equal blend (recommended starting point)
+  #
+  #   student_kd_temperature scales both distributions before computing KL.
+  #   Higher temperature (e.g. 4–8) produces softer targets and transfers
+  #   more inter-class relationship information.  Lower (e.g. 1–2) keeps
+  #   targets close to one-hot.
+  student_kd_alpha: 0.5 # weight of KL distillation term (0 = hard CE only)
+  student_kd_temperature: 4.0 # temperature for softening Teacher/Student distributions
+
+  # -----------------------------------------------------------------------
+  #
+  # Very small patches (e.g. 2×2 = 4 pixels) carry little raw information.
+  # Each group below appends a few extra scalar features to the raw pixel
+  # vector.  The Student MLP is automatically rebuilt with the correct input
+  # dimension whenever any group is enabled.  Toggle groups independently
+  # to find the best trade-off between information gain and model size.
+  # -----------------------------------------------------------------------
+
+  # stats: mean, std, min, max of all pixels in the patch             (+4)
+  # Captures average brightness, contrast, and dynamic range.
+  student_features_stats: true
+
+  # range_energy: range (max-min), L2 energy, L1 norm                 (+3)
+  # Range = how much contrast the patch contains.
+  # Energy/L1 = overall activation level, less sensitive to outliers.
+  student_features_range_energy: true
+
+  # gradients: horizontal gradient, vertical gradient, magnitude       (+3)
+  # Finite differences across columns (h) and rows (v) of the patch.
+  # Directly useful for discriminating spatially-structured kernels
+  # (horizontal, vertical, kings, u_shape): a patch with a strong
+  # horizontal edge is more likely to be routed to a horizontal kernel.
+  student_features_gradients: true
+
+  # -----------------------------------------------------------------------
+  # Phase 3: Final classifier
+  # -----------------------------------------------------------------------
+  use_mask_channel: false # whether to append the routing mask as an extra channel
+  final_epochs: 100
+  final_lr: 1e-4
+
+# Optimizer (used for Teacher training; Student/Final have their own lr above)
+optim:
+  lr: 1e-4
+  weight_decay: 1e-7
+  epochs: 100
+  grad_clip: 1.0
+  patience: 10
+  use_scheduler: true
+  scheduler_T_max: 100
+  scheduler_eta_min: 0.0
+
+misc:
+  seed: [343, 4123, 10, 131, 1541, 1354, 635, 5213, 63256, 62554, 655, 12542]
+  log_every: 50

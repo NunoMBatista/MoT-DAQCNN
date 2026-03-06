@@ -52,11 +52,11 @@ model:
     - diagonal_chains
     - block_2x2
   scaling_factor: 1
-  evolution_time: 2.5
+  evolution_time: 1.4 # reduced from 2.5 — 16-qubit overrotation fix (T_4x4 = T_3x3 × 9/16 ≈ 1.4)
   mode: trotter
   dropout: 0.6
   activation: gelu
-  quantum_device: default.qubit   # overridden at cache-generation time; not used during TS-MoE training
+  quantum_device: default.qubit # overridden at cache-generation time; not used during TS-MoE training
   quantum_device_kwargs: {}
   classical_device: auto
 
@@ -72,15 +72,15 @@ ts_moe:
   # With 5 kernels the routing space is larger than with 4, so a small entropy
   # push helps the Teacher commit to decisive per-patch decisions rather than
   # spreading weight uniformly across all five topologies.
-  lambda_start_epoch: 10          # let CE loss stabilise before entropy kicks in
+  lambda_start_epoch: 20 # let CE loss stabilise before entropy kicks in
   lambda_entropy_start: 0.0
-  lambda_max: 0.1
-  lambda_warmup_epochs: 40        # reach lambda_max by epoch 50
+  lambda_max: 0.05 # gentle push — Teacher must learn to classify first
+  lambda_warmup_epochs: 30 # reach lambda_max by epoch 50
 
   # Attention gate hidden dim.
   # total_channels = 80 → auto would give 40.
   # Using 64 gives the gate a little extra capacity to discriminate 5 topologies.
-  attention_hidden_dim: 64
+  attention_hidden_dim: 32 # smaller gate — less capacity to overfit on 546 images
 
   # Zero-init the last gate layer so all 5 kernels start with equal alpha (1/5).
   # Symmetry is broken by data gradients rather than random weight initialisation,
@@ -106,7 +106,7 @@ ts_moe:
   student_hidden_dims: [128, 64]
 
   # --- Training schedule ---
-  student_epochs: 50              # more epochs — 5-class routing is harder
+  student_epochs: 50 # more epochs — 5-class routing is harder
   student_lr: 1e-3
   student_batch_size: 256
 
@@ -118,7 +118,7 @@ ts_moe:
   # -----------------------------------------------------------------------
   # Label imbalance
   # -----------------------------------------------------------------------
-  student_weighted_ce: true       # penalise mis-classification of rare kernels
+  student_weighted_ce: true # penalise mis-classification of rare kernels
   student_balanced_sampler: false # combined with weighted_ce this is usually enough
 
   # -----------------------------------------------------------------------
@@ -128,12 +128,12 @@ ts_moe:
   # Keep only patches where the Teacher's max alpha ≥ 0.3.
   # With 5 kernels, uniform alpha = 0.20, so 0.3 already filters out the most
   # ambiguous patches while retaining the majority of the dataset.
-  confidence_threshold: 0.3
+  confidence_threshold: 0.22 # uniform=0.20 with M=5; 0.22 only removes truly flat routing
 
   # Soft knowledge distillation: blend hard argmax labels with the Teacher's
   # full softmax distribution over the 5 kernels.
-  student_kd_alpha: 0.5           # equal blend of hard CE and soft KL
-  student_kd_temperature: 4.0     # soften distributions before KL divergence
+  student_kd_alpha: 0.5 # equal blend of hard CE and soft KL
+  student_kd_temperature: 4.0 # soften distributions before KL divergence
 
   # -----------------------------------------------------------------------
   # Patch feature augmentation
@@ -142,9 +142,9 @@ ts_moe:
   # (horizontal_chains, vertical_chains, diagonal_chains) from isotropic ones
   # (kings, block_2x2).
   # -----------------------------------------------------------------------
-  student_features_stats: true         # mean, std, min, max             (+4)
-  student_features_range_energy: true  # range, L2 energy, L1 norm       (+3)
-  student_features_gradients: true     # h-grad, v-grad, magnitude        (+3)
+  student_features_stats: true # mean, std, min, max             (+4)
+  student_features_range_energy: true # range, L2 energy, L1 norm       (+3)
+  student_features_gradients: true # h-grad, v-grad, magnitude        (+3)
 
   # -----------------------------------------------------------------------
   # Phase 3: Final classifier
@@ -156,14 +156,14 @@ ts_moe:
 # Optimizer — used for Teacher (Phase 1) training only.
 # Student and Final Classifier have their own lr settings above.
 optim:
-  lr: 1e-4
-  weight_decay: 1e-7
-  epochs: 100
+  lr: 5e-4 # higher LR — 80 channels need stronger gradient signal
+  weight_decay: 1e-6
+  epochs: 150
   grad_clip: 1.0
-  patience: 10
+  patience: 20 # give Teacher more time before early stopping
   use_scheduler: true
-  scheduler_T_max: 100
-  scheduler_eta_min: 0.0
+  scheduler_T_max: 150
+  scheduler_eta_min: 1e-6 # never decay to zero — keeps learning signal alive
 
 misc:
   seed: [343, 4123, 10, 131, 1541, 1354, 635, 5213, 63256, 62554, 655, 12542]

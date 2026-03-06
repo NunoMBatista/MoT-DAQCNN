@@ -37,7 +37,7 @@ from src.utils.data import load_medmnist_dataset
 # =============================================================================
 
 # Which dataset to use: "pneumonia_mnist", "breast_mnist", "path_mnist", "derma_mnist", "tissue_mnist"
-DATASET_NAME = "breast_mnist"
+DATASET_NAME = "breast_mnist"  # breast_mnist 4x4 re-cache (overrotation fix)
 
 # Color space: "RGB", "HSV", or "GRAYSCALE"
 # HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
@@ -45,10 +45,10 @@ DATASET_NAME = "breast_mnist"
 COLOR_SPACE = "GRAYSCALE"
 
 # Kernel size: 2, 3, or 4
-KERNEL_SIZE = 4
+KERNEL_SIZE = 4  # 4x4 → 16 qubits
 
 # Stride for the convolution (use kernel_size for non-overlapping patches)
-STRIDE = 4
+STRIDE = 4  # non-overlapping 4x4 patches → 7x7 spatial output on 28x28 images
 
 # Which topologies to use
 # For 2x2: ["kings", "horizontal", "vertical", "u_shape"]
@@ -65,8 +65,22 @@ KERNEL_TOPOLOGY_NAMES = [
 # Scaling factor for Rydberg Hamiltonian interaction strength
 SCALING_FACTOR = 1
 
-# Evolution time for quantum dynamics
-EVOLUTION_TIME = 2.5
+# Evolution time for quantum dynamics.
+#
+# WHY 1.4 (not 2.5):
+#   The Rydberg ramp Omega(t)=t, Delta(t)=t gives an effective rotation angle
+#   of T^2/2.  At T=2.5 this is 3.125 rad ≈ pi — the 9-qubit system is just
+#   barely in the informative regime, but the 16-qubit system crosses into a
+#   quantum-chaos / scrambling phase where all output channels converge to the
+#   same near-uniform distribution (std ≈ 0.52 for every channel regardless of
+#   topology or input) and PCA+LogReg AUC drops to ~0.51 (chance).
+#
+#   Empirical fix: scale T proportionally to n_qubits:
+#       T_4x4 = T_3x3 × (9/16) = 2.5 × 0.5625 ≈ 1.41  →  rounded to 1.4
+#
+#   At T=1.4: T^2/2 = 0.98 rad ≈ 0.31*pi — well inside the monotone-sensitivity
+#   regime, matching the effective drive scale of the working 3x3 configuration.
+EVOLUTION_TIME = 1.4
 
 # Evolution mode: "trotter" (discrete steps, faster) or "exact" (ODE solver, slower)
 EVOLUTION_MODE = "trotter"
