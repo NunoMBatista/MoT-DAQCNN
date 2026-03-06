@@ -17,7 +17,7 @@ model:
     - diagonal_chains
     - block_2x2
   scaling_factor: 1.0
-  evolution_time: 1.4 # reduced from 2.5 — 16-qubit overrotation fix (T_4x4 = T_3x3 × 9/16 ≈ 1.4)
+  evolution_time: 2.5
   mode: trotter
   dropout: 0.6
   activation: gelu # relu or gelu
