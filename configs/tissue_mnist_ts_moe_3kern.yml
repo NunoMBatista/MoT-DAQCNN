@@ -39,113 +39,113 @@
 #       flattest routing decisions without over-filtering)
 
 dataset:
-  name: tissue_mnist
-  data_root: ./data
-  batch_size: 64 # larger batch — 165k images, GPU handles it
-  num_workers: 4
-  download: true
-  color_space: GRAYSCALE
+    name: tissue_mnist
+    data_root: ./data
+    batch_size: 64 # larger batch — 165k images, GPU handles it
+    num_workers: 4
+    download: true
+    color_space: GRAYSCALE
 
 model:
-  architecture: "TS-MoE"
-  num_classes: 8
-  kernel_size: 3
-  stride: 3
-  kernel_topology_names: ["kings", "horizontal", "cross", "ring"]
-  scaling_factor: 1
-  evolution_time: 2.5
-  mode: trotter
-  dropout: 0.5
-  activation: gelu
-  quantum_device: default.qubit
-  quantum_device_kwargs: {}
-  classical_device: auto
+    architecture: "TS-MoE"
+    num_classes: 8
+    kernel_size: 3
+    stride: 3
+    kernel_topology_names: ["kings", "horizontal", "cross", "ring"]
+    scaling_factor: 1
+    evolution_time: 2.5
+    mode: trotter
+    dropout: 0.5
+    activation: gelu
+    quantum_device: default.qubit
+    quantum_device_kwargs: {}
+    classical_device: auto
 
 # Teacher-Student MoE parameters
 ts_moe:
-  # -----------------------------------------------------------------------
-  # Phase 1: Teacher training
-  # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Phase 1: Teacher training
+    # -----------------------------------------------------------------------
 
-  # Delay entropy penalty: let the Teacher learn 8-class CE first before
-  # being pushed toward decisive routing decisions.
-  lambda_start_epoch: 10
-  lambda_entropy_start: 0.0
-  lambda_max: 0.05 # gentle push — tissue classes are subtler than binary
-  lambda_warmup_epochs: 30 # reach lambda_max by epoch 40
+    # Delay entropy penalty: let the Teacher learn 8-class CE first before
+    # being pushed toward decisive routing decisions.
+    lambda_start_epoch: 10
+    lambda_entropy_start: 0.0
+    lambda_max: 0.5 # gentle push — tissue classes are subtler than binary
+    lambda_warmup_epochs: 30 # reach lambda_max by epoch 40
 
-  # More capacity than binary configs: 36 channels, 8 output classes, 4 routing
-  # targets — the gate needs enough width to disentangle tissue-specific routing.
-  attention_hidden_dim: 64
+    # More capacity than binary configs: 36 channels, 8 output classes, 4 routing
+    # targets — the gate needs enough width to disentangle tissue-specific routing.
+    attention_hidden_dim: 64
 
-  # Zero-init so all 4 kernels start with equal alpha (1/4 = 0.25).
-  # Data gradients break symmetry once the Teacher starts learning tissue classes.
-  attention_gate_zero_init: true
+    # Zero-init so all 4 kernels start with equal alpha (1/4 = 0.25).
+    # Data gradients break symmetry once the Teacher starts learning tissue classes.
+    attention_gate_zero_init: true
 
-  # -----------------------------------------------------------------------
-  # Phase 2: Student gatekeeper
-  #
-  # patch_dim = 1 × 3² = 9 raw pixels
-  # With all three augmentation groups: +4 stats, +3 range_energy, +3 gradients
-  # → effective input dim = 19
-  # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Phase 2: Student gatekeeper
+    #
+    # patch_dim = 1 × 3² = 9 raw pixels
+    # With all three augmentation groups: +4 stats, +3 range_energy, +3 gradients
+    # → effective input dim = 19
+    # -----------------------------------------------------------------------
 
-  # --- Model capacity ---
-  student_hidden_dims: [128, 64]
+    # --- Model capacity ---
+    student_hidden_dims: [128, 64]
 
-  # --- Training schedule ---
-  # Each epoch = 165466 * 81 / 1024 ≈ 13k batches — keep epochs low.
-  student_epochs: 20
-  student_lr: 1e-3
-  student_batch_size: 1024 # large batch to amortise 13M-patch dataset
+    # --- Training schedule ---
+    # Each epoch = 165466 * 81 / 1024 ≈ 13k batches — keep epochs low.
+    student_epochs: 20
+    student_lr: 1e-3
+    student_batch_size: 1024 # large batch to amortise 13M-patch dataset
 
-  # Relaxed threshold: routing 4 kernels across 8 tissue classes is harder
-  # than binary; 0.85 is a realistic target without early stopping too soon.
-  student_agreement_threshold: 0.85
-  student_agreement_patience: 5
+    # Relaxed threshold: routing 4 kernels across 8 tissue classes is harder
+    # than binary; 0.85 is a realistic target without early stopping too soon.
+    student_agreement_threshold: 0.85
+    student_agreement_patience: 5
 
-  # -----------------------------------------------------------------------
-  # Label imbalance — 9× ratio makes this critical
-  # -----------------------------------------------------------------------
-  student_weighted_ce: true # penalise rare tissue classes
-  student_balanced_sampler: true # combined with weighted_ce for 9× imbalance
+    # -----------------------------------------------------------------------
+    # Label imbalance — 9× ratio makes this critical
+    # -----------------------------------------------------------------------
+    student_weighted_ce: true # penalise rare tissue classes
+    student_balanced_sampler: true # combined with weighted_ce for 9× imbalance
 
-  # -----------------------------------------------------------------------
-  # Noisy label filtering
-  # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Noisy label filtering
+    # -----------------------------------------------------------------------
 
-  # uniform alpha = 0.25 with 4 kernels; 0.30 removes only the flattest patches
-  confidence_threshold: 0.30
+    # uniform alpha = 0.25 with 4 kernels; 0.30 removes only the flattest patches
+    confidence_threshold: 0.30
 
-  # Soft KD: blend hard labels with Teacher's full routing distribution.
-  student_kd_alpha: 0.5
-  student_kd_temperature: 4.0
+    # Soft KD: blend hard labels with Teacher's full routing distribution.
+    student_kd_alpha: 0.5
+    student_kd_temperature: 4.0
 
-  # -----------------------------------------------------------------------
-  # Patch feature augmentation
-  # -----------------------------------------------------------------------
-  student_features_stats: true # mean, std, min, max  (+4)
-  student_features_range_energy: true # range, L2, L1        (+3)
-  student_features_gradients: true # h-grad, v-grad, mag  (+3)
+    # -----------------------------------------------------------------------
+    # Patch feature augmentation
+    # -----------------------------------------------------------------------
+    student_features_stats: true # mean, std, min, max  (+4)
+    student_features_range_energy: true # range, L2, L1        (+3)
+    student_features_gradients: true # h-grad, v-grad, mag  (+3)
 
-  # -----------------------------------------------------------------------
-  # Phase 3: Final classifier
-  # -----------------------------------------------------------------------
-  use_mask_channel: false
-  final_epochs: 80 # 8-class head needs more epochs than binary
-  final_lr: 1e-4
+    # -----------------------------------------------------------------------
+    # Phase 3: Final classifier
+    # -----------------------------------------------------------------------
+    use_mask_channel: false
+    final_epochs: 80 # 8-class head needs more epochs than binary
+    final_lr: 1e-4
 
 # Optimizer — Teacher (Phase 1) only.
 optim:
-  lr: 1e-4
-  weight_decay: 1e-6 # slightly stronger than binary — large dataset
-  epochs: 60 # each epoch = 165k images; 60 is ample
-  grad_clip: 1.0
-  patience: 15
-  use_scheduler: true
-  scheduler_T_max: 60
-  scheduler_eta_min: 1e-6
+    lr: 1e-4
+    weight_decay: 1e-6 # slightly stronger than binary — large dataset
+    epochs: 60 # each epoch = 165k images; 60 is ample
+    grad_clip: 1.0
+    patience: 15
+    use_scheduler: true
+    scheduler_T_max: 60
+    scheduler_eta_min: 1e-6
 
 misc:
-  seed: [343, 4123, 10, 131, 1541, 1354, 635, 5213, 63256, 62554, 655, 12542]
-  log_every: 50
+    seed: [343, 4123, 10, 131, 1541, 1354, 635, 5213, 63256, 62554, 655, 12542]
+    log_every: 50
