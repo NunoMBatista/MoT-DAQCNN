@@ -43,7 +43,7 @@ from src.utils.data import load_medmnist_dataset
 #   128×128 (MedMNIST+): "pneumonia_mnist_128", "oct_mnist_128", ...
 # The image resolution is derived automatically from the dataset name via
 # DATASET_IMAGE_SIZE in src/config.py, or can be overridden with IMAGE_SIZE below.
-DATASET_NAME = "breast_mnist"
+DATASET_NAME = "breast_mnist_64"
 
 # Color space: "RGB", "HSV", or "GRAYSCALE"
 # HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
