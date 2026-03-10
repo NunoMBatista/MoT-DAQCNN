@@ -1,0 +1,39 @@
+# =============================================================================
+# Hyperparameter Search — Original DAQCNN (Single-Kernel) Best 3x3 Topology
+# =============================================================================
+#
+# Goal:
+#   Keep all training/model hyperparameters fixed from the base config and tune
+#   only which single 3x3 quantum kernel topology is used.
+#
+# Recommended base config:
+#   configs/breast_mnist_multi_seed_1_kernel_3x3.yml
+#
+# Usage:
+#   python experiments/hyperparameter_search.py \
+#       --config configs/breast_mnist_multi_seed_1_kernel_3x3.yml \
+#       --search-config configs/hp_search/breast_mnist_original_best_kernel_3x3.yml \
+#       --n-trials 40
+#
+# Notes:
+#   - This search space has 8 categorical choices, so 40 trials gives repeats
+#     for stability under Optuna's sampler.
+#   - Each choice keeps a single topology by setting a one-element list.
+
+settings:
+  metric: test_acc
+  direction: maximize
+  study_name: hp_original_breastmnist_best_kernel_3x3
+
+search_space:
+  model.kernel_topology_names:
+    type: categorical
+    choices:
+      - ["kings"]
+      - ["horizontal"]
+      - ["vertical"]
+      - ["cross"]
+      - ["ring"]
+      - ["chain"]
+      - ["star"]
+      - ["grid"]
