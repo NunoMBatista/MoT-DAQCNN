@@ -1,0 +1,1001 @@
+"""
+Optuna-based hyperparameter search for all MoT-DAQCNN pipelines.
+
+Supports three architectures:
+    - "original"  : Original DAQCNN baseline
+    - "TS-MoE"    : Teacher-Student Mixture-of-Experts
+    - "gumbel"    : Gumbel-Softmax Mixture-of-Experts
+
+Usage:
+    python experiments/hyperparameter_search.py \
+        --config configs/breast_mnist_multi_seed_3kern.yml \
+        --search-config configs/hp_search/breast_mnist_original.yml \
+        --n-trials 50
+
+    # Resume a previous search (SQLite DB is auto-created):
+    python experiments/hyperparameter_search.py \
+        --config configs/breast_mnist_gumbel_3kern.yml \
+        --search-config configs/hp_search/breast_mnist_gumbel.yml \
+        --n-trials 100 \
+        --resume
+
+    # Compare best results across pipelines (after running all three):
+    python experiments/hyperparameter_search.py --compare \
+        outputs/hp_search_original_*/study.db \
+        outputs/hp_search_gumbel_*/study.db \
+        outputs/hp_search_tsmoe_*/study.db
+
+Search Config Format:
+    The search YAML defines which hyperparameters to tune and their ranges.
+    See ``configs/hp_search/`` for examples.  Each entry maps a dotted config
+    path (e.g. ``optim.lr``) to a distribution specification:
+
+        optim.lr:
+            type: loguniform
+            low: 1e-5
+            high: 1e-2
+
+    Supported distribution types:
+        - uniform(low, high)
+        - loguniform(low, high)
+        - int(low, high)             — uniform integer
+        - int(low, high, step)       — stepped integer
+        - categorical(choices)
+        - fixed(value)               — not tuned, but overrides base config
+
+Design:
+    Each Optuna trial runs a *single seed* for speed.  The best top-K
+    configurations found are then validated with full multi-seed runs
+    using the existing ``robust_test_original_daqcnn.py`` script.
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import os
+import random
+import sys
+import time
+import warnings
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import optuna
+import torch
+import yaml
+
+# ---------------------------------------------------------------------------
+# Project path setup
+# ---------------------------------------------------------------------------
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+
+# ---------------------------------------------------------------------------
+# Seed utility
+# ---------------------------------------------------------------------------
+def set_seed(seed: int):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+
+
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
+def load_yaml(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def _deep_set(d: dict, dotted_key: str, value: Any) -> None:
+    """Set a value in a nested dict using a dotted key like ``optim.lr``."""
+    keys = dotted_key.split(".")
+    for key in keys[:-1]:
+        if key not in d or not isinstance(d[key], dict):
+            d[key] = {}
+        d = d[key]
+    d[keys[-1]] = value
+
+
+def _deep_get(d: dict, dotted_key: str, default: Any = None) -> Any:
+    """Get a value from a nested dict using a dotted key."""
+    keys = dotted_key.split(".")
+    for key in keys:
+        if not isinstance(d, dict) or key not in d:
+            return default
+        d = d[key]
+    return d
+
+
+# ---------------------------------------------------------------------------
+# Search-space sampling
+# ---------------------------------------------------------------------------
+def _sample_param(
+    trial: optuna.Trial,
+    name: str,
+    spec: dict,
+) -> Any:
+    """Sample a single hyperparameter from an Optuna trial according to *spec*.
+
+    Args:
+        trial: Current Optuna trial.
+        name: Parameter name (used as the Optuna param identifier).
+        spec: Distribution specification dict with at least a ``type`` key.
+
+    Returns:
+        The sampled value.
+    """
+    dist_type = spec["type"].lower().strip()
+
+    if dist_type in ("uniform", "float"):
+        low = float(spec["low"])
+        high = float(spec["high"])
+        step = spec.get("step")
+        if step is not None:
+            return trial.suggest_float(name, low, high, step=float(step))
+        return trial.suggest_float(name, low, high)
+
+    elif dist_type in ("loguniform", "log_uniform", "logfloat", "log_float"):
+        low = float(spec["low"])
+        high = float(spec["high"])
+        return trial.suggest_float(name, low, high, log=True)
+
+    elif dist_type in ("int", "integer"):
+        low = int(spec["low"])
+        high = int(spec["high"])
+        step = int(spec.get("step", 1))
+        log = bool(spec.get("log", False))
+        if log:
+            return trial.suggest_int(name, low, high, log=True)
+        return trial.suggest_int(name, low, high, step=step)
+
+    elif dist_type in ("categorical", "cat", "choice"):
+        choices = spec["choices"]
+        return trial.suggest_categorical(name, choices)
+
+    elif dist_type == "fixed":
+        # Not tuned — just inject a constant.  Useful for overriding the
+        # base config without creating a new YAML.
+        return spec["value"]
+
+    else:
+        raise ValueError(
+            f"Unknown distribution type '{dist_type}' for parameter '{name}'. "
+            f"Supported: uniform, loguniform, int, categorical, fixed."
+        )
+
+
+def build_trial_config(
+    base_cfg: dict,
+    search_space: dict,
+    trial: optuna.Trial,
+) -> dict:
+    """Create a concrete config dict for this trial by sampling HPs.
+
+    Args:
+        base_cfg: The base YAML config (not mutated).
+        search_space: The ``search_space`` section of the search config.
+        trial: Current Optuna trial.
+
+    Returns:
+        A deep-copied config with sampled values injected.
+    """
+    cfg = copy.deepcopy(base_cfg)
+
+    for dotted_key, spec in search_space.items():
+        value = _sample_param(trial, dotted_key, spec)
+
+        # Handle special yaml None / null conversions
+        if value == "null" or value == "None":
+            value = None
+
+        _deep_set(cfg, dotted_key, value)
+
+    return cfg
+
+
+# ---------------------------------------------------------------------------
+# Objective functions (one per pipeline)
+# ---------------------------------------------------------------------------
+
+
+def _run_original_trial(
+    cfg: dict, seed: int, output_dir: str, trial: Any = None
+) -> dict:
+    """Run one trial of the original DAQCNN pipeline."""
+    from src.models.daqcnn_training import run_single_seed
+
+    result = run_single_seed(cfg, seed, output_dir, verbose=False, set_seed_fn=set_seed)
+    return result
+
+
+def _run_gumbel_trial(cfg: dict, seed: int, output_dir: str, trial: Any = None) -> dict:
+    """Run one trial of the Gumbel-Softmax MoE pipeline."""
+    from src.models.gumbel_moe_training import run_gumbel_moe
+
+    result = run_gumbel_moe(cfg, seed, output_dir, verbose=False, set_seed_fn=set_seed)
+    return result
+
+
+def _run_ts_moe_trial(cfg: dict, seed: int, output_dir: str, trial: Any = None) -> dict:
+    """Run one trial of the TS-MoE pipeline.
+
+    Returns a flattened result dict with the final classifier metrics.
+    """
+    from src.models.train_ts_moe import run_ts_moe_pipeline
+
+    ts_result = run_ts_moe_pipeline(cfg, seed, output_dir, verbose=False)
+
+    # Flatten to standard form
+    final = ts_result["final"]
+    summary = ts_result["summary"]
+
+    result = {
+        "seed": seed,
+        "train_losses": final.get("train_losses", []),
+        "val_losses": final.get("val_losses", []),
+        "train_accs": final.get("train_accs", []),
+        "val_accs": final.get("val_accs", []),
+        "test_loss": final.get("test_loss"),
+        "test_acc": final.get("test_acc"),
+        "test_auc": final.get("test_auc"),
+        "test_f1": final.get("test_f1"),
+        "test_recall": final.get("test_recall"),
+        "teacher_test_acc": summary.get("teacher_test_acc"),
+        "student_agreement": summary.get("student_agreement"),
+        "pipeline_time_s": summary.get("pipeline_time_s"),
+    }
+    return result
+
+
+# Map from architecture name to runner function
+_RUNNERS = {
+    "original": _run_original_trial,
+    "TS-MoE": _run_ts_moe_trial,
+    "ts-moe": _run_ts_moe_trial,
+    "ts_moe": _run_ts_moe_trial,
+    "gumbel": _run_gumbel_trial,
+}
+
+
+# ---------------------------------------------------------------------------
+# Main objective
+# ---------------------------------------------------------------------------
+
+
+class HPSearchObjective:
+    """Callable Optuna objective that wraps any pipeline.
+
+    Attributes:
+        base_cfg: The base YAML config (unmutated template).
+        search_space: Dict mapping dotted config keys to distribution specs.
+        architecture: One of "original", "TS-MoE", "gumbel".
+        seed: Fixed seed used for every trial (single-seed exploration).
+        output_root: Root output directory for all trials.
+        metric: Which metric to optimise (e.g. "test_acc", "test_auc").
+        direction: "maximize" or "minimize".
+    """
+
+    def __init__(
+        self,
+        base_cfg: dict,
+        search_space: dict,
+        architecture: str,
+        seed: int,
+        output_root: str,
+        metric: str = "test_acc",
+    ):
+        self.base_cfg = base_cfg
+        self.search_space = search_space
+        self.architecture = architecture
+        self.seed = seed
+        self.output_root = output_root
+        self.metric = metric
+
+        runner = _RUNNERS.get(architecture)
+        if runner is None:
+            raise ValueError(
+                f"Unknown architecture '{architecture}'. "
+                f"Supported: {list(_RUNNERS.keys())}"
+            )
+        self._runner = runner
+
+    def __call__(self, trial: optuna.Trial) -> float:
+        """Run one trial and return the objective value."""
+        t_start = time.time()
+
+        # 1. Build config for this trial
+        cfg = build_trial_config(self.base_cfg, self.search_space, trial)
+
+        # Force single seed (fast exploration)
+        cfg.setdefault("misc", {})["seed"] = self.seed
+
+        # 2. Create trial output directory
+        trial_dir = os.path.join(self.output_root, f"trial_{trial.number:04d}")
+        os.makedirs(trial_dir, exist_ok=True)
+
+        # Save the trial config for reproducibility
+        trial_cfg_path = os.path.join(trial_dir, "config.yml")
+        with open(trial_cfg_path, "w") as f:
+            yaml.dump(cfg, f, default_flow_style=False)
+
+        # 3. Run the pipeline
+        try:
+            result = self._runner(cfg, self.seed, trial_dir, trial)
+        except Exception as e:
+            # Log the error and tell Optuna to prune / fail this trial
+            error_path = os.path.join(trial_dir, "error.txt")
+            with open(error_path, "w") as f:
+                import traceback
+
+                f.write(f"Trial {trial.number} failed:\n")
+                f.write(traceback.format_exc())
+            warnings.warn(f"Trial {trial.number} failed: {e}")
+            raise optuna.TrialPruned(f"Trial failed: {e}")
+
+        # 4. Extract the objective metric
+        obj_value = result.get(self.metric)
+        if obj_value is None:
+            warnings.warn(
+                f"Trial {trial.number}: metric '{self.metric}' is None. "
+                f"Available keys: {list(result.keys())}"
+            )
+            raise optuna.TrialPruned(f"Metric '{self.metric}' is None")
+
+        # 5. Store extra info as user attributes for later analysis
+        trial.set_user_attr("test_acc", result.get("test_acc"))
+        trial.set_user_attr("test_auc", result.get("test_auc"))
+        trial.set_user_attr("test_f1", result.get("test_f1"))
+        trial.set_user_attr("test_loss", result.get("test_loss"))
+        trial.set_user_attr("test_recall", result.get("test_recall"))
+        trial.set_user_attr("duration_s", time.time() - t_start)
+
+        # Store loss curves for the learning-curve plot
+        train_losses = result.get("train_losses", [])
+        val_losses = result.get("val_losses", [])
+        if train_losses:
+            trial.set_user_attr("train_losses", train_losses)
+        if val_losses:
+            trial.set_user_attr("val_losses", val_losses)
+
+        # TS-MoE specific
+        if self.architecture in ("TS-MoE", "ts-moe", "ts_moe"):
+            trial.set_user_attr("teacher_test_acc", result.get("teacher_test_acc"))
+            trial.set_user_attr("student_agreement", result.get("student_agreement"))
+
+        # Save result summary
+        result_summary = {
+            k: v
+            for k, v in result.items()
+            if k
+            not in (
+                "test_probs",
+                "test_labels",
+                "test_confusion_matrix",
+                "train_losses",
+                "val_losses",
+                "train_accs",
+                "val_accs",
+                "routing_history",
+                "tau_history",
+                "entropy_history",
+                "task_losses_history",
+                "budget_losses_history",
+                "model_metadata",
+            )
+        }
+        result_path = os.path.join(trial_dir, "result.json")
+        with open(result_path, "w") as f:
+            json.dump(result_summary, f, indent=2, default=str)
+
+        elapsed = time.time() - t_start
+        print(
+            f"  Trial {trial.number:4d} | "
+            f"{self.metric}={obj_value:.4f} | "
+            f"acc={result.get('test_acc', 0):.4f} "
+            f"auc={result.get('test_auc', 0):.4f} "
+            f"f1={result.get('test_f1', 0):.4f} | "
+            f"{elapsed:.1f}s"
+        )
+
+        return float(obj_value)
+
+
+# ---------------------------------------------------------------------------
+# Multi-seed validation of top-K configs
+# ---------------------------------------------------------------------------
+
+
+def validate_top_k(
+    study: optuna.Study,
+    base_cfg: dict,
+    search_space_keys: List[str],
+    architecture: str,
+    output_dir: str,
+    *,
+    top_k: int = 5,
+    seeds: Optional[List[int]] = None,
+) -> List[dict]:
+    """Re-run the top-K configs with multiple seeds for robust validation.
+
+    Args:
+        study: Completed Optuna study.
+        base_cfg: Base config (template).
+        search_space_keys: List of dotted parameter keys that were tuned.
+        architecture: Architecture name.
+        output_dir: Output directory.
+        top_k: Number of top trials to validate.
+        seeds: Seeds for validation. Defaults to [0, 1, 2, 3, 4].
+
+    Returns:
+        List of dicts with aggregated validation metrics for each config.
+    """
+    if seeds is None:
+        seeds = [0, 1, 2, 3, 4]
+
+    runner = _RUNNERS.get(architecture)
+    if runner is None:
+        raise ValueError(f"Unknown architecture: {architecture}")
+
+    direction = study.direction
+    trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    if direction == optuna.study.StudyDirection.MAXIMIZE:
+        sorted_trials = sorted(
+            trials, key=lambda t: t.value or -float("inf"), reverse=True
+        )
+    else:
+        sorted_trials = sorted(trials, key=lambda t: t.value or float("inf"))
+
+    top_trials = sorted_trials[:top_k]
+    validation_results = []
+
+    print(f"\n{'=' * 60}")
+    print(f"Validating Top-{min(top_k, len(top_trials))} Configurations")
+    print(f"Seeds: {seeds}")
+    print(f"{'=' * 60}\n")
+
+    for rank, trial in enumerate(top_trials, 1):
+        cfg = copy.deepcopy(base_cfg)
+        for key in search_space_keys:
+            if key in trial.params:
+                _deep_set(cfg, key, trial.params[key])
+
+        val_dir = os.path.join(output_dir, f"validation_rank{rank}_trial{trial.number}")
+        os.makedirs(val_dir, exist_ok=True)
+
+        # Save config
+        with open(os.path.join(val_dir, "config.yml"), "w") as f:
+            yaml.dump(cfg, f, default_flow_style=False)
+
+        print(
+            f"  Rank {rank} (trial {trial.number}, search {study.direction.name}={trial.value:.4f})"
+        )
+        print(f"  Params: {trial.params}")
+
+        seed_results = []
+        for seed in seeds:
+            seed_dir = os.path.join(val_dir, f"seed_{seed}")
+            os.makedirs(seed_dir, exist_ok=True)
+            try:
+                set_seed(seed)
+                result = runner(cfg, seed, seed_dir, trial)
+                seed_results.append(result)
+                print(
+                    f"    seed={seed}: acc={result.get('test_acc', 0):.4f} "
+                    f"auc={result.get('test_auc', 0):.4f}"
+                )
+            except Exception as e:
+                print(f"    seed={seed}: FAILED ({e})")
+
+        if not seed_results:
+            continue
+
+        # Aggregate
+        agg: Dict[str, Any] = {
+            "rank": rank,
+            "trial_number": trial.number,
+            "search_value": trial.value,
+            "params": trial.params,
+        }
+        for key in ("test_acc", "test_auc", "test_f1", "test_recall", "test_loss"):
+            vals = [r[key] for r in seed_results if r.get(key) is not None]
+            if vals:
+                agg[key] = {
+                    "mean": float(np.mean(vals)),
+                    "std": float(np.std(vals)),
+                    "values": vals,
+                }
+
+        agg_path = os.path.join(val_dir, "validation_aggregate.json")
+        with open(agg_path, "w") as f:
+            json.dump(agg, f, indent=2, default=str)
+
+        validation_results.append(agg)
+
+        mean_acc = agg.get("test_acc", {}).get("mean", 0)
+        std_acc = agg.get("test_acc", {}).get("std", 0)
+        print(f"  -> Validated: acc={mean_acc:.4f} +/- {std_acc:.4f}\n")
+
+    return validation_results
+
+
+# ---------------------------------------------------------------------------
+# Pipeline comparison mode
+# ---------------------------------------------------------------------------
+
+
+def compare_studies(db_paths: List[str], output_dir: str):
+    """Load multiple study databases and generate a comparison radar chart.
+
+    Args:
+        db_paths: Paths to Optuna SQLite study databases.
+        output_dir: Where to save the comparison plots.
+    """
+    from src.utils.hp_search_plots import (
+        plot_pipeline_comparison_radar,
+    )
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    pipeline_results: Dict[str, Dict[str, float]] = {}
+
+    for db_path in db_paths:
+        storage = f"sqlite:///{os.path.abspath(db_path)}"
+        try:
+            summaries = optuna.study.get_all_study_summaries(storage=storage)
+            if not summaries:
+                print(f"No studies found in {db_path}")
+                continue
+            study = optuna.load_study(
+                study_name=summaries[0].study_name, storage=storage
+            )
+        except Exception as e:
+            print(f"Failed to load {db_path}: {e}")
+            continue
+
+        name = study.study_name or os.path.basename(os.path.dirname(db_path))
+        best = study.best_trial
+
+        metrics: Dict[str, float] = {}
+        for key in ("test_acc", "test_auc", "test_f1", "test_recall"):
+            val = best.user_attrs.get(key)
+            if val is not None:
+                metrics[key] = float(val)
+
+        if best.value is not None:
+            metrics["objective"] = float(best.value)
+
+        pipeline_results[name] = metrics
+        print(f"Loaded {name}: {metrics}")
+
+    if len(pipeline_results) < 2:
+        print("Need at least 2 studies to compare.")
+        return
+
+    # Generate radar chart
+    radar_path = os.path.join(output_dir, "pipeline_comparison_radar.png")
+    plot_pipeline_comparison_radar(
+        pipeline_results,
+        radar_path,
+        title="Pipeline Comparison — Best HP Configs",
+    )
+    print(f"Radar chart saved to: {radar_path}")
+
+    # Save comparison table
+    table_path = os.path.join(output_dir, "pipeline_comparison.json")
+    with open(table_path, "w") as f:
+        json.dump(pipeline_results, f, indent=2)
+    print(f"Comparison table saved to: {table_path}")
+
+
+# ---------------------------------------------------------------------------
+# Generate best config YAML
+# ---------------------------------------------------------------------------
+
+
+def export_best_config(
+    study: optuna.Study,
+    base_cfg: dict,
+    search_space: dict,
+    output_path: str,
+    *,
+    validation_seeds: Optional[List[int]] = None,
+) -> str:
+    """Export the best trial's config as a ready-to-run YAML file.
+
+    The exported config has the tuned hyperparameters injected into the
+    base config, and uses the validation seeds (or original seeds) for
+    multi-seed runs.
+
+    Args:
+        study: Completed Optuna study.
+        base_cfg: Base config template.
+        search_space: Search space definition.
+        output_path: Where to write the YAML.
+        validation_seeds: Seeds to use in the exported config.
+
+    Returns:
+        Path to the exported YAML.
+    """
+    best = study.best_trial
+    cfg = copy.deepcopy(base_cfg)
+
+    for key in search_space:
+        if key in best.params:
+            _deep_set(cfg, key, best.params[key])
+
+    # Restore multi-seed for final training
+    if validation_seeds:
+        cfg.setdefault("misc", {})["seed"] = validation_seeds
+    else:
+        # Use the original seeds from the base config
+        original_seeds = _deep_get(base_cfg, "misc.seed", [0, 1, 2])
+        cfg.setdefault("misc", {})["seed"] = original_seeds
+
+    with open(output_path, "w") as f:
+        f.write("# Auto-generated by hyperparameter_search.py\n")
+        f.write(f"# Best trial: {best.number} (value={best.value:.6f})\n")
+        f.write(f"# Tuned params: {best.params}\n\n")
+        yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Optuna hyperparameter search for MoT-DAQCNN pipelines",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+
+    # --- Main search mode ---
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to the base YAML config file.",
+    )
+    parser.add_argument(
+        "--search-config",
+        type=str,
+        default=None,
+        help="Path to the search space YAML.",
+    )
+    parser.add_argument(
+        "--n-trials",
+        type=int,
+        default=50,
+        help="Number of Optuna trials to run (default: 50).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Fixed seed for single-seed exploration trials (default: 42).",
+    )
+    parser.add_argument(
+        "--metric",
+        type=str,
+        default=None,
+        help="Metric to optimise (default: from search config or 'test_acc').",
+    )
+    parser.add_argument(
+        "--direction",
+        type=str,
+        default=None,
+        choices=["maximize", "minimize"],
+        help="Optimisation direction (default: from search config or 'maximize').",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume a previous search from the SQLite database.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Output directory. Default: auto-generated under outputs/.",
+    )
+    parser.add_argument(
+        "--study-name",
+        type=str,
+        default=None,
+        help="Optuna study name. Default: auto-generated.",
+    )
+
+    # --- Validation ---
+    parser.add_argument(
+        "--validate-top-k",
+        type=int,
+        default=0,
+        help="After search, validate the top K configs with multi-seed runs.",
+    )
+    parser.add_argument(
+        "--validation-seeds",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Seeds for multi-seed validation (default: 0 1 2 3 4).",
+    )
+
+    # --- Comparison mode ---
+    parser.add_argument(
+        "--compare",
+        nargs="+",
+        default=None,
+        metavar="DB_PATH",
+        help="Compare studies from SQLite DBs and generate radar chart.",
+    )
+
+    # --- Sampler ---
+    parser.add_argument(
+        "--sampler",
+        type=str,
+        default="tpe",
+        choices=["tpe", "random", "cmaes"],
+        help="Optuna sampler (default: tpe).",
+    )
+
+    # --- Misc ---
+    parser.add_argument(
+        "--no-plots",
+        action="store_true",
+        help="Skip generating plots after search.",
+    )
+
+    args = parser.parse_args()
+
+    # === Comparison mode ===
+    if args.compare:
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        cmp_dir = os.path.join("outputs", f"hp_comparison_{ts}")
+        compare_studies(args.compare, cmp_dir)
+        return
+
+    # === Main search mode ===
+    if args.config is None or args.search_config is None:
+        parser.error("--config and --search-config are required for search mode.")
+
+    base_cfg = load_yaml(args.config)
+    search_cfg = load_yaml(args.search_config)
+
+    # Parse search config
+    search_space = search_cfg.get("search_space", {})
+    if not search_space:
+        parser.error("search_space section is empty or missing in search config.")
+
+    # Search settings (can be in the search config or overridden via CLI)
+    search_settings = search_cfg.get("settings", {})
+    metric = args.metric or search_settings.get("metric", "test_acc")
+    direction = args.direction or search_settings.get("direction", "maximize")
+    n_trials = args.n_trials  # CLI always wins
+    seed = args.seed
+
+    # Architecture detection
+    architecture = base_cfg.get("model", {}).get("architecture", "original")
+
+    # Study name
+    dataset_name = base_cfg.get("dataset", {}).get("name", "unknown")
+    dataset_slug = dataset_name.replace("_", "")
+    study_name = (
+        args.study_name
+        or search_settings.get("study_name")
+        or f"hp_{architecture}_{dataset_slug}"
+    )
+
+    # Output directory
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    if args.output_dir:
+        output_dir = args.output_dir
+    else:
+        output_dir = os.path.join(
+            "outputs", f"hp_search_{architecture}_{dataset_slug}_{timestamp}"
+        )
+    os.makedirs(output_dir, exist_ok=True)
+
+    # SQLite storage for persistence / resumption
+    db_path = os.path.join(output_dir, "study.db")
+    storage = f"sqlite:///{os.path.abspath(db_path)}"
+
+    # Print header
+    print("\n" + "=" * 70)
+    print("  Hyperparameter Search")
+    print("=" * 70)
+    print(f"  Architecture:    {architecture}")
+    print(f"  Base config:     {args.config}")
+    print(f"  Search config:   {args.search_config}")
+    print(f"  Dataset:         {dataset_name}")
+    print(f"  Study name:      {study_name}")
+    print(f"  Metric:          {metric} ({direction})")
+    print(f"  Trials:          {n_trials}")
+    print(f"  Seed:            {seed}")
+    print(f"  Sampler:         {args.sampler}")
+    print(f"  Output:          {output_dir}")
+    print(f"  Storage:         {db_path}")
+    print(f"  Resume:          {args.resume}")
+    print(f"  Search space ({len(search_space)} params):")
+    for key, spec in search_space.items():
+        current_val = _deep_get(base_cfg, key)
+        print(f"    {key:40s} {spec}  (base: {current_val})")
+    print("=" * 70 + "\n")
+
+    # Save search config and base config to output dir
+    with open(os.path.join(output_dir, "base_config.yml"), "w") as f:
+        yaml.dump(base_cfg, f, default_flow_style=False)
+    with open(os.path.join(output_dir, "search_config.yml"), "w") as f:
+        yaml.dump(search_cfg, f, default_flow_style=False)
+
+    # --- Build sampler ---
+    if args.sampler == "tpe":
+        sampler = optuna.samplers.TPESampler(seed=seed)
+    elif args.sampler == "random":
+        sampler = optuna.samplers.RandomSampler(seed=seed)
+    elif args.sampler == "cmaes":
+        sampler = optuna.samplers.CmaEsSampler(seed=seed)
+    else:
+        sampler = optuna.samplers.TPESampler(seed=seed)
+
+    # --- Create or load study ---
+    study = optuna.create_study(
+        study_name=study_name,
+        storage=storage,
+        direction=direction,
+        sampler=sampler,
+        load_if_exists=args.resume,
+    )
+
+    existing_trials = len(
+        [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    )
+    if existing_trials > 0:
+        print(f"Resuming study with {existing_trials} existing completed trials.\n")
+
+    # --- Build objective ---
+    trials_dir = os.path.join(output_dir, "trials")
+    os.makedirs(trials_dir, exist_ok=True)
+
+    objective = HPSearchObjective(
+        base_cfg=base_cfg,
+        search_space=search_space,
+        architecture=architecture,
+        seed=seed,
+        output_root=trials_dir,
+        metric=metric,
+    )
+
+    # --- Run optimisation ---
+    t_search_start = time.time()
+
+    study.optimize(
+        objective,
+        n_trials=n_trials,
+        show_progress_bar=True,
+        catch=(Exception,),  # don't crash on individual trial failures
+    )
+
+    search_time = time.time() - t_search_start
+
+    # --- Results summary ---
+    completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    failed = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
+
+    print("\n" + "=" * 70)
+    print("  Search Complete")
+    print("=" * 70)
+    print(f"  Total time:     {search_time:.1f}s ({search_time / 60:.1f} min)")
+    print(f"  Completed:      {len(completed)} / {len(study.trials)} trials")
+    print(f"  Failed/pruned:  {len(failed)}")
+
+    if completed:
+        best = study.best_trial
+        print(f"\n  Best trial:     #{best.number}")
+        print(f"  Best {metric}:  {best.value:.6f}")
+        print("  Best params:")
+        for k, v in best.params.items():
+            if isinstance(v, float):
+                print(f"    {k:40s} = {v:.6g}")
+            else:
+                print(f"    {k:40s} = {v}")
+
+        # Extra metrics from user_attrs
+        extra = {
+            k: best.user_attrs.get(k)
+            for k in ("test_acc", "test_auc", "test_f1", "test_recall", "test_loss")
+            if best.user_attrs.get(k) is not None
+        }
+        if extra:
+            print("  Full metrics:")
+            for k, v in extra.items():
+                print(f"    {k:40s} = {v:.6f}")
+
+    print(f"{'=' * 70}\n")
+
+    # --- Generate plots ---
+    if not args.no_plots and completed:
+        print("Generating visualizations...")
+        from src.utils.hp_search_plots import generate_all_plots
+
+        plots_dir = os.path.join(output_dir, "plots")
+        generate_all_plots(
+            study,
+            plots_dir,
+            study_name=f"{architecture} on {dataset_name}",
+        )
+
+    # --- Export best config ---
+    if completed:
+        best_cfg_path = os.path.join(output_dir, "best_config.yml")
+        validation_seeds = args.validation_seeds or [0, 1, 2, 3, 4]
+        export_best_config(
+            study,
+            base_cfg,
+            search_space,
+            best_cfg_path,
+            validation_seeds=validation_seeds,
+        )
+        print(f"Best config exported to: {best_cfg_path}")
+        print(
+            f"  Run it with:  python experiments/robust_test_original_daqcnn.py "
+            f"--config {best_cfg_path}\n"
+        )
+
+    # --- Validate top-K (optional) ---
+    if args.validate_top_k > 0 and completed:
+        val_dir = os.path.join(output_dir, "validation")
+        os.makedirs(val_dir, exist_ok=True)
+        val_seeds = args.validation_seeds or [0, 1, 2, 3, 4]
+
+        val_results = validate_top_k(
+            study,
+            base_cfg,
+            list(search_space.keys()),
+            architecture,
+            val_dir,
+            top_k=args.validate_top_k,
+            seeds=val_seeds,
+        )
+
+        # Save validation summary
+        val_summary_path = os.path.join(val_dir, "validation_summary.json")
+        with open(val_summary_path, "w") as f:
+            json.dump(val_results, f, indent=2, default=str)
+        print(f"Validation summary saved to: {val_summary_path}")
+
+    # --- Save final study summary ---
+    best = study.best_trial if completed else None
+    summary = {
+        "study_name": study_name,
+        "architecture": architecture,
+        "dataset": dataset_name,
+        "metric": metric,
+        "direction": direction,
+        "n_trials_requested": n_trials,
+        "n_trials_completed": len(completed),
+        "n_trials_failed": len(failed),
+        "search_time_s": search_time,
+        "best_trial": best.number if best is not None else None,
+        "best_value": best.value if best is not None else None,
+        "best_params": best.params if best is not None else None,
+        "db_path": db_path,
+    }
+    summary_path = os.path.join(output_dir, "search_summary.json")
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2, default=str)
+
+    print(f"\nAll outputs saved to: {output_dir}")
+    print("Search complete!")
+
+
+if __name__ == "__main__":
+    main()

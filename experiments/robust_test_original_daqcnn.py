@@ -67,8 +67,15 @@ def main():
     # Create output directory
     os.makedirs("outputs", exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    prefix = "ts_moe" if architecture == "TS-MoE" else "run"
-    output_dir = os.path.join("outputs", f"{prefix}_{timestamp}")
+    if architecture == "TS-MoE":
+        prefix = "ts_moe"
+    elif architecture == "gumbel":
+        prefix = "gumbel"
+    else:
+        prefix = "run"
+    dataset_name = cfg.get("dataset", {}).get("name", "unknown")
+    dataset_slug = dataset_name.replace("_", "")
+    output_dir = os.path.join("outputs", f"{prefix}_{dataset_slug}_{timestamp}")
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"Output directory: {output_dir}\n")
@@ -132,6 +139,12 @@ def main():
                 "speedup_factor": summary.get("speedup_factor"),
                 "pipeline_time_s": summary.get("pipeline_time_s"),
             }
+        elif architecture == "gumbel":
+            from src.models.gumbel_moe_training import run_gumbel_moe
+
+            result = run_gumbel_moe(
+                cfg, seed, output_dir, verbose=(len(seeds) == 1), set_seed_fn=set_seed
+            )
         else:
             result = run_single_seed(
                 cfg, seed, output_dir, verbose=(len(seeds) == 1), set_seed_fn=set_seed

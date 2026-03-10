@@ -295,7 +295,9 @@ def main():
     # Output directory
     os.makedirs("outputs", exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join("outputs", f"ts_moe_{timestamp}")
+    dataset_name = cfg.get("dataset", {}).get("name", "unknown")
+    dataset_slug = dataset_name.replace("_", "")
+    output_dir = os.path.join("outputs", f"ts_moe_{dataset_slug}_{timestamp}")
     os.makedirs(output_dir, exist_ok=True)
 
     # Save config

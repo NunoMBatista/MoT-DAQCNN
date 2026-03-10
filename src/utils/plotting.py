@@ -184,30 +184,166 @@ def plot_routing_ratio_over_epochs(routing_history, kernel_names, save_path):
     plt.close()
 
 
+def plot_routing_prob_histogram(routing_probs_dict, epoch, save_path, num_bins=20):
+    """Plot soft routing probability distribution for all kernels (Gumbel-Softmax).
+
+    This is the Gumbel analog of ``plot_alpha_histogram_combined``. Each kernel's
+    soft routing probabilities are drawn as a separate histogram with a different
+    color, overlaid on the same plot.
+
+    The shape of the distribution is diagnostic:
+        - **Bimodal** (peaks at 0 and 1): decisive routing — the router is
+          confidently assigning patches to specific kernels.
+        - **Uniform / bell-shaped**: indecisive routing — the router is confused
+          or temperature is too high.
+        - **Single peak at 1/K**: collapsed / uniform routing — no specialisation.
+
+    Args:
+        routing_probs_dict: Dict mapping kernel_name -> 1-D array/tensor of soft
+            routing probabilities for that kernel across all patches. Values in
+            [0, 1].
+        epoch: Current training epoch (for the title).
+        save_path: Where to save the PNG.
+        num_bins: Number of histogram bins.
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    colors = ["steelblue", "coral", "seagreen", "purple", "orange", "pink"]
+
+    plt.figure(figsize=(10, 6))
+
+    for idx, (kernel_name, prob_values) in enumerate(routing_probs_dict.items()):
+        if hasattr(prob_values, "numpy"):
+            prob_values = prob_values.cpu().numpy()
+        prob_values = np.asarray(prob_values).ravel()
+
+        color = colors[idx % len(colors)]
+        plt.hist(
+            prob_values,
+            bins=num_bins,
+            range=(0.0, 1.0),
+            alpha=0.5,
+            label=kernel_name,
+            color=color,
+            edgecolor="black",
+            linewidth=0.5,
+        )
+
+    num_kernels = len(routing_probs_dict)
+    if num_kernels > 1:
+        uniform_val = 1.0 / num_kernels
+        plt.axvline(
+            uniform_val,
+            color="gray",
+            linestyle="--",
+            linewidth=1,
+            alpha=0.6,
+            label=f"1/K = {uniform_val:.2f} (uniform)",
+        )
+
+    plt.xlabel("Soft routing probability", fontsize=12)
+    plt.ylabel("Number of patches", fontsize=12)
+    plt.title(
+        f"Gumbel soft routing probability distribution (epoch {epoch})", fontsize=13
+    )
+    plt.xlim(-0.05, 1.05)
+    plt.legend(loc="upper right", fontsize=10)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+
+
+def plot_tau_entropy_curve(tau_history, entropy_history, save_path):
+    """Plot Gumbel temperature (tau) and normalized router entropy over epochs.
+
+    Uses a dual y-axis: left for tau (log scale), right for normalized entropy
+    (linear, 0-1). This is the single most important diagnostic for tuning
+    Gumbel-Softmax annealing — you want to see entropy decrease as tau
+    decreases, confirming that lower temperature drives more decisive routing.
+
+    Args:
+        tau_history: List of floats — Gumbel temperature at each epoch.
+        entropy_history: List of floats — normalized router entropy at each
+            epoch (range [0, 1]).
+        save_path: Where to save the PNG.
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    epochs = range(1, len(tau_history) + 1)
+
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+
+    # Left axis: tau (log scale)
+    color_tau = "tab:blue"
+    ax1.set_xlabel("Epoch", fontsize=12)
+    ax1.set_ylabel("Temperature (τ)", color=color_tau, fontsize=12)
+    ax1.plot(epochs, tau_history, color=color_tau, linewidth=2, label="τ (temperature)")
+    ax1.set_yscale("log")
+    ax1.tick_params(axis="y", labelcolor=color_tau)
+    ax1.grid(True, alpha=0.3)
+
+    # Right axis: entropy (linear 0-1)
+    ax2 = ax1.twinx()
+    color_ent = "tab:red"
+    ax2.set_ylabel("Normalized entropy", color=color_ent, fontsize=12)
+    ax2.plot(
+        epochs,
+        entropy_history,
+        color=color_ent,
+        linewidth=2,
+        linestyle="--",
+        label="Entropy (normalized)",
+    )
+    ax2.set_ylim(-0.05, 1.05)
+    ax2.tick_params(axis="y", labelcolor=color_ent)
+
+    # Combined legend
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=10)
+
+    plt.title("Gumbel temperature & router entropy over training", fontsize=14)
+    fig.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+
+
 # ---------------------------------------------------------------------------
 # Standard plotting functions
 # ---------------------------------------------------------------------------
 
 
 def plot_loss_curves(
-    train_losses, val_losses, save_path, ce_losses=None, ent_losses=None
+    train_losses,
+    val_losses,
+    save_path,
+    ce_losses=None,
+    ent_losses=None,
+    ce_label="CE Loss",
+    ent_label="λ·Entropy Loss",
 ):
     """Plot training and validation loss curves.
 
     The blue (train) and red (val) lines show the **joint** loss that the
-    optimiser actually minimises (CE + λ·entropy for the Teacher).  When
-    ``ce_losses`` and/or ``ent_losses`` are provided, additional lines are
-    drawn so you can see how each component evolves independently:
+    optimiser actually minimises (CE + regulariser).  When ``ce_losses``
+    and/or ``ent_losses`` are provided, additional lines are drawn so you
+    can see how each component evolves independently:
 
-        - **Yellow** — pure cross-entropy component
-        - **Green**  — pure entropy regularisation component
+        - **Yellow** — pure cross-entropy / task-loss component
+        - **Green**  — regularisation component (entropy for Teacher,
+          budget/sparsity for Gumbel-Softmax, etc.)
 
     Args:
         train_losses: List of training losses per epoch (joint loss).
         val_losses: List of validation losses per epoch (joint loss).
         save_path: Path to save the plot.
         ce_losses: Optional list of per-epoch CE-only losses (yellow line).
-        ent_losses: Optional list of per-epoch entropy-only losses (green line).
+        ent_losses: Optional list of per-epoch regulariser losses (green line).
+        ce_label: Legend label for the CE component line (default ``"CE Loss"``).
+        ent_label: Legend label for the regulariser component line
+            (default ``"λ·Entropy Loss"``).  Pass e.g. ``"Budget Loss"`` for
+            the Gumbel-Softmax pipeline.
     """
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
@@ -223,7 +359,7 @@ def plot_loss_curves(
             ce_losses,
             color="#DAA520",
             linestyle="-",
-            label="CE Loss",
+            label=ce_label,
             linewidth=1.5,
             alpha=0.85,
         )
@@ -233,7 +369,7 @@ def plot_loss_curves(
             ent_losses,
             color="green",
             linestyle="-",
-            label="λ·Entropy Loss",
+            label=ent_label,
             linewidth=1.5,
             alpha=0.85,
         )
@@ -254,23 +390,30 @@ def plot_multi_seed_loss_curves(
     save_path,
     all_ce_losses=None,
     all_ent_losses=None,
+    ce_label="CE Loss",
+    ent_label="Entropy Loss",
 ):
     """Plot loss curves with mean and std across multiple seeds.
 
     When ``all_ce_losses`` and/or ``all_ent_losses`` are supplied (one list
     per seed, same as the joint losses), additional mean ± std bands are
-    drawn so you can see how the individual Teacher loss components behave
-    across seeds:
+    drawn so you can see how the individual loss components behave across
+    seeds:
 
-        - **Yellow band** — CE-only component
-        - **Green band**  — entropy regularisation component
+        - **Yellow band** — CE / task-loss component
+        - **Green band**  — regularisation component (entropy for Teacher,
+          budget/sparsity for Gumbel-Softmax, etc.)
 
     Args:
         all_train_losses: List of lists, each inner list is train losses for one seed.
         all_val_losses: List of lists, each inner list is val losses for one seed.
         save_path: Path to save the plot.
         all_ce_losses: Optional list of lists — per-seed CE-only losses.
-        all_ent_losses: Optional list of lists — per-seed entropy-only losses.
+        all_ent_losses: Optional list of lists — per-seed regulariser losses.
+        ce_label: Legend label for the CE component (default ``"CE Loss"``).
+        ent_label: Legend label for the regulariser component
+            (default ``"Entropy Loss"``).  Pass e.g. ``"Budget Loss"`` for
+            the Gumbel-Softmax pipeline.
     """
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
@@ -313,7 +456,7 @@ def plot_multi_seed_loss_curves(
             ce_mean,
             color="#DAA520",
             linestyle="-",
-            label="CE Loss (mean)",
+            label=f"{ce_label} (mean)",
             linewidth=1.5,
             alpha=0.85,
         )
@@ -335,7 +478,7 @@ def plot_multi_seed_loss_curves(
             ent_mean,
             color="green",
             linestyle="-",
-            label="Entropy Loss (mean)",
+            label=f"{ent_label} (mean)",
             linewidth=1.5,
             alpha=0.85,
         )

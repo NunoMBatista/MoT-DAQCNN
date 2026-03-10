@@ -1,0 +1,86 @@
+# =============================================================================
+# Hyperparameter Search — Original DAQCNN on BreastMNIST
+# =============================================================================
+#
+# Base config: configs/breast_mnist_multi_seed_3kern.yml
+#
+# This search tunes the classical training hyperparameters of the original
+# DAQCNN pipeline.  Quantum parameters (kernel_size, stride, evolution_time,
+# topology names) are left fixed because they require regenerating the
+# quantum dataset cache — tune them manually or in a separate outer loop.
+#
+# Usage:
+#   python experiments/hyperparameter_search.py \
+#       --config configs/breast_mnist_multi_seed_3kern.yml \
+#       --search-config configs/hp_search/breast_mnist_original.yml \
+#       --n-trials 60
+#
+# After the search finishes the best config is exported to
+#   outputs/hp_search_original_breastmnist_<timestamp>/best_config.yml
+# which you can run with:
+#   python experiments/robust_test_original_daqcnn.py --config <best_config.yml>
+
+# ----- Search settings -----
+settings:
+  metric: test_acc          # optimise for test accuracy
+  direction: maximize       # higher is better
+  study_name: null          # auto-generated from architecture + dataset
+
+# ----- Search space -----
+# Each key is a dotted path into the base config.
+# Supported types: uniform, loguniform, int, categorical, fixed
+search_space:
+
+  # === Optimizer ===
+
+  # Learning rate is almost always the most impactful HP.
+  # Log-uniform covers several orders of magnitude efficiently.
+  optim.lr:
+    type: loguniform
+    low:  1.0e-5
+    high: 5.0e-3
+
+  # Weight decay — regularisation strength.
+  # 0 is a valid choice (included via the low end of log scale).
+  optim.weight_decay:
+    type: loguniform
+    low:  1.0e-8
+    high: 1.0e-3
+
+  # Gradient clipping — prevents exploding gradients.
+  optim.grad_clip:
+    type: uniform
+    low:  0.5
+    high: 5.0
+
+  # Early-stopping patience.
+  optim.patience:
+    type: int
+    low:  5
+    high: 25
+    step: 5
+
+  # Whether to use cosine annealing LR scheduler.
+  optim.use_scheduler:
+    type: categorical
+    choices: [true, false]
+
+  # === Model (classical head) ===
+
+  # Dropout in the classification head — key regulariser for small datasets.
+  model.dropout:
+    type: uniform
+    low:  0.2
+    high: 0.7
+
+  # Activation function — GELU often outperforms ReLU on small models.
+  model.activation:
+    type: categorical
+    choices: ["relu", "gelu"]
+
+  # === Dataset ===
+
+  # Batch size — affects gradient noise and generalisation.
+  dataset.batch_size:
+    type: categorical
+    choices: [16, 32, 64]
