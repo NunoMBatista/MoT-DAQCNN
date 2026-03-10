@@ -32,6 +32,7 @@ Features:
 import argparse
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -72,20 +73,31 @@ def run_command(cmd: str, log_dir: Path, cmd_idx: int, continue_on_error: bool):
                 bufsize=1
             )
             
-            # Stream output in real-time
-            for line in process.stdout:
-                print(line, end='')
-                log_f.write(line)
-                log_f.flush()
+            # Use threads to read stdout and stderr concurrently (avoids deadlock)
+            def read_stdout():
+                for line in process.stdout:
+                    print(line, end='')
+                    log_f.write(line)
+                    log_f.flush()
             
-            # Capture any stderr
-            stderr_output = process.stderr.read()
-            if stderr_output:
-                err_f.write(stderr_output)
-                print(stderr_output, file=sys.stderr)
+            def read_stderr():
+                for line in process.stderr:
+                    print(line, end='', file=sys.stderr)
+                    err_f.write(line)
+                    err_f.flush()
             
-            # Wait for completion
+            stdout_thread = threading.Thread(target=read_stdout)
+            stderr_thread = threading.Thread(target=read_stderr)
+            
+            stdout_thread.start()
+            stderr_thread.start()
+            
+            # Wait for process to complete
             return_code = process.wait()
+            
+            # Wait for threads to finish reading
+            stdout_thread.join()
+            stderr_thread.join()
             
         elapsed = time.time() - start_time
         
