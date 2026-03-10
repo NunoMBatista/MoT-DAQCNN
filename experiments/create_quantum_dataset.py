@@ -117,14 +117,14 @@ EVOLUTION_MODE = "trotter"
 
 # PennyLane device to use for simulation.
 # Options: "default.qubit", "lightning.qubit", "lightning.gpu"
-QUANTUM_DEVICE = "lightning.gpu"
+QUANTUM_DEVICE = "lightning.qubit"
 
 # Interface connecting PennyLane to the rest of the pipeline.
 # Options: "autograd", "torch"
 # lightning.gpu  → must use "autograd"
 # lightning.qubit → "torch" is fastest (see table above)
 # default.qubit  → "autograd" is fastest
-INTERFACE = "autograd"
+INTERFACE = "torch"
 
 # Batch size for processing (adjust based on memory).
 # Benchmark results (lightning.gpu + autograd, 4x4 kernel, breast_mnist):
