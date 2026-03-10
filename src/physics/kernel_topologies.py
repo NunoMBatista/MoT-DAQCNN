@@ -85,6 +85,33 @@ def get_3x3_kernel_set() -> Dict[str, np.ndarray]:
     coords_ring[4] = [FAR, FAR]
     kernels["ring"] = coords_ring
 
+    # Linear chain - qubits arranged in a line 0→1→2→3→4→5→6→7→8
+    # Each qubit only couples to its immediate neighbors
+    coords_chain = np.zeros((9, 2), dtype=float)
+    for i in range(9):
+        coords_chain[i] = [0.0, float(i)]  # All on same row, spaced by 1 unit
+    kernels["chain"] = coords_chain
+
+    # Star topology - center qubit (4) at origin, all others at distance 1
+    # Only hub-spoke connections (no connections between spokes)
+    coords_star = np.zeros((9, 2), dtype=float)
+    coords_star[4] = [0.0, 0.0]  # Center at origin
+    # Place other qubits in a circle around center at distance 1
+    angles = np.linspace(0, 2 * np.pi, 9, endpoint=False)
+    spoke_idx = [0, 1, 2, 3, 5, 6, 7, 8]  # All except center
+    for i, idx in enumerate(spoke_idx):
+        coords_star[idx] = [np.cos(angles[i]), np.sin(angles[i])]
+    kernels["star"] = coords_star
+
+    # 2D Grid (nearest neighbors only - weakened diagonals)
+    # Scale up uniformly to increase diagonal distance relative to nearest neighbors
+    # At r=1.5: nearest J=1/1.5^6≈0.088 (still decent coupling)
+    # At r=√2*1.5≈2.12: diagonal J=1/2.12^6≈0.011 (negligible ~12% of nearest)
+    # This creates 12 strong nearest-neighbor pairs + 16 weak diagonal pairs
+    coords_grid = base.copy()
+    coords_grid *= 1.5
+    kernels["grid"] = coords_grid
+
     return kernels
 
 

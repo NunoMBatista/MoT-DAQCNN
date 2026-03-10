@@ -43,7 +43,7 @@ from src.utils.data import load_medmnist_dataset
 #   128×128 (MedMNIST+): "pneumonia_mnist_128", "oct_mnist_128", ...
 # The image resolution is derived automatically from the dataset name via
 # DATASET_IMAGE_SIZE in src/config.py, or can be overridden with IMAGE_SIZE below.
-DATASET_NAME = "breast_mnist_64"
+DATASET_NAME = "breast_mnist"
 
 # Color space: "RGB", "HSV", or "GRAYSCALE"
 # HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
@@ -59,21 +59,24 @@ COLOR_SPACE = "GRAYSCALE"
 IMAGE_SIZE = None  # None = auto-infer from DATASET_NAME
 
 # Kernel size: 2, 3, or 4
-KERNEL_SIZE = 4
+KERNEL_SIZE = 3
 
 # Stride for the convolution (use kernel_size for non-overlapping patches)
-STRIDE = 4
+STRIDE = 3
 
 # Which topologies to use
 # For 2x2: ["kings", "horizontal", "vertical", "u_shape"]
-# For 3x3: ["kings", "horizontal", "vertical", "cross", "ring"]
+# For 3x3: ["kings", "horizontal", "vertical", "cross", "ring", "chain", "star", "grid"]
 # For 4x4: ["kings", "horizontal_chains", "vertical_chains", "diagonal_chains", "block_2x2"]
 KERNEL_TOPOLOGY_NAMES = [
     "kings",
-    "horizontal_chains",
-    "vertical_chains",
-    "diagonal_chains",
-    "block_2x2",
+    "horizontal",
+    "vertical",
+    "cross",
+    "ring",
+    "chain",
+    "star",
+    "grid",
 ]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
