@@ -1,0 +1,50 @@
+# TissueMNIST with single-kernel DAQCNN — 3×3 "horizontal" topology only
+#
+# This config uses only the "horizontal" topology for baseline comparison.
+# Useful for understanding which single topology works best alone.
+#
+# Dataset properties:
+#   Task:       8-class multi-class (kidney tissue histology)
+#   Resolution: 28×28 grayscale
+#   n_train:    165,466   n_val: 23,640   n_test: 47,280
+#   Imbalance:  9.0× (Collecting Duct: 53k vs Glomerular: 5.9k)
+#
+# Quantum feature map:
+#   3×3 kernel, stride 3 → 9×9 = 81 spatial positions per image
+#   1 topology × 9 qubits = 9 channels total (vs 36 with 4 topologies)
+
+dataset:
+  name: tissue_mnist
+  data_root: ./data
+  batch_size: 64
+  num_workers: 4
+  download: true
+  color_space: GRAYSCALE
+
+model:
+  num_classes: 8
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["horizontal"]  # Single topology only
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  dropout: 0.5
+  activation: gelu
+  quantum_device: default.qubit
+  quantum_device_kwargs: {}
+  classical_device: auto
+
+optim:
+  lr: 1e-4
+  weight_decay: 1e-6
+  epochs: 100
+  grad_clip: 1.0
+  patience: 15
+  use_scheduler: true
+  scheduler_T_max: 100
+  scheduler_eta_min: 0.0
+
+misc:
+  seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  log_every: 50

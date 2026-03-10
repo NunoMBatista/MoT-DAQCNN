@@ -24,11 +24,11 @@ model:
 optim:
     lr: 1e-3
     weight_decay: 0.0
-    epochs: 5
+    epochs: 100
     grad_clip: 1.0
     patience: 10
     use_scheduler: true
-    scheduler_T_max: 5
+    scheduler_T_max: 100
     scheduler_eta_min: 1e-5
 
 misc:

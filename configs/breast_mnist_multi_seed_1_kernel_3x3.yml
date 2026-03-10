@@ -10,7 +10,7 @@ model:
   num_classes: 2
   kernel_size: 3
   stride: 3
-  kernel_topology_names: ["kings", "horizontal", "cross", "ring"]
+  kernel_topology_names: ["horizontal"]
   scaling_factor: 1.0
   evolution_time: 2.5
   mode: trotter

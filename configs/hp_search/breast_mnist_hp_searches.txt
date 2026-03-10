@@ -1,0 +1,41 @@
+# BreastMNIST Hyperparameter Search — All Architectures & Kernel Variants
+# =========================================================================
+#
+# Usage:
+#   python3 batch_runner.py configs/hp_search/breast_mnist_hp_searches.txt
+
+# =============================================================================
+# Original DAQCNN — Single Kernels (Baselines)
+# =============================================================================
+
+# Single kernel: Kings only
+python experiments/hyperparameter_search.py --config configs/breast_mnist_single_kernel_kings_1_kernel_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 60
+
+# Single kernel: Horizontal only
+python experiments/hyperparameter_search.py --config configs/breast_mnist_single_kernel_horizontal_1_kernel_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 60
+
+# =============================================================================
+# Original DAQCNN — Multi-Kernel (1 kernel - baseline)
+# =============================================================================
+
+python experiments/hyperparameter_search.py --config configs/breast_mnist_multi_seed_1_kernel_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 60
+
+# =============================================================================
+# Teacher-Student MoE
+# =============================================================================
+
+# TS-MoE with 2 kernels
+python experiments/hyperparameter_search.py --config configs/breast_mnist_ts_moe_2_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_ts_moe.yml --n-trials 80
+
+# TS-MoE with 4 kernels
+python experiments/hyperparameter_search.py --config configs/breast_mnist_ts_moe_4_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_ts_moe.yml --n-trials 80
+
+# =============================================================================
+# Gumbel-Softmax MoE
+# =============================================================================
+
+# Gumbel with 2 kernels
+python experiments/hyperparameter_search.py --config configs/breast_mnist_gumbel_2_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_gumbel.yml --n-trials 80
+
+# Gumbel with 4 kernels
+python experiments/hyperparameter_search.py --config configs/breast_mnist_gumbel_4_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_gumbel.yml --n-trials 80

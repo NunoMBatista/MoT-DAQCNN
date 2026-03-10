@@ -5,7 +5,6 @@
 #   - GumbelRouterBlock samples soft/hard masks via Gumbel-Softmax
 #   - Classification head operates on masked quantum features
 #
-# 2-kernel variant: kings + horizontal
 
 dataset:
   name: breast_mnist
@@ -20,7 +19,7 @@ model:
   num_classes: 2
   kernel_size: 3
   stride: 3
-  kernel_topology_names: ["kings", "horizontal"]
+  kernel_topology_names: ["kings", "horizontal", "cross", "ring"]
   scaling_factor: 1.0
   evolution_time: 2.5
   mode: trotter

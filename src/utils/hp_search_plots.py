@@ -235,11 +235,13 @@ def plot_parallel_coordinates(
         row = []
         for p in all_params:
             v = t.params.get(p, np.nan)
-            # Convert booleans / strings to numeric
+            # Convert booleans / strings / lists to numeric
             if isinstance(v, bool):
                 v = int(v)
             elif isinstance(v, str):
                 v = hash(v) % 1000  # rough numeric encoding
+            elif isinstance(v, (list, tuple)):
+                v = hash(str(v)) % 1000  # convert list/tuple to numeric
             row.append(v)
         data_rows.append(row)
         obj_values.append(t.value)
@@ -326,6 +328,8 @@ def plot_hp_importances(
                     v = float(v)
                 elif isinstance(v, str):
                     v = float(hash(v) % 10000)
+                elif isinstance(v, (list, tuple)):
+                    v = float(hash(str(v)) % 10000)
                 vals.append(float(v) if v is not None else np.nan)
             arr = np.array(vals)
             valid = ~np.isnan(arr)
@@ -463,6 +467,8 @@ def plot_contour_plots(
                 v2 = int(v2)
             if isinstance(v1, str) or isinstance(v2, str):
                 continue  # skip string params in scatter
+            if isinstance(v1, (list, tuple)) or isinstance(v2, (list, tuple)):
+                continue  # skip list params in scatter
             x_vals.append(float(v1))
             y_vals.append(float(v2))
             c_vals.append(t.value)
@@ -557,6 +563,9 @@ def plot_slice_plots(
                 v = int(v)
             elif isinstance(v, str):
                 is_categorical = True
+            elif isinstance(v, (list, tuple)):
+                is_categorical = True
+                v = str(v)  # convert to string for categorical handling
             x_vals.append(v)
             y_vals.append(t.value)
 

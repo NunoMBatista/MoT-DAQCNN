@@ -1,0 +1,84 @@
+# TissueMNIST with Gumbel-Softmax Mixture-of-Experts (GS-MoE) — 3×3 kernels
+#
+# This config runs a single-phase GS-MoE pipeline:
+#   - RouterNetwork (MLP) produces per-patch routing logits over K kernels
+#   - GumbelRouterBlock samples soft/hard masks via Gumbel-Softmax
+#   - Classification head operates on masked quantum features
+#
+# Dataset properties:
+#   Task:       8-class multi-class (kidney tissue histology)
+#   Resolution: 28×28 grayscale
+#   n_train:    165,466   n_val: 23,640   n_test: 47,280
+#   Imbalance:  9.0× (Collecting Duct: 53k vs Glomerular: 5.9k)
+#
+# Quantum feature map:
+#   3×3 kernel, stride 3 → 9×9 = 81 spatial positions per image
+#   4 topologies × 9 qubits = 36 channels total
+#
+# Key differences vs binary datasets (breast/pneumonia):
+#
+#   8-class classification
+#     → Router MLP may need more capacity to learn per-patch routing
+#     → Temperature annealing may need to be slower (100 epochs vs 80)
+#     → Patience: 18 (vs 15) to allow for plateau-then-improve behavior
+#
+#   9× class imbalance
+#     → sparsity_weight: 0.005 (lower than 0.01 to avoid always routing to
+#       the common class; let the model explore more before committing)
+#     → weight_decay: 1e-6 (stronger regularization than binary)
+#
+#   165k training images
+#     → batch_size: 64 (larger batches stabilize Gumbel sampling noise)
+#     → num_workers: 4 (more data loading parallelism)
+#     → use_scheduler: true (helps convergence on large dataset)
+#
+
+dataset:
+  name: tissue_mnist
+  data_root: ./data
+  batch_size: 64 # larger batch — 165k images, GPU can handle it
+  num_workers: 4
+  download: true
+  color_space: GRAYSCALE
+
+model:
+  architecture: "gumbel"
+  num_classes: 8
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["kings", "horizontal", "cross", "ring"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  dropout: 0.5
+  activation: gelu
+  quantum_device: default.qubit
+  quantum_device_kwargs: {}
+  classical_device: auto
+
+gumbel:
+  # --- Router ---
+  router_hidden_dim: null # null = auto (max(M*N, 32))
+  sparsity_weight: 0.005 # lambda for budget loss (lower for 8-class to prevent degenerate routing)
+
+  # --- Temperature annealing ---
+  tau_start: 1.0 # initial Gumbel temperature
+  tau_end: 0.1 # final Gumbel temperature (near-argmax)
+  tau_anneal_epochs: 100 # epochs over which to decay tau exponentially (longer for 8-class)
+
+  # --- Hard switching ---
+  hard_after_epoch: 100 # switch to hard=True (straight-through) after this epoch
+
+optim:
+  lr: 1e-4
+  weight_decay: 1e-6 # slightly stronger regularisation — 8 classes, large dataset
+  epochs: 100
+  grad_clip: 1.0
+  patience: 18 # more patience — Gumbel can plateau then improve after hard switch
+  use_scheduler: true # cosine annealing helps on large dataset
+  scheduler_T_max: 100
+  scheduler_eta_min: 0.0
+
+misc:
+  seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  log_every: 50

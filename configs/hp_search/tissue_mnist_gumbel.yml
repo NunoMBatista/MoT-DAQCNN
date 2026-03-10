@@ -1,0 +1,168 @@
+# =============================================================================
+# Hyperparameter Search — Gumbel-Softmax MoE on TissueMNIST
+# =============================================================================
+#
+# Base config: You'll need to create a tissue_mnist_gumbel_3kern.yml config
+#              following the pattern of configs/breast_mnist_gumbel_3kern.yml
+#
+# The Gumbel-Softmax MoE pipeline has several unique hyperparameters
+# controlling the router network, temperature annealing schedule, budget
+# loss weighting, and hard-switching behaviour.  These interact in
+# non-obvious ways, making Bayesian HP search especially valuable.
+#
+# TissueMNIST specifics:
+#   - 8 classes (vs 2 for breast/pneumonia)
+#     → Router needs more capacity to learn per-patch routing over 8 tissue types
+#     → Temperature annealing may need to be slower to allow convergence
+#   - 165k training images (vs ~600–5k)
+#     → Larger batches are feasible (64–128)
+#     → Each epoch is much longer, so fewer annealing epochs may suffice
+#   - 9× class imbalance
+#     → Sparsity weight tuning is critical (prevent always-route-to-common-class)
+#
+# Quantum parameters (kernel_size, stride, evolution_time, topology names)
+# are left fixed because they require regenerating the quantum dataset
+# cache.  Tune them manually or in a separate outer loop.
+#
+# Usage:
+#   1. First create a base config by adapting the breast_mnist version:
+#      cp configs/breast_mnist_gumbel_3kern.yml configs/tissue_mnist_gumbel_3kern.yml
+#      # Edit dataset.name to "tissue_mnist"
+#      # Edit model.num_classes to 8
+#      # Adjust batch_size, epochs, etc. based on tissue_mnist_multi_seed_3kern.yml
+#
+#   2. Then run the HP search:
+#      python experiments/hyperparameter_search.py \
+#          --config configs/tissue_mnist_gumbel_3kern.yml \
+#          --search-config configs/hp_search/tissue_mnist_gumbel.yml \
+#          --n-trials 100
+#
+# After the search finishes the best config is exported to
+#   outputs/hp_search_gumbel_tissuemnist_<timestamp>/best_config.yml
+# which you can run with:
+#   python experiments/robust_test_original_daqcnn.py --config <best_config.yml>
+
+# ----- Search settings -----
+settings:
+  metric: test_acc          # optimise for test accuracy
+  direction: maximize       # higher is better
+  study_name: null          # auto-generated from architecture + dataset
+
+# ----- Search space -----
+# Each key is a dotted path into the base config.
+# Supported types: uniform, loguniform, int, categorical, fixed
+search_space:
+
+  # =========================================================================
+  # Optimizer
+  # =========================================================================
+
+  # Learning rate — most impactful HP across all pipelines.
+  # 8-class tasks may benefit from slightly higher LRs.
+  optim.lr:
+    type: loguniform
+    low:  1.0e-5
+    high: 1.0e-2
+
+  # Weight decay — L2 regularisation.
+  # Important for 165k images with class imbalance.
+  optim.weight_decay:
+    type: loguniform
+    low:  1.0e-8
+    high: 1.0e-4
+
+  # Gradient clipping — important for Gumbel because the STE gradient
+  # can spike when temperature is very low.
+  optim.grad_clip:
+    type: uniform
+    low:  0.5
+    high: 5.0
+
+  # Early-stopping patience — Gumbel models sometimes plateau then
+  # improve after the hard switch, so a slightly longer patience helps.
+  # 8-class tasks may need even more patience.
+  optim.patience:
+    type: int
+    low:  10
+    high: 40
+    step: 5
+
+  # Whether to use cosine annealing LR scheduler.
+  # Gumbel already has its own temperature schedule, so an LR schedule
+  # on top may or may not help — worth searching.
+  optim.use_scheduler:
+    type: categorical
+    choices: [true, false]
+
+  # =========================================================================
+  # Model (classical head)
+  # =========================================================================
+
+  # Dropout in the classification head.
+  model.dropout:
+    type: uniform
+    low:  0.3
+    high: 0.7
+
+  # Activation function.
+  model.activation:
+    type: categorical
+    choices: ["relu", "gelu"]
+
+  # =========================================================================
+  # Gumbel-specific parameters
+  # =========================================================================
+
+  # --- Budget / sparsity loss ---
+  # Lambda weighting for the L1 budget penalty on routing probabilities.
+  # Too high -> forces degenerate routing (always picks one kernel).
+  # Too low  -> no incentive to specialise.
+  # For 8-class tasks with imbalance, this is especially critical.
+  gumbel.sparsity_weight:
+    type: loguniform
+    low:  1.0e-5
+    high: 0.5
+
+  # --- Temperature annealing ---
+  # Initial Gumbel temperature.  Higher = softer exploration at start.
+  # 8-class tasks may benefit from longer exploration phase.
+  gumbel.tau_start:
+    type: uniform
+    low:  0.5
+    high: 8.0
+
+  # Final Gumbel temperature.  Lower = more discrete / closer to argmax.
+  gumbel.tau_end:
+    type: loguniform
+    low:  0.01
+    high: 0.5
+
+  # Number of epochs over which temperature decays exponentially from
+  # tau_start to tau_end.  Controls how quickly the model commits.
+  # With 165k images, each epoch is long, so we may need fewer anneal epochs.
+  gumbel.tau_anneal_epochs:
+    type: int
+    low:  30
+    high: 120
+    step: 10
+
+  # --- Hard switching ---
+  # Epoch after which to switch to hard (one-hot) routing via STE.
+  # Setting this very high effectively keeps soft routing the whole time.
+  # 8-class tasks may need more epochs to stabilise before hard switch.
+  gumbel.hard_after_epoch:
+    type: int
+    low:  50
+    high: 150
+    step: 10
+
+  # =========================================================================
+  # Dataset
+  # =========================================================================
+
+  # Batch size — with 165k images, larger batches are feasible.
+  # Gumbel sampling adds stochasticity, so larger batches stabilise training.
+  # Larger batches also help see all 8 classes per update.
+  dataset.batch_size:
+    type: categorical
+    choices: [32, 64, 128]

@@ -1,0 +1,50 @@
+# TissueMNIST Hyperparameter Search — All Architectures & Kernel Variants
+# =========================================================================
+#
+# This file contains commands to run hyperparameter searches for all
+# architectures on the TissueMNIST dataset, including single-kernel baselines
+# and 2-kernel variants.
+#
+# Usage:
+#   python3 experiments/batch_runner.py configs/hp_search/tissue_mnist_hp_searches.txt
+#
+# Or run with --dry-run to preview:
+#   python3 experiments/batch_runner.py --dry-run configs/hp_search/tissue_mnist_hp_searches.txt
+#
+# Estimated time: ~48-72 hours total (depending on hardware and n-trials)
+
+# =============================================================================
+# Original DAQCNN — Single Kernels (Baselines)
+# =============================================================================
+
+# Single kernel: Kings only
+python experiments/hyperparameter_search.py --config configs/tissue_mnist_single_kernel_kings_1_kernel_3x3.yml --search-config configs/hp_search/tissue_mnist_single_kernel.yml --n-trials 200
+
+# Single kernel: Horizontal only
+python experiments/hyperparameter_search.py --config configs/tissue_mnist_single_kernel_horizontal_1_kernel_3x3.yml --search-config configs/hp_search/tissue_mnist_single_kernel.yml --n-trials 200
+
+# =============================================================================
+# Original DAQCNN — Multi-Kernel (4 kernels)
+# =============================================================================
+
+python experiments/hyperparameter_search.py --config configs/tissue_mnist_multi_seed_4_kernels_3x3.yml --search-config configs/hp_search/tissue_mnist_original.yml --n-trials 200
+
+# =============================================================================
+# Teacher-Student MoE
+# =============================================================================
+
+# TS-MoE with 2 kernels
+python experiments/hyperparameter_search.py --config configs/tissue_mnist_ts_moe_2_kernels_3x3.yml --search-config configs/hp_search/tissue_mnist_ts_moe.yml --n-trials 200
+
+# TS-MoE with 4 kernels
+python experiments/hyperparameter_search.py --config configs/tissue_mnist_ts_moe_4_kernels_3x3.yml --search-config configs/hp_search/tissue_mnist_ts_moe.yml --n-trials 200
+
+# =============================================================================
+# Gumbel-Softmax MoE
+# =============================================================================
+
+# Gumbel with 2 kernels
+python experiments/hyperparameter_search.py --config configs/tissue_mnist_gumbel_2_kernels_3x3.yml --search-config configs/hp_search/tissue_mnist_gumbel.yml --n-trials 200
+
+# Gumbel with 4 kernels
+python experiments/hyperparameter_search.py --config configs/tissue_mnist_gumbel_4_kernels_3x3.yml --search-config configs/hp_search/tissue_mnist_gumbel.yml --n-trials 200

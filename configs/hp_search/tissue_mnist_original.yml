@@ -1,0 +1,95 @@
+# =============================================================================
+# Hyperparameter Search — Original DAQCNN on TissueMNIST
+# =============================================================================
+#
+# Base config: configs/tissue_mnist_multi_seed_3kern.yml
+#
+# This search tunes the classical training hyperparameters of the original
+# DAQCNN pipeline on the TissueMNIST dataset (8-class kidney tissue histology).
+# Quantum parameters (kernel_size, stride, evolution_time, topology names)
+# are left fixed because they require regenerating the quantum dataset
+# cache — tune them manually or in a separate outer loop.
+#
+# TissueMNIST specifics:
+#   - 8 classes (vs 2 for breast/pneumonia) -> needs more capacity/epochs
+#   - 165k training images (vs ~600–5k) -> larger batches are feasible
+#   - 9× class imbalance -> weight decay / dropout are critical
+#
+# Usage:
+#   python experiments/hyperparameter_search.py \
+#       --config configs/tissue_mnist_multi_seed_3kern.yml \
+#       --search-config configs/hp_search/tissue_mnist_original.yml \
+#       --n-trials 60
+#
+# After the search finishes the best config is exported to
+#   outputs/hp_search_original_tissuemnist_<timestamp>/best_config.yml
+# which you can run with:
+#   python experiments/robust_test_original_daqcnn.py --config <best_config.yml>
+
+# ----- Search settings -----
+settings:
+  metric: test_acc          # optimise for test accuracy
+  direction: maximize       # higher is better
+  study_name: null          # auto-generated from architecture + dataset
+
+# ----- Search space -----
+# Each key is a dotted path into the base config.
+# Supported types: uniform, loguniform, int, categorical, fixed
+search_space:
+
+  # === Optimizer ===
+
+  # Learning rate is almost always the most impactful HP.
+  # Log-uniform covers several orders of magnitude efficiently.
+  # For 8-class tasks, we explore slightly higher LRs than binary.
+  optim.lr:
+    type: loguniform
+    low:  1.0e-5
+    high: 1.0e-2
+
+  # Weight decay — regularisation strength.
+  # Important for 165k images with class imbalance.
+  optim.weight_decay:
+    type: loguniform
+    low:  1.0e-8
+    high: 5.0e-5
+
+  # Gradient clipping — prevents exploding gradients.
+  optim.grad_clip:
+    type: uniform
+    low:  0.5
+    high: 5.0
+
+  # Early-stopping patience.
+  # 8-class convergence is slower than binary, so we allow more patience.
+  optim.patience:
+    type: int
+    low:  10
+    high: 30
+    step: 5
+
+  # Whether to use cosine annealing LR scheduler.
+  optim.use_scheduler:
+    type: categorical
+    choices: [true, false]
+
+  # === Model (classical head) ===
+
+  # Dropout in the classification head — key regulariser for imbalanced data.
+  model.dropout:
+    type: uniform
+    low:  0.3
+    high: 0.7
+
+  # Activation function — GELU often outperforms ReLU on small models.
+  model.activation:
+    type: categorical
+    choices: ["relu", "gelu"]
+
+  # === Dataset ===
+
+  # Batch size — with 165k images, larger batches are feasible.
+  # Larger batches help see all 8 classes per update.
+  dataset.batch_size:
+    type: categorical
+    choices: [32, 64, 128]

@@ -1,0 +1,98 @@
+# =============================================================================
+# Hyperparameter Search — Single-Kernel DAQCNN on TissueMNIST
+# =============================================================================
+#
+# Base config: You'll need to create a tissue_mnist_single_kernel.yml config
+#              with only ONE topology in kernel_topology_names, e.g. ["kings"]
+#
+# This search tunes the classical training hyperparameters for a single-kernel
+# (single quantum topology) version of DAQCNN.  This is useful for:
+#   - Establishing baselines for MoE comparisons
+#   - Understanding which topology works best alone
+#   - Faster experimentation (no routing overhead)
+#
+# TissueMNIST specifics:
+#   - 8 classes (vs 2 for breast/pneumonia) -> needs more capacity/epochs
+#   - 165k training images (vs ~600–5k) -> larger batches are feasible
+#   - 9× class imbalance -> weight decay / dropout are critical
+#
+# Usage:
+#   1. First create a base config with a single topology, e.g.:
+#      cp configs/tissue_mnist_multi_seed_3kern.yml configs/tissue_mnist_single_kernel.yml
+#      # Edit kernel_topology_names to have only one entry: ["kings"]
+#
+#   2. Then run the HP search:
+#      python experiments/hyperparameter_search.py \
+#          --config configs/tissue_mnist_single_kernel.yml \
+#          --search-config configs/hp_search/tissue_mnist_single_kernel.yml \
+#          --n-trials 60
+#
+# After the search finishes the best config is exported to
+#   outputs/hp_search_original_tissuemnist_<timestamp>/best_config.yml
+
+# ----- Search settings -----
+settings:
+  metric: test_acc          # optimise for test accuracy
+  direction: maximize       # higher is better
+  study_name: null          # auto-generated from architecture + dataset
+
+# ----- Search space -----
+# Each key is a dotted path into the base config.
+# Supported types: uniform, loguniform, int, categorical, fixed
+search_space:
+
+  # === Optimizer ===
+
+  # Learning rate — most impactful HP.
+  # For 8-class tasks with a single kernel, we explore a wider range.
+  optim.lr:
+    type: loguniform
+    low:  1.0e-5
+    high: 1.0e-2
+
+  # Weight decay — regularisation strength.
+  # Single kernel has fewer features, so regularisation is even more critical.
+  optim.weight_decay:
+    type: loguniform
+    low:  1.0e-8
+    high: 5.0e-5
+
+  # Gradient clipping — prevents exploding gradients.
+  optim.grad_clip:
+    type: uniform
+    low:  0.5
+    high: 5.0
+
+  # Early-stopping patience.
+  # Single kernel may need more patience to converge on 8 classes.
+  optim.patience:
+    type: int
+    low:  10
+    high: 35
+    step: 5
+
+  # Whether to use cosine annealing LR scheduler.
+  optim.use_scheduler:
+    type: categorical
+    choices: [true, false]
+
+  # === Model (classical head) ===
+
+  # Dropout in the classification head.
+  # May need higher dropout with single kernel to prevent overfitting.
+  model.dropout:
+    type: uniform
+    low:  0.3
+    high: 0.8
+
+  # Activation function.
+  model.activation:
+    type: categorical
+    choices: ["relu", "gelu"]
+
+  # === Dataset ===
+
+  # Batch size — with 165k images, larger batches are feasible.
+  dataset.batch_size:
+    type: categorical
+    choices: [32, 64, 128]
