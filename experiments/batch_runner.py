@@ -49,6 +49,11 @@ def run_command(cmd: str, log_dir: Path, cmd_idx: int, continue_on_error: bool):
     print(f"[{cmd_idx}] Running: {cmd}")
     print(f"{'='*80}")
     
+    # Ensure log directory exists
+    if not log_dir.exists():
+        print(f"ERROR: Log directory does not exist: {log_dir}")
+        raise FileNotFoundError(f"Log directory not found: {log_dir}")
+    
     # Create log files
     log_file = log_dir / f"cmd_{cmd_idx:03d}.log"
     err_file = log_dir / f"cmd_{cmd_idx:03d}.err"
@@ -180,6 +185,7 @@ def main():
     # Create log directory with timestamp
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     log_dir = Path(args.log_dir) / f"run_{timestamp}"
+    log_dir = log_dir.resolve()  # Convert to absolute path
     
     if not args.dry_run:
         log_dir.mkdir(parents=True, exist_ok=True)
