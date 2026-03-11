@@ -15,10 +15,10 @@ python experiments/hyperparameter_search.py --config configs/breast_mnist_single
 python experiments/hyperparameter_search.py --config configs/breast_mnist_single_kernel_horizontal_1_kernel_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 200
 
 # =============================================================================
-# Original DAQCNN — Multi-Kernel (1 kernel - baseline)
+# Original DAQCNN — Multi-Kernel (4 kernels - baseline)
 # =============================================================================
 
-python experiments/hyperparameter_search.py --config configs/breast_mnist_multi_seed_1_kernel_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 200
+python experiments/hyperparameter_search.py --config configs/breast_mnist_multi_seed_4_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 200
 
 # =============================================================================
 # Teacher-Student MoE
