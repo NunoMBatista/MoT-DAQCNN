@@ -21,19 +21,73 @@
 #   - Each choice keeps a single topology by setting a one-element list.
 
 settings:
-  metric: test_acc
-  direction: maximize
-  study_name: hp_original_breastmnist_best_kernel_3x3
+    metric: test_acc
+    direction: maximize
+    study_name: hp_original_breastmnist_best_kernel_3x3
 
 search_space:
-  model.kernel_topology_names:
-    type: categorical
-    choices:
-      - ["kings"]
-      - ["horizontal"]
-      - ["vertical"]
-      - ["cross"]
-      - ["ring"]
-      - ["chain"]
-      - ["star"]
-      - ["grid"]
+    model.kernel_topology_names:
+        type: categorical
+        choices:
+            - ["kings"]
+            - ["horizontal"]
+            - ["vertical"]
+            - ["cross"]
+            - ["ring"]
+            - ["chain"]
+            - ["star"]
+            - ["grid"]
+
+    # === Optimizer ===
+
+    # Learning rate is almost always the most impactful HP.
+    # Log-uniform covers several orders of magnitude efficiently.
+    optim.lr:
+        type: loguniform
+        low: 1.0e-5
+        high: 5.0e-3
+
+    # Weight decay — regularisation strength.
+    # 0 is a valid choice (included via the low end of log scale).
+    optim.weight_decay:
+        type: loguniform
+        low: 1.0e-8
+        high: 1.0e-3
+
+    # Gradient clipping — prevents exploding gradients.
+    optim.grad_clip:
+        type: uniform
+        low: 0.5
+        high: 5.0
+
+    # Early-stopping patience.
+    optim.patience:
+        type: int
+        low: 5
+        high: 25
+        step: 5
+
+    # Whether to use cosine annealing LR scheduler.
+    optim.use_scheduler:
+        type: categorical
+        choices: [true, false]
+
+    # === Model (classical head) ===
+
+    # Dropout in the classification head — key regulariser for small datasets.
+    model.dropout:
+        type: uniform
+        low: 0.2
+        high: 0.7
+
+    # Activation function — GELU often outperforms ReLU on small models.
+    model.activation:
+        type: categorical
+        choices: ["relu", "gelu"]
+
+    # === Dataset ===
+
+    # Batch size — affects gradient noise and generalisation.
+    dataset.batch_size:
+        type: categorical
+        choices: [16, 32, 64]
