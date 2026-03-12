@@ -20,7 +20,7 @@ search_space:
   # =========================================================================
   optim.lr:
     type: loguniform
-    low:  1.0e-5
+    low:  1.0e-8
     high: 5.0e-3
 
   optim.weight_decay:
@@ -30,13 +30,13 @@ search_space:
 
   optim.grad_clip:
     type: uniform
-    low:  0.5
-    high: 5.0
+    low:  0.0
+    high: 10.0
 
   optim.patience:
     type: int
-    low:  5
-    high: 25
+    low:  1
+    high: 100
     step: 5
 
   optim.use_scheduler:
@@ -48,7 +48,7 @@ search_space:
   # =========================================================================
   model.dropout:
     type: uniform
-    low:  0.3
+    low:  0.0
     high: 0.7
 
   model.activation:
@@ -65,18 +65,18 @@ search_space:
 
   ts_moe.lambda_warmup_epochs:
     type: int
-    low:  10
-    high: 80
+    low:  0
+    high: 100
     step: 10
 
   ts_moe.lambda_entropy_start:
     type: uniform
     low:  0.0
-    high: 0.1
+    high: 1.0
 
   ts_moe.attention_hidden_dim:
     type: categorical
-    choices: [16, 32, 64]
+    choices: [16, 32, 64, 128, 256]
 
   ts_moe.attention_gate_zero_init:
     type: categorical
@@ -87,7 +87,7 @@ search_space:
   # =========================================================================
   ts_moe.student_hidden_dims:
     type: categorical
-    choices: [[32, 16], [64, 32], [128, 64]]
+    choices: [[32, 16], [64, 32], [128, 64], [256, 128, 64], [512, 256, 128]]
 
   ts_moe.student_lr:
     type: loguniform
@@ -96,7 +96,7 @@ search_space:
 
   ts_moe.student_epochs:
     type: int
-    low:  15
+    low:  5
     high: 60
     step: 5
 
@@ -111,7 +111,7 @@ search_space:
   ts_moe.confidence_threshold:
     type: uniform
     low:  0.0
-    high: 0.6
+    high: 1.0
 
   ts_moe.student_kd_alpha:
     type: uniform
@@ -140,12 +140,12 @@ search_space:
   # =========================================================================
   ts_moe.final_lr:
     type: loguniform
-    low:  1.0e-5
+    low:  1.0e-8
     high: 5.0e-3
 
   ts_moe.final_epochs:
     type: int
-    low:  50
+    low:  10
     high: 150
     step: 10
 

@@ -14,7 +14,7 @@ The hyperparameter search system uses [Optuna](https://optuna.org/) to efficient
 | Teacher-Student MoE | `TS-MoE`        | `breast_mnist_ts_moe_3kern.yml`     |
 | Gumbel-Softmax MoE  | `gumbel`        | `breast_mnist_gumbel_3kern.yml`     |
 
-The search runs each trial with a **single seed** for speed (fast exploration), then the best configurations can be validated with full multi-seed runs using the existing `robust_test_original_daqcnn.py` script.
+By default each trial uses a **single seed** for speed. Optionally, `--trial-seeds` makes each trial run across multiple seeds and optimises the **mean** metric — slower but more robust. After the search, `--validate-top-k` re-runs the top-K configs with full multi-seed evaluation.
 
 ### Why Optuna?
 
@@ -47,7 +47,21 @@ python experiments/hyperparameter_search.py \
     --output-dir outputs/hp_search_gumbel_breastmnist_20250101_120000
 ```
 
-### 3. Run a search with automatic multi-seed validation of top configs
+### 3. Run a search where every trial is evaluated on multiple seeds
+
+Each trial runs seeds 0, 1, 2 and reports the **mean** test accuracy as the objective. This costs 3× more time per trial but removes lucky/unlucky seed variance from the search signal.
+
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist_multi_seed_4_kernels_best3_plus1_diverse_3x3.yml \
+    --search-config configs/hp_search/breast_mnist_original_best3_plus1_diverse_4kern.yml \
+    --n-trials 200 \
+    --trial-seeds 0 1 2
+```
+
+The trial console output includes `±std`: `acc=0.8300±0.0120`. Each trial folder gets one `seed_N/` sub-directory per seed.
+
+### 4. Validate top-K configs from a search with 5 seeds
 
 ```bash
 python experiments/hyperparameter_search.py \
@@ -58,7 +72,23 @@ python experiments/hyperparameter_search.py \
     --validation-seeds 0 1 2 3 4
 ```
 
-### 4. Compare best results across pipelines
+### 5. Validate top-K configs from an **already completed** search
+
+Use `--resume --n-trials 0` to skip new trials and jump straight to validation:
+
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist_multi_seed_4_kernels_best3_plus1_diverse_3x3.yml \
+    --search-config configs/hp_search/breast_mnist_original_best3_plus1_diverse_4kern.yml \
+    --resume \
+    --output-dir outputs/hp_search_original_breastmnist_<timestamp> \
+    --study-name hp_original_breastmnist_best3_plus1_diverse_4kern_3x3 \
+    --n-trials 0 \
+    --validate-top-k 5 \
+    --validation-seeds 0 1 2 3 4
+```
+
+### 6. Compare best results across pipelines
 
 ```bash
 python experiments/hyperparameter_search.py --compare \
@@ -67,7 +97,7 @@ python experiments/hyperparameter_search.py --compare \
     outputs/hp_search_TS-MoE_breastmnist_*/study.db
 ```
 
-### 5. Run the best config with full multi-seed evaluation
+### 7. Run the best config with full multi-seed evaluation
 
 After a search, the best config is auto-exported:
 
@@ -165,6 +195,28 @@ Tunes the **Original DAQCNN** on BreastMNIST. Covers:
 
 **8 parameters, ~60 trials recommended.**
 
+### `configs/hp_search/breast_mnist_original_best3_plus1_diverse_4kern.yml`
+
+Tunes the **Original DAQCNN** on BreastMNIST with the best-3-plus-1-diverse kernel strategy. Fixes the known best trio (`grid`, `chain`, `horizontal`) and jointly tunes the **4th kernel** as a categorical choice alongside all standard training HPs.
+
+| Parameter                       | Type        | Range                                                  | Why                                 |
+| ------------------------------- | ----------- | ------------------------------------------------------ | ----------------------------------- |
+| *(all optimizer/model HPs)*   |             | (same as `breast_mnist_original.yml`)                | See above                           |
+| `model.kernel_topology_names` | categorical | grid+chain+horizontal + {kings, vertical, cross, ring, star} | Select the single most diverse 4th kernel |
+
+**9 parameters, ~200 trials recommended.**
+
+### `configs/hp_search/breast_mnist_ts_moe_best3_plus1_diverse_4kern.yml`
+
+The TS-MoE equivalent: identical to `breast_mnist_ts_moe.yml` plus the same `model.kernel_topology_names` categorical.
+
+| Parameter                       | Type        | Range                                                  | Why                                 |
+| ------------------------------- | ----------- | ------------------------------------------------------ | ----------------------------------- |
+| *(all TS-MoE HPs)*            |             | (same as `breast_mnist_ts_moe.yml`)                  | See above                           |
+| `model.kernel_topology_names` | categorical | grid+chain+horizontal + {kings, vertical, cross, ring, star} | Select the single most diverse 4th kernel |
+
+**28 parameters total, ~200+ trials recommended.**
+
 ### `configs/hp_search/breast_mnist_gumbel.yml`
 
 Tunes the **Gumbel-Softmax MoE** on BreastMNIST. Adds Gumbel-specific parameters on top of the standard optimizer/model HPs:
@@ -236,11 +288,14 @@ outputs/hp_search_gumbel_breastmnist_20250101_120000/
 │
 ├── trials/                      # Per-trial outputs
 │   ├── trial_0000/
-│   │   ├── config.yml           # This trial's full config
-│   │   ├── result.json          # Metrics summary
-│   │   ├── loss_curve_seed_42.png
-│   │   ├── roc_curve_seed_42.png
-│   │   └── ...                  # All standard per-seed outputs
+│   │   ├── config.yml           # Seed-agnostic config template for this trial
+│   │   ├── result.json          # Aggregated metrics (mean ± std across trial seeds)
+│   │   ├── seed_0/              # One sub-directory per trial seed (if --trial-seeds used)
+│   │   │   ├── loss_curve_seed_0.png
+│   │   │   ├── roc_curve_seed_0.png
+│   │   │   └── ...              # All standard per-seed outputs
+│   │   ├── seed_1/
+│   │   └── ...                  # (single seed_N/ if --trial-seeds not used)
 │   ├── trial_0001/
 │   └── ...
 │
@@ -365,7 +420,8 @@ python experiments/hyperparameter_search.py [OPTIONS]
 | `--config`        | str  | *required*       | Path to the base YAML config              |
 | `--search-config` | str  | *required*       | Path to the search space YAML             |
 | `--n-trials`      | int  | 50                 | Number of Optuna trials                   |
-| `--seed`          | int  | 42                 | Fixed seed for single-seed exploration    |
+| `--seed`          | int  | 42                 | Fallback seed when `--trial-seeds` is not set |
+| `--trial-seeds`   | int list | *(none)*       | Run each trial on all these seeds; optimise the **mean** metric. Slower but more robust. Example: `--trial-seeds 0 1 2` |
 | `--metric`        | str  | from search config | Metric to optimise                        |
 | `--direction`     | str  | from search config | `maximize` or `minimize`              |
 | `--resume`        | flag | false              | Resume from existing SQLite DB            |
