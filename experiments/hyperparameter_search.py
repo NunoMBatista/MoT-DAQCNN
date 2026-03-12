@@ -289,11 +289,15 @@ class HPSearchObjective:
         seed: int,
         output_root: str,
         metric: str = "test_acc",
+        trial_seeds: Optional[List[int]] = None,
     ):
         self.base_cfg = base_cfg
         self.search_space = search_space
         self.architecture = architecture
         self.seed = seed
+        # If trial_seeds is given, each trial runs all of them and reports the mean.
+        # Otherwise fall back to the single exploration seed for speed.
+        self.trial_seeds = trial_seeds if trial_seeds is not None else [seed]
         self.output_root = output_root
         self.metric = metric
 
@@ -306,101 +310,120 @@ class HPSearchObjective:
         self._runner = runner
 
     def __call__(self, trial: optuna.Trial) -> float:
-        """Run one trial and return the objective value."""
+        """Run one trial and return the mean objective value across trial seeds."""
         t_start = time.time()
 
         # 1. Build config for this trial
         cfg = build_trial_config(self.base_cfg, self.search_space, trial)
 
-        # Force single seed (fast exploration)
-        cfg.setdefault("misc", {})["seed"] = self.seed
-
         # 2. Create trial output directory
         trial_dir = os.path.join(self.output_root, f"trial_{trial.number:04d}")
         os.makedirs(trial_dir, exist_ok=True)
 
-        # Save the trial config for reproducibility
+        # Save the trial config for reproducibility (seed-agnostic template)
         trial_cfg_path = os.path.join(trial_dir, "config.yml")
         with open(trial_cfg_path, "w") as f:
             yaml.dump(cfg, f, default_flow_style=False)
 
-        # 3. Run the pipeline
-        try:
-            result = self._runner(cfg, self.seed, trial_dir, trial)
-        except Exception as e:
-            # Log the error and tell Optuna to prune / fail this trial
-            error_path = os.path.join(trial_dir, "error.txt")
-            with open(error_path, "w") as f:
-                import traceback
+        # 3. Run the pipeline once per trial seed and collect results
+        seed_results = []
+        for s in self.trial_seeds:
+            seed_dir = os.path.join(trial_dir, f"seed_{s}")
+            os.makedirs(seed_dir, exist_ok=True)
+            cfg_s = copy.deepcopy(cfg)
+            cfg_s.setdefault("misc", {})["seed"] = s
+            try:
+                set_seed(s)
+                result = self._runner(cfg_s, s, seed_dir, trial)
+                seed_results.append(result)
+            except Exception as e:
+                error_path = os.path.join(seed_dir, "error.txt")
+                with open(error_path, "w") as ef:
+                    import traceback
+                    ef.write(f"Trial {trial.number} seed {s} failed:\n")
+                    ef.write(traceback.format_exc())
+                warnings.warn(f"Trial {trial.number} seed {s} failed: {e}")
 
-                f.write(f"Trial {trial.number} failed:\n")
-                f.write(traceback.format_exc())
-            warnings.warn(f"Trial {trial.number} failed: {e}")
-            raise optuna.TrialPruned(f"Trial failed: {e}")
+        if not seed_results:
+            raise optuna.TrialPruned("All seeds failed for this trial")
 
-        # 4. Extract the objective metric
-        obj_value = result.get(self.metric)
-        if obj_value is None:
+        # Helper: collect non-None values for a metric key across seeds
+        def _vals(key):
+            return [r[key] for r in seed_results if r.get(key) is not None]
+
+        # 4. Aggregate the objective metric (mean = what Optuna optimises)
+        obj_values = _vals(self.metric)
+        if not obj_values:
             warnings.warn(
-                f"Trial {trial.number}: metric '{self.metric}' is None. "
-                f"Available keys: {list(result.keys())}"
+                f"Trial {trial.number}: metric '{self.metric}' is None for all seeds."
             )
             raise optuna.TrialPruned(f"Metric '{self.metric}' is None")
 
-        # 5. Store extra info as user attributes for later analysis
-        trial.set_user_attr("test_acc", result.get("test_acc"))
-        trial.set_user_attr("test_auc", result.get("test_auc"))
-        trial.set_user_attr("test_f1", result.get("test_f1"))
-        trial.set_user_attr("test_loss", result.get("test_loss"))
-        trial.set_user_attr("test_recall", result.get("test_recall"))
+        obj_value = float(np.mean(obj_values))
+        obj_std = float(np.std(obj_values)) if len(obj_values) > 1 else 0.0
+
+        # 5. Store aggregated metrics as user attributes
+        for key in ("test_acc", "test_auc", "test_f1", "test_loss", "test_recall"):
+            vals = _vals(key)
+            if vals:
+                trial.set_user_attr(key, float(np.mean(vals)))
+                trial.set_user_attr(f"{key}_std", float(np.std(vals)) if len(vals) > 1 else 0.0)
+
+        trial.set_user_attr(f"{self.metric}_std", obj_std)
+        trial.set_user_attr("n_seeds_completed", len(seed_results))
+        trial.set_user_attr("trial_seeds", self.trial_seeds)
         trial.set_user_attr("duration_s", time.time() - t_start)
 
-        # Store loss curves for the learning-curve plot
-        train_losses = result.get("train_losses", [])
-        val_losses = result.get("val_losses", [])
-        if train_losses:
-            trial.set_user_attr("train_losses", train_losses)
-        if val_losses:
-            trial.set_user_attr("val_losses", val_losses)
+        # Store loss curves from the first seed for the learning-curve plot
+        first = seed_results[0]
+        if first.get("train_losses"):
+            trial.set_user_attr("train_losses", first["train_losses"])
+        if first.get("val_losses"):
+            trial.set_user_attr("val_losses", first["val_losses"])
 
         # TS-MoE specific
         if self.architecture in ("TS-MoE", "ts-moe", "ts_moe"):
-            trial.set_user_attr("teacher_test_acc", result.get("teacher_test_acc"))
-            trial.set_user_attr("student_agreement", result.get("student_agreement"))
+            ta_vals = _vals("teacher_test_acc")
+            if ta_vals:
+                trial.set_user_attr("teacher_test_acc", float(np.mean(ta_vals)))
+            sa_vals = _vals("student_agreement")
+            if sa_vals:
+                trial.set_user_attr("student_agreement", float(np.mean(sa_vals)))
 
-        # Save result summary
-        result_summary = {
-            k: v
-            for k, v in result.items()
-            if k
-            not in (
-                "test_probs",
-                "test_labels",
-                "test_confusion_matrix",
-                "train_losses",
-                "val_losses",
-                "train_accs",
-                "val_accs",
-                "routing_history",
-                "tau_history",
-                "entropy_history",
-                "task_losses_history",
-                "budget_losses_history",
-                "model_metadata",
-            )
+        # Save aggregate result summary
+        agg_summary: dict = {
+            "trial_number": trial.number,
+            "seeds": self.trial_seeds,
+            "n_seeds_completed": len(seed_results),
+            f"{self.metric}_mean": obj_value,
+            f"{self.metric}_std": obj_std,
         }
+        for key in ("test_acc", "test_auc", "test_f1", "test_loss", "test_recall"):
+            vals = _vals(key)
+            if vals:
+                agg_summary[f"{key}_mean"] = float(np.mean(vals))
+                agg_summary[f"{key}_std"] = float(np.std(vals)) if len(vals) > 1 else 0.0
+
         result_path = os.path.join(trial_dir, "result.json")
         with open(result_path, "w") as f:
-            json.dump(result_summary, f, indent=2, default=str)
+            json.dump(agg_summary, f, indent=2, default=str)
 
         elapsed = time.time() - t_start
+        acc_vals = _vals("test_acc")
+        auc_vals = _vals("test_auc")
+        f1_vals = _vals("test_f1")
+        acc_mean = float(np.mean(acc_vals)) if acc_vals else 0.0
+        acc_std = float(np.std(acc_vals)) if len(acc_vals) > 1 else 0.0
+        auc_mean = float(np.mean(auc_vals)) if auc_vals else 0.0
+        f1_mean = float(np.mean(f1_vals)) if f1_vals else 0.0
+        seeds_str = f"{len(seed_results)}/{len(self.trial_seeds)} seeds"
         print(
             f"  Trial {trial.number:4d} | "
-            f"{self.metric}={obj_value:.4f} | "
-            f"acc={result.get('test_acc', 0):.4f} "
-            f"auc={result.get('test_auc', 0):.4f} "
-            f"f1={result.get('test_f1', 0):.4f} | "
-            f"{elapsed:.1f}s"
+            f"{self.metric}={obj_value:.4f}±{obj_std:.4f} | "
+            f"acc={acc_mean:.4f}±{acc_std:.4f} "
+            f"auc={auc_mean:.4f} "
+            f"f1={f1_mean:.4f} | "
+            f"{seeds_str} | {elapsed:.1f}s"
         )
 
         return float(obj_value)
@@ -684,6 +707,19 @@ def main():
         help="Fixed seed for single-seed exploration trials (default: 42).",
     )
     parser.add_argument(
+        "--trial-seeds",
+        type=int,
+        nargs="+",
+        default=None,
+        help=(
+            "If provided, each trial is evaluated on ALL these seeds and the "
+            "mean metric is used as the objective.  More robust but slower "
+            "(runtime scales linearly with the number of seeds). "
+            "Example: --trial-seeds 0 1 2  "
+            "(default: single seed from --seed)"
+        ),
+    )
+    parser.add_argument(
         "--metric",
         type=str,
         default=None,
@@ -819,7 +855,11 @@ def main():
     print(f"  Study name:      {study_name}")
     print(f"  Metric:          {metric} ({direction})")
     print(f"  Trials:          {n_trials}")
-    print(f"  Seed:            {seed}")
+    trial_seeds = args.trial_seeds if args.trial_seeds is not None else [seed]
+    if len(trial_seeds) == 1:
+        print(f"  Seed:            {trial_seeds[0]}  (single-seed exploration)")
+    else:
+        print(f"  Trial seeds:     {trial_seeds}  (multi-seed — mean objective)")
     print(f"  Sampler:         {args.sampler}")
     print(f"  Output:          {output_dir}")
     print(f"  Storage:         {db_path}")
@@ -872,6 +912,7 @@ def main():
         seed=seed,
         output_root=trials_dir,
         metric=metric,
+        trial_seeds=args.trial_seeds,
     )
 
     # --- Run optimisation ---

@@ -37,6 +37,18 @@ python experiments/hyperparameter_search.py --config configs/breast_mnist_multi_
 python experiments/hyperparameter_search.py --config configs/breast_mnist_ts_moe_4_kernels_best3_plus1_diverse_3x3.yml --search-config configs/hp_search/breast_mnist_ts_moe_best3_plus1_diverse_4kern.yml --n-trials 500 --validation-seeds 0 1 2 3 4 --study-name hp_tsmoe_breastmnist_best3_plus1_diverse_4kern_3x3
 
 # =============================================================================
+# Validation-only — re-run top-K configs with 5 seeds from a completed search
+# =============================================================================
+# Usage: point --output-dir at an existing search output folder, set --n-trials 0.
+# Replace <timestamp> with the actual folder name from outputs/.
+#
+# Original DAQCNN:
+#python experiments/hyperparameter_search.py --config configs/breast_mnist_multi_seed_4_kernels_best3_plus1_diverse_3x3.yml --search-config configs/hp_search/breast_mnist_original_best3_plus1_diverse_4kern.yml --resume --output-dir outputs/hp_search_original_breastmnist_<timestamp> --n-trials 0 --validate-top-k 5 --validation-seeds 0 1 2 3 4 --study-name hp_original_breastmnist_best3_plus1_diverse_4kern_3x3
+#
+# TS-MoE:
+#python experiments/hyperparameter_search.py --config configs/breast_mnist_ts_moe_4_kernels_best3_plus1_diverse_3x3.yml --search-config configs/hp_search/breast_mnist_ts_moe_best3_plus1_diverse_4kern.yml --resume --output-dir outputs/hp_search_TS-MoE_breastmnist_<timestamp> --n-trials 0 --validate-top-k 5 --validation-seeds 0 1 2 3 4 --study-name hp_tsmoe_breastmnist_best3_plus1_diverse_4kern_3x3
+
+# =============================================================================
 # Gumbel-Softmax MoE
 # =============================================================================
 
