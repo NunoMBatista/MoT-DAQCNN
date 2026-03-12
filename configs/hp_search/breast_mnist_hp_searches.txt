@@ -9,33 +9,39 @@
 # =============================================================================
 
 # Single kernel: Kings only
-python experiments/hyperparameter_search.py --config configs/breast_mnist_single_kernel_kings_1_kernel_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 200
+#python experiments/hyperparameter_search.py --config configs/breast_mnist_single_kernel_kings_1_kernel_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 200 --study-name hp_original_breastmnist_single_kings_3x3
 
 # Single kernel: Horizontal only
-python experiments/hyperparameter_search.py --config configs/breast_mnist_single_kernel_horizontal_1_kernel_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 200
+#python experiments/hyperparameter_search.py --config configs/breast_mnist_single_kernel_horizontal_1_kernel_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 200 --study-name hp_original_breastmnist_single_horizontal_3x3
 
 # =============================================================================
 # Original DAQCNN — Multi-Kernel (4 kernels - baseline)
 # =============================================================================
 
-python experiments/hyperparameter_search.py --config configs/breast_mnist_multi_seed_4_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 200
+#python experiments/hyperparameter_search.py --config configs/breast_mnist_multi_seed_4_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_original.yml --n-trials 200 --study-name hp_original_breastmnist_4kern_3x3
+
+# Original DAQCNN — Fixed best 3 + 1 diverse kernel (4 kernels)
+python experiments/hyperparameter_search.py --config configs/breast_mnist_multi_seed_4_kernels_best3_plus1_diverse_3x3.yml --search-config configs/hp_search/breast_mnist_original_best3_plus1_diverse_4kern.yml --n-trials 500 --validation-seeds 0 1 2 3 4 --study-name hp_original_breastmnist_best3_plus1_diverse_4kern_3x3
 
 # =============================================================================
 # Teacher-Student MoE
 # =============================================================================
 
 # TS-MoE with 2 kernels
-python experiments/hyperparameter_search.py --config configs/breast_mnist_ts_moe_2_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_ts_moe.yml --n-trials 200
+#python experiments/hyperparameter_search.py --config configs/breast_mnist_ts_moe_2_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_ts_moe.yml --n-trials 200 --study-name hp_tsmoe_breastmnist_2kern_3x3
 
 # TS-MoE with 4 kernels
-python experiments/hyperparameter_search.py --config configs/breast_mnist_ts_moe_4_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_ts_moe.yml --n-trials 200
+#python experiments/hyperparameter_search.py --config configs/breast_mnist_ts_moe_4_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_ts_moe.yml --n-trials 200 --study-name hp_tsmoe_breastmnist_4kern_3x3
+
+# TS-MoE — Fixed best 3 + 1 diverse kernel (4 kernels)
+python experiments/hyperparameter_search.py --config configs/breast_mnist_ts_moe_4_kernels_best3_plus1_diverse_3x3.yml --search-config configs/hp_search/breast_mnist_ts_moe_best3_plus1_diverse_4kern.yml --n-trials 500 --validation-seeds 0 1 2 3 4 --study-name hp_tsmoe_breastmnist_best3_plus1_diverse_4kern_3x3
 
 # =============================================================================
 # Gumbel-Softmax MoE
 # =============================================================================
 
 # Gumbel with 2 kernels
-python experiments/hyperparameter_search.py --config configs/breast_mnist_gumbel_2_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_gumbel.yml --n-trials 200
+#python experiments/hyperparameter_search.py --config configs/breast_mnist_gumbel_2_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_gumbel.yml --n-trials 200 --study-name hp_gumbel_breastmnist_2kern_3x3
 
 # Gumbel with 4 kernels
-python experiments/hyperparameter_search.py --config configs/breast_mnist_gumbel_4_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_gumbel.yml --n-trials 200
+#python experiments/hyperparameter_search.py --config configs/breast_mnist_gumbel_4_kernels_3x3.yml --search-config configs/hp_search/breast_mnist_gumbel.yml --n-trials 200 --study-name hp_gumbel_breastmnist_4kern_3x3
