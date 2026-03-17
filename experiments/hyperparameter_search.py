@@ -49,8 +49,6 @@ Design:
     using the existing ``robust_test_original_daqcnn.py`` script.
 """
 
-from __future__ import annotations
-
 import argparse
 import copy
 import json
@@ -65,6 +63,12 @@ import numpy as np
 import optuna
 import torch
 import yaml
+
+# Optional W&B (kept optional so this script works without wandb installed)
+try:
+    import wandb  # type: ignore
+except Exception:
+    wandb = None  # type: ignore
 
 # ---------------------------------------------------------------------------
 # Project path setup
@@ -340,6 +344,7 @@ class HPSearchObjective:
                 error_path = os.path.join(seed_dir, "error.txt")
                 with open(error_path, "w") as ef:
                     import traceback
+
                     ef.write(f"Trial {trial.number} seed {s} failed:\n")
                     ef.write(traceback.format_exc())
                 warnings.warn(f"Trial {trial.number} seed {s} failed: {e}")
@@ -367,7 +372,9 @@ class HPSearchObjective:
             vals = _vals(key)
             if vals:
                 trial.set_user_attr(key, float(np.mean(vals)))
-                trial.set_user_attr(f"{key}_std", float(np.std(vals)) if len(vals) > 1 else 0.0)
+                trial.set_user_attr(
+                    f"{key}_std", float(np.std(vals)) if len(vals) > 1 else 0.0
+                )
 
         trial.set_user_attr(f"{self.metric}_std", obj_std)
         trial.set_user_attr("n_seeds_completed", len(seed_results))
@@ -402,7 +409,9 @@ class HPSearchObjective:
             vals = _vals(key)
             if vals:
                 agg_summary[f"{key}_mean"] = float(np.mean(vals))
-                agg_summary[f"{key}_std"] = float(np.std(vals)) if len(vals) > 1 else 0.0
+                agg_summary[f"{key}_std"] = (
+                    float(np.std(vals)) if len(vals) > 1 else 0.0
+                )
 
         result_path = os.path.join(trial_dir, "result.json")
         with open(result_path, "w") as f:
@@ -750,6 +759,56 @@ def main():
         help="Optuna study name. Default: auto-generated.",
     )
 
+    # --- W&B (optional) ---
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable real-time logging to Weights & Biases (optional).",
+    )
+    parser.add_argument(
+        "--wandb-entity",
+        type=str,
+        default=None,
+        help="W&B entity (user or team).",
+    )
+    parser.add_argument(
+        "--wandb-project",
+        type=str,
+        default="MoT-DAQCNN",
+        help="W&B project name (default: MoT-DAQCNN).",
+    )
+    parser.add_argument(
+        "--wandb-mode",
+        type=str,
+        default="online",
+        choices=["online", "offline", "disabled"],
+        help="W&B mode (online/offline/disabled).",
+    )
+    parser.add_argument(
+        "--wandb-tags",
+        type=str,
+        nargs="*",
+        default=[],
+        help="Optional W&B tags.",
+    )
+    parser.add_argument(
+        "--wandb-notes",
+        type=str,
+        default=None,
+        help="Optional W&B notes/description.",
+    )
+    parser.add_argument(
+        "--wandb-group",
+        type=str,
+        default=None,
+        help="Optional W&B group (e.g., a study identifier).",
+    )
+    parser.add_argument(
+        "--wandb-log-trials-table",
+        action="store_true",
+        help="If set, log a W&B Table with completed trials (params + objective + common attrs).",
+    )
+
     # --- Validation ---
     parser.add_argument(
         "--validate-top-k",
@@ -844,6 +903,58 @@ def main():
     db_path = os.path.join(output_dir, "study.db")
     storage = f"sqlite:///{os.path.abspath(db_path)}"
 
+    # --- Initialize W&B (optional) ---
+    wandb_run = None
+    if args.wandb and args.wandb_mode != "disabled":
+        if wandb is None:
+            print(
+                "[wandb] wandb is not installed. Install with: pip install wandb\n"
+                "Continuing without W&B logging."
+            )
+        else:
+            os.environ["WANDB_MODE"] = args.wandb_mode
+            os.environ.setdefault("WANDB_SILENT", "true")
+
+            run_name = f"hp_search:{architecture}:{dataset_name}:{time.strftime('%Y%m%d_%H%M%S')}"
+            wandb_group = args.wandb_group or study_name
+
+            # Keep config JSON-serializable; store YAML dict under a single key.
+            wandb_config = {
+                "script": "experiments/hyperparameter_search.py",
+                "base_config_path": args.config,
+                "search_config_path": args.search_config,
+                "output_dir": output_dir,
+                "db_path": db_path,
+                "study_name": study_name,
+                "architecture": architecture,
+                "dataset.name": dataset_name,
+                "metric": metric,
+                "direction": direction,
+                "n_trials_requested": n_trials,
+                "sampler": args.sampler,
+                "resume": bool(args.resume),
+                "trial_seeds": args.trial_seeds
+                if args.trial_seeds is not None
+                else [seed],
+                "cfg.base": base_cfg,
+                "cfg.search": search_cfg,
+            }
+
+            try:
+                wandb_run = wandb.init(
+                    entity=args.wandb_entity,
+                    project=args.wandb_project,
+                    name=run_name,
+                    group=wandb_group,
+                    tags=list(args.wandb_tags),
+                    notes=args.wandb_notes,
+                    config=wandb_config,
+                    reinit=True,
+                )
+            except Exception as e:
+                print(f"[wandb] Failed to init W&B run: {e}\nContinuing without W&B.")
+                wandb_run = None
+
     # Print header
     print("\n" + "=" * 70)
     print("  Hyperparameter Search")
@@ -918,11 +1029,53 @@ def main():
     # --- Run optimisation ---
     t_search_start = time.time()
 
+    # Real-time W&B trial logging via Optuna callback (one log per completed trial)
+    def _wandb_trial_callback(study: optuna.Study, trial: optuna.trial.FrozenTrial):
+        if wandb_run is None:
+            return
+        try:
+            if trial.value is None:
+                return
+            payload: Dict[str, Any] = {
+                "trial/number": trial.number,
+                "trial/objective": trial.value,
+                "trial/state": str(trial.state),
+            }
+
+            # Params
+            for k, v in trial.params.items():
+                payload[f"param/{k}"] = v
+
+            # Common user_attrs you already set in the objective
+            for a in (
+                "test_acc",
+                "test_auc",
+                "test_f1",
+                "test_recall",
+                "test_loss",
+                "duration_s",
+                "n_seeds_completed",
+            ):
+                if a in trial.user_attrs:
+                    payload[f"attr/{a}"] = trial.user_attrs.get(a)
+
+            # Best-so-far objective
+            if study.best_trial is not None and study.best_trial.value is not None:
+                payload["study/best_objective_so_far"] = study.best_trial.value
+
+            wandb_run.log(payload, step=trial.number)
+        except Exception:
+            # Never fail the search because of W&B logging
+            return
+
+    callbacks = [_wandb_trial_callback] if wandb_run is not None else None
+
     study.optimize(
         objective,
         n_trials=n_trials,
         show_progress_bar=True,
         catch=(Exception,),  # don't crash on individual trial failures
+        callbacks=callbacks,
     )
 
     search_time = time.time() - t_search_start
@@ -1036,6 +1189,89 @@ def main():
 
     print(f"\nAll outputs saved to: {output_dir}")
     print("Search complete!")
+
+    # Finalize W&B run (if enabled)
+    if wandb_run is not None:
+        try:
+            # Headline results into summary
+            wandb_run.summary["search/search_time_s"] = search_time
+            wandb_run.summary["search/n_trials_completed"] = len(completed)
+            wandb_run.summary["search/n_trials_failed_or_pruned"] = len(failed)
+            if completed:
+                wandb_run.summary["search/best_trial_number"] = int(
+                    study.best_trial.number
+                )
+                wandb_run.summary["search/best_value"] = float(study.best_trial.value)
+
+            # Optionally log a trials table for quick browsing
+            if args.wandb_log_trials_table and completed:
+                # Build columns from observed params
+                param_names = set()
+                for t in completed:
+                    param_names.update(t.params.keys())
+                param_names = sorted(param_names)
+
+                columns = (
+                    ["trial_number", "objective"]
+                    + [f"param/{p}" for p in param_names]
+                    + [
+                        "attr/test_acc",
+                        "attr/test_auc",
+                        "attr/test_f1",
+                        "attr/test_recall",
+                        "attr/test_loss",
+                        "attr/duration_s",
+                    ]
+                )
+                table = wandb.Table(columns=columns)
+                for t in completed:
+                    row: List[Any] = [t.number, t.value]
+                    for p in param_names:
+                        row.append(t.params.get(p))
+                    row.append(t.user_attrs.get("test_acc"))
+                    row.append(t.user_attrs.get("test_auc"))
+                    row.append(t.user_attrs.get("test_f1"))
+                    row.append(t.user_attrs.get("test_recall"))
+                    row.append(t.user_attrs.get("test_loss"))
+                    row.append(t.user_attrs.get("duration_s"))
+                    table.add_data(*row)
+                wandb_run.log({"optuna/trials": table})
+
+            # Save key files for convenience (does not force artifact upload)
+            # Upload whenever they exist.
+            key_files = [
+                os.path.join(output_dir, "search_summary.json"),
+                os.path.join(output_dir, "best_config.yml"),
+                os.path.join(output_dir, "base_config.yml"),
+                os.path.join(output_dir, "search_config.yml"),
+                os.path.join(output_dir, "study.db"),
+            ]
+
+            # Validation outputs (if validation was enabled)
+            val_dir = os.path.join(output_dir, "validation")
+            key_files.append(os.path.join(val_dir, "validation_summary.json"))
+
+            # Also upload per-rank validation aggregates if present
+            if os.path.isdir(val_dir):
+                try:
+                    for root, _dirs, files in os.walk(val_dir):
+                        for fname in files:
+                            if fname.endswith(".json"):
+                                key_files.append(os.path.join(root, fname))
+                except Exception:
+                    pass
+
+            for p in key_files:
+                try:
+                    if os.path.exists(p):
+                        wandb_run.save(p)
+                except Exception:
+                    pass
+        finally:
+            try:
+                wandb_run.finish()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

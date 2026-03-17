@@ -56,9 +56,10 @@ Notes:
 - To avoid duplicating runs, this script generates a deterministic run id from the
   output directory path. Re-running is idempotent: it will resume that run id.
 - By default it does NOT upload model checkpoints; you can enable artifacts.
-"""
 
-from __future__ import annotations
+Python compatibility:
+- This script is compatible with Python 3.6+ (it avoids `from __future__ import annotations`).
+"""
 
 import argparse
 import dataclasses
@@ -241,6 +242,30 @@ def _log_images(run, images: List[Path], root: Path) -> None:
         run.log({key: wandb.Image(str(img_path))})
 
 
+def _fmt_bytes(n: int) -> str:
+    try:
+        n = int(n)
+    except Exception:
+        return str(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024.0:
+            return f"{n:.1f}{unit}" if unit != "B" else f"{n}{unit}"
+        n /= 1024.0
+    return f"{n:.1f}PB"
+
+
+def _describe_local_file(p: Path, base_dir: Path) -> str:
+    try:
+        rel = str(p.relative_to(base_dir))
+    except Exception:
+        rel = str(p)
+    try:
+        st = p.stat()
+        return f"{rel} ({_fmt_bytes(st.st_size)})"
+    except Exception:
+        return rel
+
+
 def _maybe_add_artifact(
     run,
     name: str,
@@ -248,16 +273,65 @@ def _maybe_add_artifact(
     files: List[Path],
     base_dir: Path,
 ) -> None:
+    """
+    Upload a set of files as a single W&B Artifact.
+
+    Notes:
+    - Files are added with paths relative to `base_dir` when possible.
+    - This function is best-effort: individual file failures are warned but do not abort.
+    - This function prints exactly what it will attempt to add.
+    """
+    # De-duplicate while preserving order
+    dedup: List[Path] = []
+    seen: set = set()
+    for p in files:
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        dedup.append(p)
+
+    existing: List[Path] = [p for p in dedup if p.exists() and p.is_file()]
+    missing: List[Path] = [p for p in dedup if not p.exists()]
+
+    _info(f"Artifact {name} (type={artifact_type}) for {base_dir}:")
+    _info(f"  candidate files: {len(dedup)}")
+    _info(f"  existing files:  {len(existing)}")
+    _info(f"  missing files:   {len(missing)}")
+
+    if missing:
+        # Print up to 50 missing to keep logs readable
+        _info("  missing (first 50):")
+        for p in missing[:50]:
+            _info(f"    - {_describe_local_file(p, base_dir)}")
+
+    if not existing:
+        _warn(f"Artifact {name}: no existing files to add; skipping artifact upload.")
+        return
+
+    # Print exactly what will be added
+    _info("  adding (all):")
+    for p in existing:
+        _info(f"    + {_describe_local_file(p, base_dir)}")
+
     art = wandb.Artifact(name=name, type=artifact_type)
     added = 0
-    for p in files:
+    for p in existing:
         try:
-            art.add_file(str(p), name=str(p.relative_to(base_dir)))
+            rel_name = str(p.relative_to(base_dir))
+        except Exception:
+            rel_name = p.name
+        try:
+            art.add_file(str(p), name=rel_name)
             added += 1
         except Exception as e:
             _warn(f"Failed to add artifact file {p}: {e}")
+
     if added > 0:
         run.log_artifact(art)
+        _info(f"  uploaded artifact with {added} file(s).")
+    else:
+        _warn(f"Artifact {name}: no files were added successfully; nothing uploaded.")
 
 
 # ----------------------------
@@ -387,6 +461,8 @@ def _backfill_robust_eval(
     # Optional artifacts: configs + jsons + plots (NOT checkpoints)
     if enable_artifacts:
         files: List[Path] = []
+
+        # Always include key result files if present
         for p in [
             out_dir / "config.yml",
             out_dir / "aggregate_metrics.json",
@@ -394,6 +470,13 @@ def _backfill_robust_eval(
         ]:
             if p.exists():
                 files.append(p)
+
+        # Include any JSONs under this run directory (future-proofing)
+        # (bounded by max depth naturally via rglob)
+        for p in sorted(out_dir.rglob("*.json")):
+            if p.exists() and p not in files:
+                files.append(p)
+
         # Add limited number of images
         files.extend(images[: max(0, min(max_images, 50))])
 
@@ -536,24 +619,46 @@ def _backfill_hp_search(
     else:
         _warn(f"No study.db found in {out_dir}; skipping Optuna trial backfill.")
 
-    # Log validation summary if exists
-    val_summary = out_dir / "validation" / "validation_summary.json"
-    if val_summary.exists():
+    # Log validation results if they exist
+    # - validation/validation_summary.json
+    # - per-rank/per-trial aggregates under validation/**
+    val_dir = out_dir / "validation"
+    if val_dir.exists() and val_dir.is_dir():
+        # Prefer the summary if present
+        val_summary = val_dir / "validation_summary.json"
+        if val_summary.exists():
+            try:
+                v = _read_json(val_summary)
+                # Put in config for reference (can be large; keep in config as json-ish)
+                run.config.update({"validation_summary": v}, allow_val_change=True)
+            except Exception as e:
+                _warn(f"Failed reading validation summary: {e}")
+
+        # Also capture any other validation JSONs as a W&B table (lightweight)
         try:
-            v = _read_json(val_summary)
-            # Put in config for reference (can be large; keep in config as json-ish)
-            run.config.update({"validation_summary": v}, allow_val_change=True)
+            json_paths = sorted(p for p in val_dir.rglob("*.json") if p.is_file())
+            if json_paths:
+                table = wandb.Table(columns=["path", "json"])
+                for p in json_paths:
+                    try:
+                        table.add_data(str(p.relative_to(out_dir)), _read_json(p))
+                    except Exception:
+                        # If a JSON can't be parsed, log as text path only
+                        table.add_data(str(p.relative_to(out_dir)), None)
+                run.log({"validation/json_files": table})
         except Exception as e:
-            _warn(f"Failed reading validation summary: {e}")
+            _warn(f"Failed logging validation JSON table: {e}")
 
     # Log plots/images
     images = _collect_pngs(out_dir, max_images=max_images)
     if images:
         _log_images(run, images, out_dir)
 
-    # Optional artifacts: include DB + key configs + plots
+    # Optional artifacts: include DB + key configs + validation JSONs + plots
     if enable_artifacts:
         files: List[Path] = []
+
+        # Key top-level files
         for p in [
             out_dir / "search_summary.json",
             out_dir / "base_config.yml",
@@ -563,6 +668,20 @@ def _backfill_hp_search(
         ]:
             if p.exists():
                 files.append(p)
+
+        # Validation JSONs (always include whenever they exist)
+        val_dir = out_dir / "validation"
+        if val_dir.exists() and val_dir.is_dir():
+            for p in sorted(val_dir.rglob("*.json")):
+                if p.exists() and p not in files:
+                    files.append(p)
+
+        # Any additional JSON summaries under this hp search folder (future-proofing)
+        for p in sorted(out_dir.rglob("*.json")):
+            if p.exists() and p not in files:
+                files.append(p)
+
+        # Attach limited number of plots/images
         files.extend(images[: max(0, min(max_images, 50))])
 
         art_name = f"hp_search_{_hash_run_id(str(out_dir))}"
