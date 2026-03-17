@@ -25,9 +25,16 @@ This script scans an `outputs/` directory for:
 It creates/updates W&B runs and logs:
   - configs (YAML/JSON) as W&B config
   - aggregate metrics into W&B summary
-  - (optional) trial tables for Optuna (if `study.db` exists)
-  - images/plots as W&B media
+  - Optuna trial information:
+      * A small preview W&B Table for sorting/filtering in the UI
+      * A full CSV export uploaded as a W&B Artifact (no truncation)
+  - images/plots as W&B media (optional)
   - artifacts for key files (optional)
+
+Why only a fraction of trials sometimes show up in W&B:
+- Large W&B Tables can be truncated or partially displayed in the UI.
+- To preserve all trials, this script exports ALL completed trials to CSV and uploads
+  it as an Artifact. The UI table is intentionally a preview.
 
 Requirements:
   pip install wandb pyyaml optuna pandas
@@ -492,7 +499,11 @@ def _backfill_robust_eval(
 def _optuna_trials_table_from_db(db_path: Path) -> Tuple[Optional[Any], Dict[str, Any]]:
     """
     Returns (wandb.Table or None, stats_dict).
-    Requires optuna. Uses pandas if available but does not strictly require it.
+
+    Important:
+    - W&B Tables can be truncated in the UI for large studies.
+    - This function is used to create a *preview* table only. The full trial set
+      is exported to CSV and uploaded as an Artifact elsewhere.
     """
     if optuna is None:
         return None, {"note": "optuna not installed; skipping study.db parsing"}
@@ -521,23 +532,19 @@ def _optuna_trials_table_from_db(db_path: Path) -> Tuple[Optional[Any], Dict[str
         "best_user_attrs": dict(study.best_trial.user_attrs) if completed else None,
     }
 
-    # Build a table with common columns:
-    # - number, value, state, params..., user_attrs...
-    # We'll keep it simple: include params and a handful of common attrs.
-    # If pandas available, we can build a dataframe first; otherwise, manual.
-    param_names: set[str] = set()
-    attr_names: set[str] = set()
+    # Preview table schema
+    param_names = set()
+    attr_names = set()
     for t in completed:
         param_names.update(t.params.keys())
         attr_names.update(t.user_attrs.keys())
 
-    # Keep attr list bounded (user_attrs can be huge)
     common_attrs = [
         a
         for a in sorted(attr_names)
-        if a in {"test_acc", "test_auc", "test_f1", "test_recall", "test_loss"}
+        if a
+        in {"test_acc", "test_auc", "test_f1", "test_recall", "test_loss", "duration_s"}
     ]
-    # You can add more by editing here.
 
     columns = (
         ["trial_number", "objective"]
@@ -546,8 +553,10 @@ def _optuna_trials_table_from_db(db_path: Path) -> Tuple[Optional[Any], Dict[str
     )
     table = wandb.Table(columns=columns)
 
-    for t in completed:
-        row: List[Any] = [t.number, t.value]
+    # Limit preview rows to keep UI responsive; full export is handled via CSV artifact
+    preview_limit = 200
+    for t in completed[:preview_limit]:
+        row = [t.number, t.value]
         for p in sorted(param_names):
             row.append(t.params.get(p))
         for a in common_attrs:
@@ -596,15 +605,14 @@ def _backfill_hp_search(
         if k in run.config:
             run.summary[_as_wandb_key(k)] = run.config[k]
 
-    # Log Optuna trials table if study.db exists
+    # Log Optuna trials preview table + upload full CSV export (for sorting)
     db_path = out_dir / "study.db"
     if db_path.exists():
         try:
             table, stats = _optuna_trials_table_from_db(db_path)
-            # stats into summary/config
             run.config.update(_safe_flatten({"optuna": stats}), allow_val_change=True)
             if table is not None:
-                run.log({"optuna/trials": table})
+                run.log({"optuna/trials_preview": table})
 
             # headline stats in summary
             for sk in [
@@ -614,38 +622,111 @@ def _backfill_hp_search(
             ]:
                 if sk in run.config:
                     run.summary[_as_wandb_key(sk)] = run.config[sk]
+
+            # Full export for sorting/filtering without W&B table truncation:
+            # Create a CSV with all COMPLETE trials containing:
+            # - trial_number, objective
+            # - all params
+            # - common user attrs + duration
+            if optuna is not None:
+                storage = f"sqlite:///{db_path.resolve()}"
+                summaries = optuna.study.get_all_study_summaries(storage=storage)
+                if summaries:
+                    study = optuna.load_study(
+                        study_name=summaries[0].study_name, storage=storage
+                    )
+                    completed = [
+                        t
+                        for t in study.trials
+                        if t.state == optuna.trial.TrialState.COMPLETE
+                    ]
+
+                    # Gather columns
+                    param_names = set()
+                    attr_names = set()
+                    for t in completed:
+                        param_names.update(t.params.keys())
+                        attr_names.update(t.user_attrs.keys())
+
+                    common_attrs = [
+                        a
+                        for a in sorted(attr_names)
+                        if a
+                        in {
+                            "test_acc",
+                            "test_auc",
+                            "test_f1",
+                            "test_recall",
+                            "test_loss",
+                            "duration_s",
+                            "n_seeds_completed",
+                        }
+                    ]
+
+                    # Write CSV under the hp search directory
+                    csv_path = out_dir / "optuna_trials.csv"
+                    with csv_path.open("w", encoding="utf-8") as f:
+                        cols = (
+                            ["trial_number", "objective"]
+                            + [f"param/{p}" for p in sorted(param_names)]
+                            + [f"attr/{a}" for a in common_attrs]
+                        )
+                        f.write(",".join([json.dumps(c)[1:-1] for c in cols]) + "\n")
+
+                        def _csv_cell(v: Any) -> str:
+                            # Conservative CSV: quote everything via JSON escaping minus surrounding quotes
+                            if v is None:
+                                return ""
+                            if isinstance(v, (int, float)):
+                                return str(v)
+                            if isinstance(v, bool):
+                                return "true" if v else "false"
+                            return json.dumps(str(v))[1:-1]
+
+                        for t in completed:
+                            row = [str(t.number), _csv_cell(t.value)]
+                            for p in sorted(param_names):
+                                row.append(_csv_cell(t.params.get(p)))
+                            for a in common_attrs:
+                                row.append(_csv_cell(t.user_attrs.get(a)))
+                            f.write(",".join(row) + "\n")
+
+                    # Upload as an Artifact (reliable, no UI truncation)
+                    if enable_artifacts:
+                        files_for_art = [csv_path, db_path]
+                        art_name = f"optuna_trials_{_hash_run_id(str(out_dir))}"
+                        _maybe_add_artifact(
+                            run, art_name, "optuna_trials", files_for_art, out_dir
+                        )
+
         except Exception as e:
             _warn(f"Failed to parse Optuna db {db_path}: {e}")
     else:
         _warn(f"No study.db found in {out_dir}; skipping Optuna trial backfill.")
 
     # Log validation results if they exist
-    # - validation/validation_summary.json
-    # - per-rank/per-trial aggregates under validation/**
     val_dir = out_dir / "validation"
     if val_dir.exists() and val_dir.is_dir():
-        # Prefer the summary if present
         val_summary = val_dir / "validation_summary.json"
         if val_summary.exists():
             try:
                 v = _read_json(val_summary)
-                # Put in config for reference (can be large; keep in config as json-ish)
                 run.config.update({"validation_summary": v}, allow_val_change=True)
             except Exception as e:
                 _warn(f"Failed reading validation summary: {e}")
 
-        # Also capture any other validation JSONs as a W&B table (lightweight)
         try:
             json_paths = sorted(p for p in val_dir.rglob("*.json") if p.is_file())
             if json_paths:
                 table = wandb.Table(columns=["path", "json"])
-                for p in json_paths:
+                # Avoid huge tables here as well; keep it as a preview
+                preview_limit = 200
+                for p in json_paths[:preview_limit]:
                     try:
                         table.add_data(str(p.relative_to(out_dir)), _read_json(p))
                     except Exception:
-                        # If a JSON can't be parsed, log as text path only
                         table.add_data(str(p.relative_to(out_dir)), None)
-                run.log({"validation/json_files": table})
+                run.log({"validation/json_files_preview": table})
         except Exception as e:
             _warn(f"Failed logging validation JSON table: {e}")
 
@@ -665,12 +746,12 @@ def _backfill_hp_search(
             out_dir / "search_config.yml",
             out_dir / "best_config.yml",
             out_dir / "study.db",
+            out_dir / "optuna_trials.csv",
         ]:
             if p.exists():
                 files.append(p)
 
         # Validation JSONs (always include whenever they exist)
-        val_dir = out_dir / "validation"
         if val_dir.exists() and val_dir.is_dir():
             for p in sorted(val_dir.rglob("*.json")):
                 if p.exists() and p not in files:
