@@ -295,6 +295,13 @@ def _run_ts_moe_trial(cfg: dict, seed: int, output_dir: str, trial: Any = None) 
     final = ts_result["final"]
     summary = ts_result["summary"]
 
+    # For TS-MoE, skipped final-classifier seeds report None metrics.
+    # Treat them as 0.0 so multi-seed aggregation penalizes instability.
+    test_acc = final.get("test_acc")
+    test_auc = final.get("test_auc")
+    test_f1 = final.get("test_f1")
+    test_recall = final.get("test_recall")
+
     result = {
         "seed": seed,
         "train_losses": final.get("train_losses", []),
@@ -302,12 +309,15 @@ def _run_ts_moe_trial(cfg: dict, seed: int, output_dir: str, trial: Any = None) 
         "train_accs": final.get("train_accs", []),
         "val_accs": final.get("val_accs", []),
         "test_loss": final.get("test_loss"),
-        "test_acc": final.get("test_acc"),
-        "test_auc": final.get("test_auc"),
-        "test_f1": final.get("test_f1"),
-        "test_recall": final.get("test_recall"),
+        "test_acc": 0.0 if test_acc is None else float(test_acc),
+        "test_auc": 0.0 if test_auc is None else float(test_auc),
+        "test_f1": 0.0 if test_f1 is None else float(test_f1),
+        "test_recall": 0.0 if test_recall is None else float(test_recall),
         "teacher_test_acc": summary.get("teacher_test_acc"),
         "student_agreement": summary.get("student_agreement"),
+        "patches_passing_threshold_pct": summary.get(
+            "student_patches_passing_threshold_pct"
+        ),
         "pipeline_time_s": summary.get("pipeline_time_s"),
     }
     return result
@@ -481,13 +491,16 @@ class HPSearchObjective:
         acc_std = float(np.std(acc_vals)) if len(acc_vals) > 1 else 0.0
         auc_mean = float(np.mean(auc_vals)) if auc_vals else 0.0
         f1_mean = float(np.mean(f1_vals)) if f1_vals else 0.0
+        pass_vals = _vals("patches_passing_threshold_pct")
+        pass_mean = float(np.mean(pass_vals)) if pass_vals else 0.0
         seeds_str = f"{len(seed_results)}/{len(self.trial_seeds)} seeds"
         print(
             f"  Trial {trial.number:4d} | "
             f"{self.metric}={obj_value:.4f}±{obj_std:.4f} | "
             f"acc={acc_mean:.4f}±{acc_std:.4f} "
             f"auc={auc_mean:.4f} "
-            f"f1={f1_mean:.4f} | "
+            f"f1={f1_mean:.4f} "
+            f"pass={pass_mean:.1%} | "
             f"{seeds_str} | {elapsed:.1f}s"
         )
 

@@ -225,6 +225,13 @@ def run_ts_moe_pipeline(
         "teacher_test_auc": teacher_result["test_auc"],
         "teacher_test_f1": teacher_result["test_f1"],
         "student_agreement": student_result["agreement"],
+        "student_patches_passing_threshold_pct": student_result.get(
+            "patches_passing_threshold_pct"
+        ),
+        "student_patches_passing_threshold": student_result.get(
+            "patches_passing_threshold"
+        ),
+        "student_patches_total": student_result.get("patches_total"),
         "final_test_acc": final_result["test_acc"],
         "final_test_auc": final_result["test_auc"],
         "final_test_f1": final_result["test_f1"],

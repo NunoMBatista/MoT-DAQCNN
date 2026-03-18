@@ -1036,12 +1036,23 @@ def run_student_training(
     kd_alpha = float(ts_moe_cfg.get("student_kd_alpha", 0.0))
     kd_temperature = float(ts_moe_cfg.get("student_kd_temperature", 4.0))
 
+    total_train_patches = int(train_confidence.numel())
+    if confidence_threshold > 0.0:
+        passing_train_patches = int(
+            (train_confidence.reshape(-1) >= confidence_threshold).sum().item()
+        )
+    else:
+        passing_train_patches = total_train_patches
+    passing_train_patch_frac = passing_train_patches / max(total_train_patches, 1)
+
     # Only pass soft labels to the dataloader when KD is actually used
     use_kd = kd_alpha > 0.0
     if verbose:
         print(
             f"\nStudent dataset config:\n"
             f"  confidence_threshold    = {confidence_threshold}\n"
+            f"  patches pass threshold  = {passing_train_patch_frac:.1%} "
+            f"({passing_train_patches}/{total_train_patches})\n"
             f"  feature_flags           = {feature_flags}\n"
             f"  use_weighted_ce         = {use_weighted_ce}\n"
             f"  use_balanced_sampler    = {use_balanced_sampler}\n"
@@ -1099,6 +1110,10 @@ def run_student_training(
             "num_kernels": num_kernels,
             "student_params": 0,
             "label_generation_time_s": label_gen_time,
+            "patches_total": total_train_patches,
+            "patches_passing_threshold": passing_train_patches,
+            "patches_passing_threshold_pct": passing_train_patch_frac,
+            "confidence_threshold": confidence_threshold,
             "final_train_loss": None,
             "final_val_loss": None,
             "final_train_acc": None,
@@ -1400,6 +1415,10 @@ def run_student_training(
         "num_kernels": num_kernels,
         "student_params": total_params,
         "label_generation_time_s": label_gen_time,
+        "patches_total": total_train_patches,
+        "patches_passing_threshold": passing_train_patches,
+        "patches_passing_threshold_pct": passing_train_patch_frac,
+        "confidence_threshold": confidence_threshold,
         "final_train_loss": train_losses[-1],
         "final_val_loss": val_losses[-1],
         "final_train_acc": train_accs[-1],
