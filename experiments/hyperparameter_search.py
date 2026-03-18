@@ -79,6 +79,50 @@ if PROJECT_ROOT not in sys.path:
 
 
 # ---------------------------------------------------------------------------
+# Environment helpers
+# ---------------------------------------------------------------------------
+def _load_dotenv_if_present(repo_root: str) -> None:
+    """Load KEY=VALUE lines from ``<repo_root>/.env`` into os.environ.
+
+    This loader is intentionally minimal and dependency-free.
+    It supports blank lines, comments, optional ``export `` prefixes,
+    and quoted/unquoted values. Existing environment variables are kept.
+    """
+    env_path = os.path.join(repo_root, ".env")
+    if not os.path.exists(env_path):
+        return
+
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception as e:
+        warnings.warn(f"Failed to read .env at {env_path}: {e}")
+        return
+
+    for line in lines:
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.startswith("export "):
+            s = s[len("export ") :].strip()
+        if "=" not in s:
+            continue
+
+        key, value = s.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+
+        # Do not override vars that are already set in the shell.
+        if key not in os.environ:
+            os.environ[key] = value
+
+
+# ---------------------------------------------------------------------------
 # Seed utility
 # ---------------------------------------------------------------------------
 def set_seed(seed: int):
@@ -850,6 +894,10 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Load repo-root .env (if present) so WANDB_API_KEY/WANDB_ENTITY can be
+    # picked up even when the shell did not explicitly source the file.
+    _load_dotenv_if_present(PROJECT_ROOT)
 
     # === Comparison mode ===
     if args.compare:
