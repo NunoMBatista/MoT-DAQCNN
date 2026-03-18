@@ -64,6 +64,18 @@ import optuna
 import torch
 import yaml
 
+# Optuna warns when categorical choices contain lists (e.g. ["chain"]).
+# In this project we intentionally use list-valued choices for
+# model.kernel_topology_names, so suppress only that specific warning.
+warnings.filterwarnings(
+    "ignore",
+    message=(
+        r"Choices for a categorical distribution should be a tuple.*"
+        r"persistent storage.*"
+    ),
+    category=UserWarning,
+)
+
 # Optional W&B (kept optional so this script works without wandb installed)
 try:
     import wandb  # type: ignore
