@@ -57,7 +57,7 @@ import random
 import sys
 import time
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 import optuna
@@ -1333,6 +1333,33 @@ def main():
                                 key_files.append(os.path.join(root, fname))
                 except Exception:
                     pass
+
+            # Upload all generated plot/image files from the run directory
+            # (plots/, trials/*/seed_*/..., validation/...).
+            image_exts = {
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".webp",
+                ".gif",
+                ".bmp",
+                ".tif",
+                ".tiff",
+                ".svg",
+                ".pdf",
+            }
+            seen_paths: Set[str] = set(os.path.abspath(p) for p in key_files)
+            try:
+                for root, _dirs, files in os.walk(output_dir):
+                    for fname in files:
+                        ext = os.path.splitext(fname)[1].lower()
+                        if ext in image_exts:
+                            fpath = os.path.abspath(os.path.join(root, fname))
+                            if fpath not in seen_paths:
+                                key_files.append(fpath)
+                                seen_paths.add(fpath)
+            except Exception:
+                pass
 
             for p in key_files:
                 try:
