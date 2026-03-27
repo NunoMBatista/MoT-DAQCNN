@@ -1,0 +1,40 @@
+# Topology disagreement analysis — TissueMNIST
+# Uses the full 3×3 kernel topology set defined in src/physics/kernel_topologies.py
+
+dataset:
+  name: tissue_mnist
+  data_root: ./data
+  batch_size: 64
+  num_workers: 4
+  download: true
+  color_space: GRAYSCALE
+
+model:
+  num_classes: 8
+  kernel_size: 3
+  stride: 3
+  # Full 3×3 kernel set (9 qubits):
+  # kings, horizontal, vertical, cross, ring, chain, star, grid
+  kernel_topology_names: ["kings", "horizontal", "vertical", "cross", "ring", "chain", "star", "grid"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  dropout: 0.5
+  activation: gelu
+  quantum_device: default.qubit
+  quantum_device_kwargs: {}
+  classical_device: auto
+
+optim:
+  lr: 1e-4
+  weight_decay: 1e-6
+  epochs: 100
+  grad_clip: 1.0
+  patience: 15
+  use_scheduler: true
+  scheduler_T_max: 100
+  scheduler_eta_min: 0.0
+
+misc:
+  seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  log_every: 50
