@@ -160,8 +160,8 @@ def _train_head(
         if scheduler is not None:
             scheduler.step()
 
-        # Progress
-        if verbose and (epoch % print_every == 0 or epoch == 1):
+        # Progress — always print first 3 epochs + every print_every + last
+        if epoch <= 3 or (verbose and (epoch % print_every == 0)):
             print(
                 f"      [{label}] epoch {epoch:>3}/{epochs}: "
                 f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} | "
@@ -175,8 +175,7 @@ def _train_head(
         elif patience:
             no_improve += 1
             if no_improve >= patience:
-                if verbose:
-                    print(f"      [{label}] Early stop at epoch {epoch}")
+                print(f"      [{label}] Early stop at epoch {epoch}")
                 break
 
     if best_state:
@@ -221,8 +220,7 @@ def _run_phase1(
     all_probs = {k: {} for k in kernel_names}
 
     for k_idx, k_name in enumerate(kernel_names):
-        if verbose:
-            print(f"\n    Phase 1: [{k_name}] (channels {channel_groups[k_idx]})")
+        print(f"\n    Phase 1: [{k_name}] (channels {channel_groups[k_idx]})")
         if set_seed_fn:
             set_seed_fn(seed)
 
@@ -230,12 +228,21 @@ def _run_phase1(
 
         # Sanity check: verify features for this topology have variance
         train_feat = splits["train_features"][:, channels]
-        if verbose:
-            feat_std = train_feat.std().item()
-            feat_mean = train_feat.mean().item()
-            print(f"      Feature stats: mean={feat_mean:.4f}, std={feat_std:.4f}")
-            if feat_std < 1e-6:
-                print(f"      WARNING: features for {k_name} have near-zero variance!")
+        feat_std = train_feat.std().item()
+        feat_mean = train_feat.mean().item()
+        feat_min = train_feat.min().item()
+        feat_max = train_feat.max().item()
+        print(f"      Feature shape: {train_feat.shape}")
+        print(f"      Feature stats: mean={feat_mean:.6f}, std={feat_std:.6f}, "
+              f"min={feat_min:.6f}, max={feat_max:.6f}")
+        if feat_std < 1e-6:
+            print(f"      WARNING: features for {k_name} have near-zero variance!")
+
+        # Label sanity check
+        train_labs = _ensure_1d_labels(splits["train_labels"])
+        print(f"      Labels shape: {train_labs.shape}, dtype: {train_labs.dtype}, "
+              f"unique: {train_labs.unique().tolist()}, "
+              f"class dist: {[(train_labs == c).sum().item() for c in range(num_classes)]}")
 
         loaders = {}
         for split, shuffle in [("train", True), ("val", False), ("test", False)]:
