@@ -277,6 +277,14 @@ def _run_phase2(
         dropout=or_cfg.get("router_dropout", 0.3),
         use_global_pool=or_cfg.get("router_use_global_pool", True),
     ).to(device)
+
+    # LazyLinear initialization: forward pass on one dummy image
+    with torch.no_grad():
+        dummy_img = torch.zeros(
+            (1, in_channels, *raw_images["train"][0].shape[2:])
+        ).to(device)
+        _ = router(dummy_img)
+
     router_params = sum(p.numel() for p in router.parameters())
     print(f"    Router params: {router_params:,}")
 
