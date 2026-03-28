@@ -98,18 +98,14 @@ def get_rydberg_hamiltonian(wires, coordinates, scaling_factor=1.0, use_local_de
 
     if use_local_detuning:
         # Add a separate term for each qubit's local detuning.
-        # These will be driven by the 'inputs' passed as params to the evolution.
-        # In make_circuit, we'll pass [global_omega, global_delta, *inputs, 1.0].
-        def make_local_coeff(idx):
-            def local_coeff(params, t):
-                # We expect params to be [omega, delta, p0, p1, ..., pN, const]
-                # Index 2 is the start of the data pixels
-                return params[2 + idx]
-            return local_coeff
+        # PennyLane's ParametrizedHamiltonian maps each element of the params list
+        # to the corresponding coefficient function.
+        def local_coeff(p, t):
+            return p
 
         for i in range(n_qubits):
             ops.append(projector_eta(wires[i]))
-            coeffs.append(make_local_coeff(i))
+            coeffs.append(local_coeff)
 
     # Combine into a single ParametrizedHamiltonian
     return qml.pulse.ParametrizedHamiltonian(coeffs, ops)

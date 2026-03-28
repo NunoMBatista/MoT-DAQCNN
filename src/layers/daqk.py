@@ -134,36 +134,11 @@ class DAQKLayer(nn.Module):
                 else:
                     # Analog encoding: skip initial gates, start in |0>
                     # Encode pixels directly into the Hamiltonian's local detuning.
-                    # Build param list: [omega_scale, delta_scale, p0, p1, ..., pN, const_one]
-                    
-                    # If inputs is a batch (B, N), we need to handle it per-sample or via broadcasting.
-                    # Pennylane's pulse.evolve handles parameters.
-                    
-                    # We create a nested list of params for the ParametrizedHamiltonian
-                    # H.coeffs has [drive, detuning, interaction, p0, p1, ..., pN]
-                    
-                    # For simplicity in the trotterized loop, we construct the parameter list
-                    # that get_rydberg_hamiltonian expects.
-                    
-                    # Note: we assume inputs are already normalized appropriately (e.g. 0 to pi)
-                    # We'll treat them as detuning shifts in units of 1/time.
-                    
-                    if torch.is_tensor(inputs) and inputs.ndim > 1:
-                        # Batch mode: shape (B, N)
-                        batch_size = inputs.shape[0]
-                        ones = torch.ones((batch_size, 1), device=inputs.device, dtype=inputs.dtype)
-                        
-                        # Construct params: (B, total_coeffs)
-                        # Order: drive_ramp, detuning_ramp, interaction_const, p0...pN
-                        p_tensor = torch.cat([ones, ones, ones, inputs], dim=1)
-                        
-                        # IMPORTANT: ParametrizedHamiltonian expects a LIST of parameters,
-                        # where each element corresponds to one coefficient function.
-                        # For broadcasting, we pass a list of 12 tensors, each of shape (B,).
-                        p_list = [p_tensor[:, i] for i in range(p_tensor.shape[1])]
-                    else:
-                        # Single sample mode
+                    # Build param list: [omega_scale, delta_scale, interaction_const, p0, p1, ..., pN]
+                    if torch.is_tensor(inputs):
                         p_list = [1.0, 1.0, 1.0] + inputs.tolist()
+                    else:
+                        p_list = [1.0, 1.0, 1.0] + list(inputs)
 
                     evo.evolve_analog_block(
                         H,
@@ -258,8 +233,21 @@ class DAQKLayer(nn.Module):
                         circuit_output, device=x.device, dtype=x.dtype
                     )
                 else:
-                    circuit_output = kernel_circuit(x)
-                    out = torch.stack(circuit_output, dim=1)
+                    if self.encoding_mode == "analog" and x.ndim > 1:
+                        # Manual batching for analog mode because ApproxTimeEvolution 
+                        # doesn't support batched Hamiltonian coefficients well.
+                        batch_out = []
+                        for i in range(x.shape[0]):
+                            res = kernel_circuit(x[i])
+                            # res is a list of 0D tensors. Stack them into a 1D tensor
+                            res_tensor = torch.stack(res, dim=0)
+                            batch_out.append(res_tensor)
+                        out = torch.stack(batch_out, dim=0)
+                    else:
+                        circuit_output = kernel_circuit(x)
+                        # In digital mode with batching, PennyLane returns a list of 1D tensors (B,)
+                        # We stack them along dim=1 to get (B, num_measurements)
+                        out = torch.stack(circuit_output, dim=1)
                 per_kernel.append(out)
 
         return torch.cat(per_kernel, dim=1)
