@@ -21,9 +21,12 @@ class OracleRouter(nn.Module):
         Conv2d → BN → Act → Pool → Conv2d → BN → Act → Pool
         → Flatten → Linear → Dropout → Linear(num_topologies)
 
-    The default architecture is deliberately small (<20k params for 28x28
-    grayscale input) because the routing task is coarse (M-way classification
-    where M is typically 4-8).
+    The default architecture is deliberately small because the routing task
+    is coarse (M-way classification where M is typically 4-8).
+
+    When ``use_global_pool=True`` (default), AdaptiveAvgPool2d(1) collapses
+    spatial dims before the FC layer, yielding ~7k params. Set to ``False``
+    to flatten directly (~105k params) if the routing task needs spatial detail.
 
     Args:
         in_channels: Number of input image channels (1 for grayscale, 3 for RGB).
@@ -32,6 +35,8 @@ class OracleRouter(nn.Module):
             Default [16, 32] gives a small but effective feature extractor.
         fc_dim: Hidden dimension of the FC layer before the output logits.
         dropout: Dropout rate applied in the FC layers.
+        use_global_pool: If True, apply AdaptiveAvgPool2d(1) before the FC
+            layer to reduce parameters. If False, flatten conv features directly.
     """
 
     def __init__(
@@ -41,6 +46,7 @@ class OracleRouter(nn.Module):
         hidden_dims: list | None = None,
         fc_dim: int = 64,
         dropout: float = 0.3,
+        use_global_pool: bool = True,
     ):
         super().__init__()
         if hidden_dims is None:
@@ -59,9 +65,11 @@ class OracleRouter(nn.Module):
                 nn.MaxPool2d(2),
             ])
             ch_in = ch_out
+        if use_global_pool:
+            layers.append(nn.AdaptiveAvgPool2d(1))
         self.features = nn.Sequential(*layers)
 
-        # Classifier head (uses LazyLinear to infer flattened size)
+        # Classifier head (LazyLinear infers size when use_global_pool=False)
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.LazyLinear(fc_dim),

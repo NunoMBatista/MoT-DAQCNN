@@ -32,11 +32,11 @@ optim:
     scheduler_eta_min: 0.0
 
 oracle_router:
-    # Phase 2: full image-level router (~105k params, preserves spatial detail)
+    # Phase 2: lightweight image-level router (~7k params)
     router_hidden_dims: [16, 32]
     router_fc_dim: 64
     router_dropout: 0.3
-    router_use_global_pool: false
+    router_use_global_pool: true
     router_lr: 0.001
     router_weight_decay: 0.00001
     router_epochs: 30

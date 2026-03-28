@@ -26,8 +26,8 @@ import torch.multiprocessing
 torch.multiprocessing.set_sharing_strategy("file_system")
 
 import torch.nn as nn
-from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
 
 from src.models.daqcnn import DAQCNN
 from src.models.daqcnn_training import train_one_epoch
@@ -48,7 +48,7 @@ from src.utils.quantum_dataset_cache import (
     load_cached_quantum_dataset,
 )
 from src.utils.sparse_reconstruction import build_sparse_tensor_fast
-from src.utils.training_utils import build_classification_head, resolve_device
+from src.utils.training_utils import resolve_device
 
 
 # ---------------------------------------------------------------------------
@@ -95,95 +95,6 @@ def _collect_raw_images(cfg):
     # Explicitly delete loaders to close workers
     del train_loader, val_loader, test_loader
     return result
-
-
-def _train_head(
-    head, train_loader, val_loader, optim_cfg, device, grad_clip, label="",
-    verbose=True, print_every=10,
-):
-    """Train a classification head with early stopping.
-
-    Returns:
-        best_state, train_losses, val_losses, train_accs, val_accs
-    """
-    optimizer = torch.optim.Adam(
-        head.parameters(),
-        lr=float(optim_cfg.get("lr", 1e-3)),
-        weight_decay=float(optim_cfg.get("weight_decay", 0)),
-    )
-
-    epochs = optim_cfg.get("epochs", 100)
-    patience = optim_cfg.get("patience", None)
-    best_val_loss = float("inf")
-    best_state = None
-    no_improve = 0
-
-    use_scheduler = optim_cfg.get("use_scheduler", False)
-    scheduler = None
-    if use_scheduler:
-        T_max = optim_cfg.get("scheduler_T_max", epochs)
-        eta_min = float(optim_cfg.get("scheduler_eta_min", 0.0))
-        scheduler = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=eta_min)
-
-    train_losses, val_losses = [], []
-    train_accs, val_accs = [], []
-
-    criterion = nn.CrossEntropyLoss()
-
-    for epoch in range(1, epochs + 1):
-        # Train
-        head.train()
-        loss_sum, acc_sum, count = 0.0, 0.0, 0
-        for feats, labels in train_loader:
-            feats = feats.to(device)
-            labels = _ensure_1d_labels(labels).to(device)
-            optimizer.zero_grad()
-            logits = head(feats)
-            loss = criterion(logits, labels)
-            loss.backward()
-            if grad_clip:
-                nn.utils.clip_grad_norm_(head.parameters(), grad_clip)
-            optimizer.step()
-            bs = labels.size(0)
-            loss_sum += loss.item() * bs
-            acc_sum += (logits.argmax(1) == labels).float().sum().item()
-            count += bs
-
-        train_loss = loss_sum / count
-        train_acc = acc_sum / count
-        train_losses.append(train_loss)
-        train_accs.append(train_acc)
-
-        # Validate
-        val_loss, val_acc = evaluate(head, val_loader, device, split_name="Val")
-        val_losses.append(val_loss)
-        val_accs.append(val_acc)
-
-        if scheduler is not None:
-            scheduler.step()
-
-        # Progress — always print first 3 epochs + every print_every + last
-        if epoch <= 3 or (verbose and (epoch % print_every == 0)):
-            print(
-                f"      [{label}] epoch {epoch:>3}/{epochs}: "
-                f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} | "
-                f"val_loss={val_loss:.4f} val_acc={val_acc:.4f}"
-            )
-
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_state = copy.deepcopy(head.state_dict())
-            no_improve = 0
-        elif patience:
-            no_improve += 1
-            if no_improve >= patience:
-                print(f"      [{label}] Early stop at epoch {epoch}")
-                break
-
-    if best_state:
-        head.load_state_dict(best_state)
-
-    return best_state, train_losses, val_losses, train_accs, val_accs
 
 
 # ---------------------------------------------------------------------------
@@ -256,16 +167,23 @@ def _run_phase1(
         best_state = None
         no_improve = 0
 
-        for epoch in range(1, epochs + 1):
+        epoch_pbar = tqdm(
+            range(1, epochs + 1),
+            desc=f"      [{k_name}]",
+            unit="epoch",
+        )
+        for epoch in epoch_pbar:
             train_loss, train_acc = train_one_epoch(
                 model, tl, optimizer, device, grad_clip, epoch_pbar=None,
             )
             val_loss, val_acc = evaluate(model, vl, device, split_name="Val")
 
-            if epoch <= 3 or epoch % 10 == 0:
-                print(f"      [{k_name}] epoch {epoch:>3}/{epochs}: "
-                      f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} | "
-                      f"val_loss={val_loss:.4f} val_acc={val_acc:.4f}")
+            epoch_pbar.set_postfix(
+                tl=f"{train_loss:.3f}",
+                ta=f"{train_acc:.3f}",
+                vl=f"{val_loss:.3f}",
+                va=f"{val_acc:.3f}",
+            )
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -274,8 +192,11 @@ def _run_phase1(
             elif patience is not None:
                 no_improve += 1
                 if no_improve >= patience:
-                    print(f"      [{k_name}] Early stop at epoch {epoch}")
+                    epoch_pbar.set_postfix_str(
+                        f"early stop | best_vl={best_val_loss:.4f}"
+                    )
                     break
+        epoch_pbar.close()
 
         if best_state is not None:
             model.load_state_dict(best_state)
@@ -354,7 +275,10 @@ def _run_phase2(
         hidden_dims=or_cfg.get("router_hidden_dims", [16, 32]),
         fc_dim=or_cfg.get("router_fc_dim", 64),
         dropout=or_cfg.get("router_dropout", 0.3),
+        use_global_pool=or_cfg.get("router_use_global_pool", True),
     ).to(device)
+    router_params = sum(p.numel() for p in router.parameters())
+    print(f"    Router params: {router_params:,}")
 
     # Training config
     lr = float(or_cfg.get("router_lr", 1e-3))
@@ -383,7 +307,12 @@ def _run_phase2(
     train_losses, val_losses = [], []
     train_accs, val_accs = [], []
 
-    for epoch in range(1, epochs + 1):
+    epoch_pbar = tqdm(
+        range(1, epochs + 1),
+        desc="      [router]",
+        unit="epoch",
+    )
+    for epoch in epoch_pbar:
         router.train()
         loss_sum, acc_sum, count = 0.0, 0.0, 0
         for imgs, labs in loaders["train"]:
@@ -422,12 +351,12 @@ def _run_phase2(
         val_losses.append(val_loss)
         val_accs.append(val_acc)
 
-        if verbose and (epoch % 5 == 0 or epoch == 1):
-            print(
-                f"      [router] epoch {epoch:>3}/{epochs}: "
-                f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} | "
-                f"val_loss={val_loss:.4f} val_acc={val_acc:.4f}"
-            )
+        epoch_pbar.set_postfix(
+            tl=f"{train_loss:.3f}",
+            ta=f"{train_acc:.3f}",
+            vl=f"{val_loss:.3f}",
+            va=f"{val_acc:.3f}",
+        )
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -436,9 +365,11 @@ def _run_phase2(
         else:
             no_improve += 1
             if patience and no_improve >= patience:
-                if verbose:
-                    print(f"      [router] Early stop at epoch {epoch}")
+                epoch_pbar.set_postfix_str(
+                    f"early stop | best_vl={best_val_loss:.4f}"
+                )
                 break
+    epoch_pbar.close()
 
     if best_state:
         router.load_state_dict(best_state)
@@ -511,9 +442,13 @@ def _compute_routing_distribution(preds, kernel_names):
 
 def _run_phase3(
     splits, channel_groups, router_preds, cfg, device, seed, set_seed_fn,
-    batch_size, verbose,
+    batch_size, verbose, kernel_names,
 ):
-    """Build sparse features from router predictions and train final classifier."""
+    """Build sparse features from router predictions and train final classifier.
+
+    Uses DAQCNN(bypass_quantum=True) for consistency with Phase 1 and the
+    rest of the codebase.
+    """
     if set_seed_fn:
         set_seed_fn(seed)
 
@@ -521,54 +456,113 @@ def _run_phase3(
     optim_cfg = cfg.get("optim", {})
     or_cfg = cfg.get("oracle_router", {})
 
-    phase3_optim = copy.deepcopy(optim_cfg)
-    if "final_lr" in or_cfg:
-        phase3_optim["lr"] = or_cfg["final_lr"]
-    if "final_epochs" in or_cfg:
-        phase3_optim["epochs"] = or_cfg["final_epochs"]
+    lr = float(or_cfg.get("final_lr", optim_cfg.get("lr", 1e-4)))
+    weight_decay = float(optim_cfg.get("weight_decay", 0))
+    epochs = or_cfg.get("final_epochs", optim_cfg.get("epochs", 100))
+    patience = optim_cfg.get("patience", None)
+    grad_clip = optim_cfg.get("grad_clip", 0.0)
 
     total_channels = splits["train_features"].shape[1]
     num_classes = model_cfg.get("num_classes", 2)
-    grad_clip = optim_cfg.get("grad_clip", 0.0)
 
     # Build sparse features
-    if verbose:
-        print("    Phase 3: building sparse features...")
+    print("    Phase 3: building sparse features...")
     sparse = {}
     for split in ["train", "val", "test"]:
         sparse[split] = _build_sparse_split(
             splits[f"{split}_features"], router_preds[split], channel_groups,
         )
-        if verbose:
-            print(f"      {split}: {sparse[split].shape}")
+        print(f"      {split}: {sparse[split].shape}")
 
-    # DataLoaders
-    loaders = {}
-    for split, shuffle in [("train", True), ("val", False), ("test", False)]:
-        loaders[split] = _make_loader(
-            sparse[split], _ensure_1d_labels(splits[f"{split}_labels"]),
-            batch_size, shuffle=shuffle,
+    # DataLoaders (non-shuffled for val/test, shuffled for train)
+    tl = _make_loader(
+        sparse["train"], _ensure_1d_labels(splits["train_labels"]),
+        batch_size, shuffle=True,
+    )
+    vl = _make_loader(
+        sparse["val"], _ensure_1d_labels(splits["val_labels"]),
+        batch_size, shuffle=False,
+    )
+    tel = _make_loader(
+        sparse["test"], _ensure_1d_labels(splits["test_labels"]),
+        batch_size, shuffle=False,
+    )
+
+    # Final classifier — DAQCNN with bypass_quantum, matching Phase 1 approach
+    model = DAQCNN(
+        num_classes=num_classes,
+        kernel_size=model_cfg.get("kernel_size", 3),
+        stride=model_cfg.get("stride", 3),
+        kernel_topology_names=kernel_names,
+        scaling_factor=model_cfg.get("scaling_factor", 1.0),
+        evolution_time=model_cfg.get("evolution_time", 2.5),
+        mode=model_cfg.get("mode", "trotter"),
+        dropout=model_cfg.get("dropout", 0.5),
+        activation=model_cfg.get("activation", "relu"),
+        quantum_device=model_cfg.get("quantum_device", "default.qubit"),
+        classical_device=device,
+        in_channels=model_cfg.get("in_channels", 1),
+        override_quantum_out_channels=total_channels,
+    )
+    model.bypass_quantum = True
+    model.to(device)
+
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=lr, weight_decay=weight_decay,
+    )
+
+    best_val_loss = float("inf")
+    best_state = None
+    no_improve = 0
+    train_losses, val_losses = [], []
+    train_accs, val_accs = [], []
+
+    print(f"    Phase 3 optim: lr={lr}, epochs={epochs}, patience={patience}")
+
+    epoch_pbar = tqdm(
+        range(1, epochs + 1),
+        desc="      [final]",
+        unit="epoch",
+    )
+    for epoch in epoch_pbar:
+        train_loss, train_acc = train_one_epoch(
+            model, tl, optimizer, device, grad_clip, epoch_pbar=None,
+        )
+        val_loss, val_acc = evaluate(model, vl, device, split_name="Val")
+
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+        train_accs.append(train_acc)
+        val_accs.append(val_acc)
+
+        epoch_pbar.set_postfix(
+            tl=f"{train_loss:.3f}",
+            ta=f"{train_acc:.3f}",
+            vl=f"{val_loss:.3f}",
+            va=f"{val_acc:.3f}",
         )
 
-    # Final classifier
-    head = build_classification_head(
-        in_channels=total_channels,
-        num_classes=num_classes,
-        dropout=model_cfg.get("dropout", 0.1),
-        activation=model_cfg.get("activation", "relu"),
-    ).to(device)
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_state = copy.deepcopy(model.state_dict())
+            no_improve = 0
+        elif patience is not None:
+            no_improve += 1
+            if no_improve >= patience:
+                epoch_pbar.set_postfix_str(
+                    f"early stop | best_vl={best_val_loss:.4f}"
+                )
+                break
+    epoch_pbar.close()
 
-    _, train_losses, val_losses, train_accs, val_accs = _train_head(
-        head, loaders["train"], loaders["val"], phase3_optim,
-        device, grad_clip, label="final", verbose=verbose,
-    )
+    if best_state is not None:
+        model.load_state_dict(best_state)
 
     test_metrics = evaluate(
-        head, loaders["test"], device,
+        model, tel, device,
         split_name="Test", compute_full_metrics=True,
     )
-    if verbose:
-        print(f"      [final] test_acc={test_metrics['accuracy']:.4f}")
+    print(f"      [final] test_acc={test_metrics['accuracy']:.4f}")
 
     return test_metrics, train_losses, val_losses, train_accs, val_accs
 
@@ -743,7 +737,7 @@ def run_oracle_routed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     test_metrics, final_train_losses, final_val_losses, final_train_accs, final_val_accs = (
         _run_phase3(
             splits, channel_groups, router_preds, cfg, device, seed,
-            set_seed_fn, batch_size, verbose,
+            set_seed_fn, batch_size, verbose, kernel_names_ordered,
         )
     )
 
