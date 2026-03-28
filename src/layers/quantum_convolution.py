@@ -49,6 +49,7 @@ class QuantumConv2d(nn.Module):
         interface="torch",
         use_jit=False,
         include_correlators=False,
+        encoding_mode="digital",
     ):
         super().__init__()
 
@@ -94,6 +95,7 @@ class QuantumConv2d(nn.Module):
             interface=interface,
             use_jit=use_jit,
             include_correlators=include_correlators,
+            encoding_mode=encoding_mode,
         )
 
         self.num_kernels = (

@@ -98,6 +98,12 @@ def _match_metadata(meta, cfg):
     if cached_correlators != config_correlators:
         return False
 
+    # Encoding mode — backward compat: missing field means "digital"
+    cached_enc = meta.get("encoding_mode", "digital")
+    config_enc = model_cfg.get("encoding_mode", "digital")
+    if cached_enc != config_enc:
+        return False
+
     return "exact" if exact_match else "subset"
 
 

@@ -1,0 +1,18 @@
+# BreastMNIST with Digital Encoding + ZZ Correlators
+# Purpose: Generate a cache with 45 channels per topology (9 Z + 36 ZZ)
+
+dataset:
+  name: breast_mnist
+  color_space: GRAYSCALE
+  batch_size: 8
+
+model:
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["kings", "horizontal", "vertical", "cross", "ring", "chain", "star", "grid"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  encoding_mode: digital
+  include_correlators: true
+  quantum_device: default.qubit

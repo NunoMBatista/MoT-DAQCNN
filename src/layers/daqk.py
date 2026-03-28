@@ -53,6 +53,7 @@ class DAQKLayer(nn.Module):
         interface="torch",
         use_jit=False,
         include_correlators=False,
+        encoding_mode="digital",
     ):
         super().__init__()
 
@@ -63,6 +64,7 @@ class DAQKLayer(nn.Module):
         self.interface = interface
         self.use_jit = use_jit
         self.include_correlators = include_correlators
+        self.encoding_mode = encoding_mode  # "digital" or "analog"
 
         # Number of measurements per kernel: n_qubits Z + C(n_qubits, 2) ZZ
         n_zz = len(list(combinations(self.wires, 2))) if include_correlators else 0
@@ -93,6 +95,7 @@ class DAQKLayer(nn.Module):
             interface,
             use_jit,
             include_correlators,
+            encoding_mode,
         )
 
     def _build_kernels(
@@ -105,25 +108,70 @@ class DAQKLayer(nn.Module):
         interface,
         use_jit,
         include_correlators,
+        encoding_mode,
     ):
         """Create one Hamiltonian/QNode per topology and cache them."""
         self.hamiltonians = []
         self.devices = []
         self.kernel_circuits = []
 
-        def make_circuit(H, n_qubits, wires, mode, evo_time, iface, correlators):
+        def make_circuit(H, n_qubits, wires, mode, evo_time, iface, correlators, enc_mode):
             def _circuit(inputs):
-                for i in range(n_qubits):
-                    qml.RY(inputs[..., i], wires=i)
-                    qml.Hadamard(wires=i)
+                if enc_mode == "digital":
+                    # Traditional DAQCNN: encode into state with RY gates
+                    for i in range(n_qubits):
+                        qml.RY(inputs[..., i], wires=i)
+                        qml.Hadamard(wires=i)
+                    
+                    # Evolve with fixed Hamiltonian (default params 1.0)
+                    evo.evolve_analog_block(
+                        H,
+                        time_interval=[0, evo_time],
+                        mode=mode,
+                        dt=0.05,
+                        interface=iface,
+                    )
+                else:
+                    # Analog encoding: skip initial gates, start in |0>
+                    # Encode pixels directly into the Hamiltonian's local detuning.
+                    # Build param list: [omega_scale, delta_scale, p0, p1, ..., pN, const_one]
+                    
+                    # If inputs is a batch (B, N), we need to handle it per-sample or via broadcasting.
+                    # Pennylane's pulse.evolve handles parameters.
+                    
+                    # We create a nested list of params for the ParametrizedHamiltonian
+                    # H.coeffs has [drive, detuning, interaction, p0, p1, ..., pN]
+                    
+                    # For simplicity in the trotterized loop, we construct the parameter list
+                    # that get_rydberg_hamiltonian expects.
+                    
+                    # Note: we assume inputs are already normalized appropriately (e.g. 0 to pi)
+                    # We'll treat them as detuning shifts in units of 1/time.
+                    
+                    if torch.is_tensor(inputs) and inputs.ndim > 1:
+                        # Batch mode: we need to pass the whole batch to evolve
+                        # Actually, our evolve_analog_block handles the batching via H_static calculation
+                        # so we just need to ensure the param list is structured correctly.
+                        batch_size = inputs.shape[0]
+                        # Construct params: (B, total_coeffs)
+                        # [omega, delta, p0, ..., pN, 1.0]
+                        # Use 1.0 for the standard terms, then the pixels.
+                        ones = torch.ones((batch_size, 1), device=inputs.device, dtype=inputs.dtype)
+                        # Order: drive_ramp, detuning_ramp, constant_one, p0...pN
+                        p_list = torch.cat([ones, ones, ones, inputs], dim=1)
+                        # wait, get_rydberg_hamiltonian puts p0...pN AFTER interaction constant
+                        # [drive, detuning, interaction, p0...pN]
+                    else:
+                        p_list = [1.0, 1.0, 1.0] + inputs.tolist()
 
-                evo.evolve_analog_block(
-                    H,
-                    time_interval=[0, evo_time],
-                    mode=mode,
-                    dt=0.05,
-                    interface=iface,
-                )
+                    evo.evolve_analog_block(
+                        H,
+                        time_interval=[0, evo_time],
+                        mode=mode,
+                        dt=0.05,
+                        params=p_list,
+                        interface=iface,
+                    )
 
                 measurements = [qml.expval(qml.PauliZ(i)) for i in wires]
                 if correlators:
@@ -138,10 +186,12 @@ class DAQKLayer(nn.Module):
         # Go through the coordinates of every kernel
         for coords in coord_sets:
             # build the Hamiltonian corresponding to each coordinate set
+            # If analog mode, we tell the Hamiltonian to add local detuning terms
             hamiltonian = phys.get_rydberg_hamiltonian(
                 self.wires,
                 coords,
                 scaling_factor=scaling_factor,
+                use_local_detuning=(encoding_mode == "analog")
             )
 
             dev = qml.device(
@@ -156,6 +206,7 @@ class DAQKLayer(nn.Module):
                 evolution_time,
                 interface,
                 include_correlators,
+                encoding_mode,
             )
 
             qnode = qml.QNode(
