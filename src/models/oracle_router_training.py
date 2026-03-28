@@ -29,6 +29,8 @@ import torch.nn as nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, TensorDataset
 
+from src.models.daqcnn import DAQCNN
+from src.models.daqcnn_training import train_one_epoch
 from src.models.oracle_router import OracleRouter
 from src.utils.data import get_dataloaders
 from src.utils.evaluate import evaluate
@@ -191,9 +193,12 @@ def _train_head(
 
 def _run_phase1(
     splits, channel_groups, kernel_names, cfg, device, seed, set_seed_fn,
-    batch_size, verbose,
+    batch_size, verbose, cached_path,
 ):
     """Train per-topology classifiers and compute oracle labels for all splits.
+
+    Uses the same DAQCNN(bypass_quantum=True) approach as the disagreement
+    analysis, which is the proven code path for per-topology training.
 
     Returns:
         oracle_labels: dict[split -> np.ndarray of shape (N,)]
@@ -202,26 +207,14 @@ def _run_phase1(
     model_cfg = cfg.get("model", {})
     optim_cfg = cfg.get("optim", {})
     or_cfg = cfg.get("oracle_router", {})
-
-    # Phase 1 optim config: use higher LR and no scheduler by default
-    # (small per-topology heads need more aggressive training than the
-    # final classifier which operates on all channels)
-    phase1_optim = copy.deepcopy(optim_cfg)
-    phase1_optim["lr"] = or_cfg.get("phase1_lr", 1e-3)
-    phase1_optim["use_scheduler"] = or_cfg.get("phase1_use_scheduler", False)
-    if "phase1_epochs" in or_cfg:
-        phase1_optim["epochs"] = or_cfg["phase1_epochs"]
-    if "phase1_patience" in or_cfg:
-        phase1_optim["patience"] = or_cfg["phase1_patience"]
-
     num_classes = model_cfg.get("num_classes", 2)
-    n_qubits = len(channel_groups[0])
     grad_clip = optim_cfg.get("grad_clip", 0.0)
+    lr = float(or_cfg.get("phase1_lr", optim_cfg.get("lr", 1e-3)))
+    weight_decay = float(optim_cfg.get("weight_decay", 0))
+    epochs = or_cfg.get("phase1_epochs", optim_cfg.get("epochs", 100))
+    patience = or_cfg.get("phase1_patience", optim_cfg.get("patience", None))
 
-    print(f"    Phase 1 optim: lr={phase1_optim['lr']}, "
-          f"epochs={phase1_optim.get('epochs', 100)}, "
-          f"patience={phase1_optim.get('patience', 'None')}, "
-          f"scheduler={phase1_optim.get('use_scheduler', False)}")
+    print(f"    Phase 1 optim: lr={lr}, epochs={epochs}, patience={patience}")
 
     per_topo_acc = {}
     all_probs = {k: {} for k in kernel_names}
@@ -231,61 +224,86 @@ def _run_phase1(
         if set_seed_fn:
             set_seed_fn(seed)
 
-        channels = channel_groups[k_idx]
-
-        # Sanity check: verify features for this topology have variance
-        train_feat = splits["train_features"][:, channels]
-        feat_std = train_feat.std().item()
-        feat_mean = train_feat.mean().item()
-        feat_min = train_feat.min().item()
-        feat_max = train_feat.max().item()
-        print(f"      Feature shape: {train_feat.shape}")
-        print(f"      Feature stats: mean={feat_mean:.6f}, std={feat_std:.6f}, "
-              f"min={feat_min:.6f}, max={feat_max:.6f}")
-        if feat_std < 1e-6:
-            print(f"      WARNING: features for {k_name} have near-zero variance!")
-
-        # Label sanity check
-        train_labs = _ensure_1d_labels(splits["train_labels"])
-        print(f"      Labels shape: {train_labs.shape}, dtype: {train_labs.dtype}, "
-              f"unique: {train_labs.unique().tolist()}, "
-              f"class dist: {[(train_labs == c).sum().item() for c in range(num_classes)]}")
-
-        loaders = {}
-        for split, shuffle in [("train", True), ("val", False), ("test", False)]:
-            feat = splits[f"{split}_features"][:, channels]
-            labs = _ensure_1d_labels(splits[f"{split}_labels"])
-            loaders[split] = _make_loader(feat, labs, batch_size, shuffle=shuffle)
-
-        head = build_classification_head(
-            in_channels=n_qubits,
-            num_classes=num_classes,
-            dropout=model_cfg.get("dropout", 0.1),
-            activation=model_cfg.get("activation", "relu"),
-        ).to(device)
-
-        _train_head(
-            head, loaders["train"], loaders["val"], phase1_optim,
-            device, grad_clip, label=k_name, verbose=verbose,
+        # Load per-topology data using the same approach as disagreement analysis
+        tl, vl, tel, _, cache_meta = load_cached_quantum_dataset(
+            cached_path, batch_size, 0, requested_kernels=[k_name],
         )
+
+        # Build DAQCNN with bypass_quantum=True — proven to work
+        model = DAQCNN(
+            num_classes=num_classes,
+            kernel_size=model_cfg.get("kernel_size", 3),
+            stride=model_cfg.get("stride", 3),
+            kernel_topology_names=[k_name],
+            scaling_factor=model_cfg.get("scaling_factor", 1.0),
+            evolution_time=model_cfg.get("evolution_time", 2.5),
+            mode=model_cfg.get("mode", "trotter"),
+            dropout=model_cfg.get("dropout", 0.5),
+            activation=model_cfg.get("activation", "relu"),
+            quantum_device=model_cfg.get("quantum_device", "default.qubit"),
+            classical_device=device,
+            in_channels=model_cfg.get("in_channels", 1),
+            override_quantum_out_channels=cache_meta.get("out_channels"),
+        )
+        model.bypass_quantum = True
+        model.to(device)
+
+        optimizer = torch.optim.Adam(
+            model.parameters(), lr=lr, weight_decay=weight_decay,
+        )
+
+        best_val_loss = float("inf")
+        best_state = None
+        no_improve = 0
+
+        for epoch in range(1, epochs + 1):
+            train_loss, train_acc = train_one_epoch(
+                model, tl, optimizer, device, grad_clip, epoch_pbar=None,
+            )
+            val_loss, val_acc = evaluate(model, vl, device, split_name="Val")
+
+            if epoch <= 3 or epoch % 10 == 0:
+                print(f"      [{k_name}] epoch {epoch:>3}/{epochs}: "
+                      f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} | "
+                      f"val_loss={val_loss:.4f} val_acc={val_acc:.4f}")
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_state = copy.deepcopy(model.state_dict())
+                no_improve = 0
+            elif patience is not None:
+                no_improve += 1
+                if no_improve >= patience:
+                    print(f"      [{k_name}] Early stop at epoch {epoch}")
+                    break
+
+        if best_state is not None:
+            model.load_state_dict(best_state)
 
         # Test accuracy
         test_m = evaluate(
-            head, loaders["test"], device,
+            model, tel, device,
             split_name="Test", compute_full_metrics=True,
         )
         per_topo_acc[k_name] = test_m["accuracy"]
-        if verbose:
-            print(f"      {k_name}: test_acc={test_m['accuracy']:.4f}")
+        print(f"      {k_name}: test_acc={test_m['accuracy']:.4f}")
 
-        # Collect probs for all splits
-        head.eval()
+        # Collect probs using non-shuffled loaders built from splits
+        # (tl uses shuffle=True, so sample order won't match splits)
+        channels = channel_groups[k_idx]
+        model.eval()
         for split in ["train", "val", "test"]:
+            feat = splits[f"{split}_features"][:, channels]
+            labs = _ensure_1d_labels(splits[f"{split}_labels"])
+            ordered_loader = _make_loader(feat, labs, batch_size, shuffle=False)
             m = evaluate(
-                head, loaders[split], device,
+                model, ordered_loader, device,
                 split_name=split, compute_full_metrics=True,
             )
             all_probs[k_name][split] = m["probs"]
+
+        # Free memory
+        del model, tl, vl, tel
 
     # Oracle labels: for each sample, pick topology with max P(true_class)
     oracle_labels = {}
@@ -665,7 +683,7 @@ def run_oracle_routed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
 
     oracle_labels, per_topo_acc = _run_phase1(
         splits, channel_groups, kernel_names_ordered, cfg, device, seed,
-        set_seed_fn, batch_size, verbose,
+        set_seed_fn, batch_size, verbose, cached_path,
     )
 
     # Oracle label distribution
