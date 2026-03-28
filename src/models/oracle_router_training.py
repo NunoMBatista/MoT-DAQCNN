@@ -509,6 +509,9 @@ def run_oracle_routed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     """
     t_start = time.time()
 
+    # Always print seed-level progress (even when verbose=False)
+    print(f"\n[oracle-routed] seed={seed} starting...")
+
     if verbose:
         print(f"\n{'=' * 60}")
         print(f"Oracle-Routed MoT — seed {seed}")
@@ -587,8 +590,7 @@ def run_oracle_routed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     # ------------------------------------------------------------------
     # Phase 1: Per-topology classifiers → oracle labels
     # ------------------------------------------------------------------
-    if verbose:
-        print("  Phase 1: Training per-topology classifiers...\n")
+    print(f"[oracle-routed] seed={seed} Phase 1: per-topology classifiers...")
 
     oracle_labels, per_topo_acc = _run_phase1(
         splits, channel_groups, kernel_names_ordered, cfg, device, seed,
@@ -605,8 +607,8 @@ def run_oracle_routed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     # ------------------------------------------------------------------
     # Phase 2: Train image-level router
     # ------------------------------------------------------------------
-    if verbose:
-        print(f"\n  Phase 2: Training image-level router...\n")
+    print(f"[oracle-routed] seed={seed} Phase 1 done. Per-topo acc: {per_topo_acc}")
+    print(f"[oracle-routed] seed={seed} Phase 2: training image-level router...")
 
     router, router_agreement, router_train_losses, router_val_losses = _run_phase2(
         oracle_labels, cfg, device, seed, set_seed_fn, verbose,
@@ -625,8 +627,8 @@ def run_oracle_routed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     # ------------------------------------------------------------------
     # Phase 3: Sparse features → final classifier
     # ------------------------------------------------------------------
-    if verbose:
-        print(f"\n  Phase 3: Training final classifier on routed features...\n")
+    print(f"[oracle-routed] seed={seed} Phase 2 done. Router agreement={router_agreement:.4f}")
+    print(f"[oracle-routed] seed={seed} Phase 3: final classifier on routed features...")
 
     # Get router predictions on raw images
     router_preds = _get_router_predictions(router, cfg, device)
@@ -645,6 +647,12 @@ def run_oracle_routed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     )
 
     pipeline_time = time.time() - t_start
+
+    print(
+        f"[oracle-routed] seed={seed} done in {pipeline_time:.0f}s | "
+        f"test_acc={test_metrics['accuracy']:.4f} | "
+        f"router_agreement={router_agreement:.4f}"
+    )
 
     # ------------------------------------------------------------------
     # Plots
