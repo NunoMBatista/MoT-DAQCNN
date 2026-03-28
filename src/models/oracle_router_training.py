@@ -203,10 +203,12 @@ def _run_phase1(
     optim_cfg = cfg.get("optim", {})
     or_cfg = cfg.get("oracle_router", {})
 
-    # Phase 1 optim config: default to base optim, with overrides
+    # Phase 1 optim config: use higher LR and no scheduler by default
+    # (small per-topology heads need more aggressive training than the
+    # final classifier which operates on all channels)
     phase1_optim = copy.deepcopy(optim_cfg)
-    if "phase1_lr" in or_cfg:
-        phase1_optim["lr"] = or_cfg["phase1_lr"]
+    phase1_optim["lr"] = or_cfg.get("phase1_lr", 1e-3)
+    phase1_optim["use_scheduler"] = or_cfg.get("phase1_use_scheduler", False)
     if "phase1_epochs" in or_cfg:
         phase1_optim["epochs"] = or_cfg["phase1_epochs"]
     if "phase1_patience" in or_cfg:
@@ -215,6 +217,11 @@ def _run_phase1(
     num_classes = model_cfg.get("num_classes", 2)
     n_qubits = len(channel_groups[0])
     grad_clip = optim_cfg.get("grad_clip", 0.0)
+
+    print(f"    Phase 1 optim: lr={phase1_optim['lr']}, "
+          f"epochs={phase1_optim.get('epochs', 100)}, "
+          f"patience={phase1_optim.get('patience', 'None')}, "
+          f"scheduler={phase1_optim.get('use_scheduler', False)}")
 
     per_topo_acc = {}
     all_probs = {k: {} for k in kernel_names}
