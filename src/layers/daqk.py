@@ -149,19 +149,20 @@ class DAQKLayer(nn.Module):
                     # We'll treat them as detuning shifts in units of 1/time.
                     
                     if torch.is_tensor(inputs) and inputs.ndim > 1:
-                        # Batch mode: we need to pass the whole batch to evolve
-                        # Actually, our evolve_analog_block handles the batching via H_static calculation
-                        # so we just need to ensure the param list is structured correctly.
+                        # Batch mode: shape (B, N)
                         batch_size = inputs.shape[0]
-                        # Construct params: (B, total_coeffs)
-                        # [omega, delta, p0, ..., pN, 1.0]
-                        # Use 1.0 for the standard terms, then the pixels.
                         ones = torch.ones((batch_size, 1), device=inputs.device, dtype=inputs.dtype)
-                        # Order: drive_ramp, detuning_ramp, constant_one, p0...pN
-                        p_list = torch.cat([ones, ones, ones, inputs], dim=1)
-                        # wait, get_rydberg_hamiltonian puts p0...pN AFTER interaction constant
-                        # [drive, detuning, interaction, p0...pN]
+                        
+                        # Construct params: (B, total_coeffs)
+                        # Order: drive_ramp, detuning_ramp, interaction_const, p0...pN
+                        p_tensor = torch.cat([ones, ones, ones, inputs], dim=1)
+                        
+                        # IMPORTANT: ParametrizedHamiltonian expects a LIST of parameters,
+                        # where each element corresponds to one coefficient function.
+                        # For broadcasting, we pass a list of 12 tensors, each of shape (B,).
+                        p_list = [p_tensor[:, i] for i in range(p_tensor.shape[1])]
                     else:
+                        # Single sample mode
                         p_list = [1.0, 1.0, 1.0] + inputs.tolist()
 
                     evo.evolve_analog_block(
