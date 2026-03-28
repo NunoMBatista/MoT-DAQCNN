@@ -280,6 +280,15 @@ def _run_phase2(
     router_params = sum(p.numel() for p in router.parameters())
     print(f"    Router params: {router_params:,}")
 
+    # Diagnostic: raw image and oracle label stats
+    train_imgs = raw_images["train"][0]
+    train_oracle = torch.from_numpy(oracle_labels["train"]).long()
+    print(f"    Raw images: shape={train_imgs.shape}, "
+          f"mean={train_imgs.mean():.4f}, std={train_imgs.std():.4f}")
+    print(f"    Oracle labels: shape={train_oracle.shape}, "
+          f"unique={train_oracle.unique().tolist()}, "
+          f"dist={[(train_oracle == c).sum().item() for c in range(num_topologies)]}")
+
     # Training config
     lr = float(or_cfg.get("router_lr", 1e-3))
     weight_decay = float(or_cfg.get("router_weight_decay", 1e-5))
@@ -456,7 +465,7 @@ def _run_phase3(
     optim_cfg = cfg.get("optim", {})
     or_cfg = cfg.get("oracle_router", {})
 
-    lr = float(or_cfg.get("final_lr", optim_cfg.get("lr", 1e-4)))
+    lr = float(or_cfg.get("final_lr", optim_cfg.get("lr", 1e-3)))
     weight_decay = float(optim_cfg.get("weight_decay", 0))
     epochs = or_cfg.get("final_epochs", optim_cfg.get("epochs", 100))
     patience = optim_cfg.get("patience", None)
