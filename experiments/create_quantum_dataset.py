@@ -43,7 +43,7 @@ from src.utils.data import load_medmnist_dataset
 #   128×128 (MedMNIST+): "pneumonia_mnist_128", "oct_mnist_128", ...
 # The image resolution is derived automatically from the dataset name via
 # DATASET_IMAGE_SIZE in src/config.py, or can be overridden with IMAGE_SIZE below.
-DATASET_NAME = "tissue_mnist"
+DATASET_NAME = "breast_mnist"
 
 # Color space: "RGB", "HSV", or "GRAYSCALE"
 # HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
@@ -87,6 +87,11 @@ EVOLUTION_TIME = 2.5
 
 # Evolution mode: "trotter" (discrete steps, faster) or "exact" (ODE solver, slower)
 EVOLUTION_MODE = "trotter"
+
+# Include ZZ correlator measurements (⟨Z_i Z_j⟩ for all qubit pairs).
+# Adds C(n_qubits, 2) extra channels per kernel — e.g. 36 for 3x3 kernels,
+# giving 45 channels/topology instead of 9.
+INCLUDE_CORRELATORS = False
 
 # -----------------------------------------------------------------------------
 # Device & interface — benchmark results (breast_mnist train, single topology):
@@ -175,6 +180,10 @@ def generate_output_filename(params):
         filename += "_hsv"
     elif color_space == "GRAYSCALE":
         filename += "_gray"
+
+    # Add ZZ correlator suffix
+    if params.get("include_correlators", False):
+        filename += "_zz"
 
     filename += ".npz"
     return filename
@@ -284,6 +293,7 @@ def main():
     print(f"  Scaling factor:   {SCALING_FACTOR}")
     print(f"  Evolution time:   {EVOLUTION_TIME}")
     print(f"  Evolution mode:   {EVOLUTION_MODE}")
+    print(f"  ZZ correlators:   {INCLUDE_CORRELATORS}")
     print(f"  Quantum device:   {QUANTUM_DEVICE}")
     print(f"  Interface:        {INTERFACE}")
     print(f"  Batch size:       {BATCH_SIZE}")
@@ -329,6 +339,7 @@ def main():
         mode=EVOLUTION_MODE,
         quantum_device=QUANTUM_DEVICE,
         interface=INTERFACE,
+        include_correlators=INCLUDE_CORRELATORS,
     )
 
     # Store the output channels info
@@ -346,17 +357,32 @@ def main():
         print(f"Quantum layer outputs {out_channels} channels per image")
 
     # Build channel-to-kernel mapping: for each output channel, record which kernel produced it
+    from itertools import combinations
+
     n_qubits = KERNEL_SIZE * KERNEL_SIZE
     channel_kernel_map = []
     for topo_name in KERNEL_TOPOLOGY_NAMES:
+        # Single-qubit Z measurements
         for qubit_idx in range(n_qubits):
             channel_kernel_map.append(
                 {
                     "channel": len(channel_kernel_map),
                     "kernel": topo_name,
                     "qubit": qubit_idx,
+                    "measurement": "Z",
                 }
             )
+        # ZZ correlator measurements
+        if INCLUDE_CORRELATORS:
+            for qi, qj in combinations(range(n_qubits), 2):
+                channel_kernel_map.append(
+                    {
+                        "channel": len(channel_kernel_map),
+                        "kernel": topo_name,
+                        "qubit_pair": [qi, qj],
+                        "measurement": "ZZ",
+                    }
+                )
     print(f"Channel-kernel mapping: {len(channel_kernel_map)} entries")
     print()
 
@@ -397,6 +423,7 @@ def main():
         "evolution_time": EVOLUTION_TIME,
         "out_channels": out_channels,
         "quantum_out_channels": quantum_out_channels,
+        "include_correlators": INCLUDE_CORRELATORS,
         "channel_kernel_map": channel_kernel_map,
         "created_at": datetime.now().isoformat(),
         "train_samples": len(results["train_labels"]),

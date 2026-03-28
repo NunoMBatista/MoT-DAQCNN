@@ -155,6 +155,7 @@ def _run_phase1(
             classical_device=device,
             in_channels=model_cfg.get("in_channels", 1),
             override_quantum_out_channels=cache_meta.get("out_channels"),
+            include_correlators=model_cfg.get("include_correlators", False),
         )
         model.bypass_quantum = True
         model.to(device)
@@ -520,6 +521,7 @@ def _run_phase3(
         classical_device=device,
         in_channels=model_cfg.get("in_channels", 1),
         override_quantum_out_channels=total_channels,
+        include_correlators=model_cfg.get("include_correlators", False),
     )
     model.bypass_quantum = True
     model.to(device)

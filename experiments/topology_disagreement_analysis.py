@@ -105,6 +105,7 @@ def train_single_topology_classifier(cfg, kernel_name, seed, device):
         classical_device=device,
         in_channels=model_cfg.get("in_channels", 1),
         override_quantum_out_channels=cache_meta.get("out_channels"),
+        include_correlators=model_cfg.get("include_correlators", False),
     )
     model.bypass_quantum = True
     model.to(device)

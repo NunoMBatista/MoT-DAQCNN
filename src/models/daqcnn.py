@@ -51,6 +51,7 @@ class DAQCNN(nn.Module):
         interface: str = "torch",
         use_jit: bool = False,
         override_quantum_out_channels: int = None,
+        include_correlators: bool = False,
     ):
         super().__init__()
 
@@ -68,6 +69,7 @@ class DAQCNN(nn.Module):
             quantum_device_kwargs=quantum_device_kwargs,
             interface=interface,
             use_jit=use_jit,
+            include_correlators=include_correlators,
         )
         self.in_channels = in_channels
         # Backward compatibility alias

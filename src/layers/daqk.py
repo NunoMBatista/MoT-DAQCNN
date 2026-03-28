@@ -1,3 +1,5 @@
+from itertools import combinations
+
 import pennylane as qml
 import torch
 import torch.nn as nn
@@ -50,6 +52,7 @@ class DAQKLayer(nn.Module):
         quantum_device_kwargs=None,
         interface="torch",
         use_jit=False,
+        include_correlators=False,
     ):
         super().__init__()
 
@@ -59,6 +62,11 @@ class DAQKLayer(nn.Module):
         self.evolution_time = evolution_time
         self.interface = interface
         self.use_jit = use_jit
+        self.include_correlators = include_correlators
+
+        # Number of measurements per kernel: n_qubits Z + C(n_qubits, 2) ZZ
+        n_zz = len(list(combinations(self.wires, 2))) if include_correlators else 0
+        self.measurements_per_kernel = n_qubits + n_zz
 
         # Default to single kings kernel to preserve previous single-output behavior.
         names = ("kings",)
@@ -84,6 +92,7 @@ class DAQKLayer(nn.Module):
             quantum_device_kwargs or {},
             interface,
             use_jit,
+            include_correlators,
         )
 
     def _build_kernels(
@@ -95,13 +104,14 @@ class DAQKLayer(nn.Module):
         quantum_device_kwargs,
         interface,
         use_jit,
+        include_correlators,
     ):
         """Create one Hamiltonian/QNode per topology and cache them."""
         self.hamiltonians = []
         self.devices = []
         self.kernel_circuits = []
 
-        def make_circuit(H, n_qubits, wires, mode, evo_time, iface):
+        def make_circuit(H, n_qubits, wires, mode, evo_time, iface, correlators):
             def _circuit(inputs):
                 for i in range(n_qubits):
                     qml.RY(inputs[..., i], wires=i)
@@ -115,7 +125,13 @@ class DAQKLayer(nn.Module):
                     interface=iface,
                 )
 
-                return [qml.expval(qml.PauliZ(i)) for i in wires]
+                measurements = [qml.expval(qml.PauliZ(i)) for i in wires]
+                if correlators:
+                    for i, j in combinations(wires, 2):
+                        measurements.append(
+                            qml.expval(qml.PauliZ(i) @ qml.PauliZ(j))
+                        )
+                return measurements
 
             return _circuit
 
@@ -139,6 +155,7 @@ class DAQKLayer(nn.Module):
                 self.mode,
                 evolution_time,
                 interface,
+                include_correlators,
             )
 
             qnode = qml.QNode(
@@ -163,7 +180,7 @@ class DAQKLayer(nn.Module):
         Args:
             x: Tensor of shape (batch, n_qubits) with values in [0, pi].
         Returns:
-            Tensor of shape (batch, num_kernels * n_qubits).
+            Tensor of shape (batch, num_kernels * measurements_per_kernel).
         """
         per_kernel = []
 

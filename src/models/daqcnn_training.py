@@ -221,6 +221,7 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
         "classical_device": device,
         "in_channels": model_cfg.get("in_channels", 1),
         "interface": model_cfg.get("interface", "torch"),
+        "include_correlators": model_cfg.get("include_correlators", False),
     }
 
     # Add override if using cached data

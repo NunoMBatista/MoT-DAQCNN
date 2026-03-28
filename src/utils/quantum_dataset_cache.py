@@ -92,6 +92,12 @@ def _match_metadata(meta, cfg):
     ):
         return False
 
+    # ZZ correlators — backward compat: missing field means False
+    cached_correlators = meta.get("include_correlators", False)
+    config_correlators = model_cfg.get("include_correlators", False)
+    if cached_correlators != config_correlators:
+        return False
+
     return "exact" if exact_match else "subset"
 
 
@@ -199,13 +205,9 @@ def load_cached_quantum_dataset(
                     original_entry = next(
                         e for e in cached_channel_map if e["channel"] == old_idx
                     )
-                    new_channel_map.append(
-                        {
-                            "channel": new_out_idx,
-                            "kernel": kernel_name,
-                            "qubit": original_entry["qubit"],
-                        }
-                    )
+                    new_entry = dict(original_entry)
+                    new_entry["channel"] = new_out_idx
+                    new_channel_map.append(new_entry)
                     new_out_idx += 1
 
         # Update metadata to reflect the subset

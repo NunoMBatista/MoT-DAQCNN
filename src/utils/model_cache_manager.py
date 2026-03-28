@@ -123,6 +123,7 @@ def _load_daqcnn(checkpoint: dict, device: str) -> DAQCNN:
         quantum_device_kwargs=model_cfg.get("quantum_device_kwargs", None),
         classical_device=device,
         in_channels=model_cfg.get("in_channels", 1),
+        include_correlators=model_cfg.get("include_correlators", False),
     )
 
     model.load_state_dict(checkpoint["model_state_dict"])
