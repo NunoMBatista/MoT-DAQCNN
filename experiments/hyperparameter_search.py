@@ -1,10 +1,11 @@
 """
 Optuna-based hyperparameter search for all MoT-DAQCNN pipelines.
 
-Supports three architectures:
-    - "original"  : Original DAQCNN baseline
-    - "TS-MoE"    : Teacher-Student Mixture-of-Experts
-    - "gumbel"    : Gumbel-Softmax Mixture-of-Experts
+Supports four architectures:
+    - "original"       : Original DAQCNN baseline
+    - "TS-MoE"         : Teacher-Student Mixture-of-Experts
+    - "gumbel"         : Gumbel-Softmax Mixture-of-Experts
+    - "oracle-routed"  : Oracle-Routed Mixture-of-Topologies
 
 Usage:
     python experiments/hyperparameter_search.py \
@@ -323,6 +324,18 @@ def _run_ts_moe_trial(cfg: dict, seed: int, output_dir: str, trial: Any = None) 
     return result
 
 
+def _run_oracle_routed_trial(
+    cfg: dict, seed: int, output_dir: str, trial: Any = None
+) -> dict:
+    """Run one trial of the oracle-routed MoT pipeline."""
+    from src.models.oracle_router_training import run_oracle_routed
+
+    result = run_oracle_routed(
+        cfg, seed, output_dir, verbose=False, set_seed_fn=set_seed
+    )
+    return result
+
+
 # Map from architecture name to runner function
 _RUNNERS = {
     "original": _run_original_trial,
@@ -330,6 +343,7 @@ _RUNNERS = {
     "ts-moe": _run_ts_moe_trial,
     "ts_moe": _run_ts_moe_trial,
     "gumbel": _run_gumbel_trial,
+    "oracle-routed": _run_oracle_routed_trial,
 }
 
 

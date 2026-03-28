@@ -13,7 +13,7 @@ for all spatial positions within one image).
 
 Usage:
     python experiments/oracle_routing_experiment.py \
-        --config configs/breast_mnist_multi_seed_4_kernels_3x3.yml \
+        --config configs/breast_mnist/original/4_kernels_3x3.yml \
         --seeds 0 1 2 3 4
 """
 
@@ -370,9 +370,8 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default=os.path.join(
-            "configs", "breast_mnist_multi_seed_4_kernels_3x3.yml"
-        ),
+        required=True,
+        help="Path to YAML config (should match the one used for disagreement analysis).",
     )
     parser.add_argument(
         "--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4],

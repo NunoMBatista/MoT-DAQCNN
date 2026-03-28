@@ -14,7 +14,7 @@ Key metrics:
 
 Usage:
     python experiments/topology_disagreement_analysis.py \
-        --config configs/breast_mnist_multi_seed_4_kernels_3x3.yml \
+        --config configs/breast_mnist/original/4_kernels_3x3.yml \
         --seeds 0 1 2 3 4
 """
 
@@ -476,7 +476,7 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default=os.path.join("configs", "breast_mnist_multi_seed_4_kernels_3x3.yml"),
+        default=os.path.join("configs", "breast_mnist", "original", "4_kernels_3x3.yml"),
         help="Path to base YAML config file.",
     )
     parser.add_argument(

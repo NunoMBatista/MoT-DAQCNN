@@ -14,6 +14,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 from src.models.daqcnn_training import run_single_seed  # noqa: E402
+from src.models.oracle_router_training import run_oracle_routed  # noqa: E402
 from src.models.train_ts_moe import run_ts_moe_pipeline  # noqa: E402
 from src.utils.plotting import (  # noqa: E402
     plot_multi_seed_loss_curves,
@@ -159,6 +160,8 @@ def main():
         prefix = "ts_moe"
     elif architecture == "gumbel":
         prefix = "gumbel"
+    elif architecture == "oracle-routed":
+        prefix = "oracle_routed"
     else:
         prefix = "run"
     dataset_name = cfg.get("dataset", {}).get("name", "unknown")
@@ -246,6 +249,10 @@ def main():
             from src.models.gumbel_moe_training import run_gumbel_moe
 
             result = run_gumbel_moe(
+                cfg, seed, output_dir, verbose=(len(seeds) == 1), set_seed_fn=set_seed
+            )
+        elif architecture == "oracle-routed":
+            result = run_oracle_routed(
                 cfg, seed, output_dir, verbose=(len(seeds) == 1), set_seed_fn=set_seed
             )
         else:
