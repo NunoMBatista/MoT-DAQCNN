@@ -20,6 +20,11 @@ import time
 
 import numpy as np
 import torch
+import torch.multiprocessing
+
+# Prevent "Too many open files" when many DataLoaders are created in one process
+torch.multiprocessing.set_sharing_strategy("file_system")
+
 import torch.nn as nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, TensorDataset
@@ -70,8 +75,10 @@ def _collect_raw_images(cfg):
     Returns:
         dict with keys train/val/test, each mapping to (images_tensor, labels_tensor).
     """
-    # Create loaders just once, iterate them fully, then discard
-    train_loader, val_loader, test_loader, _ = get_dataloaders(cfg)
+    # Create loaders with num_workers=0 to avoid file-descriptor exhaustion
+    cfg_safe = copy.deepcopy(cfg)
+    cfg_safe["dataset"]["num_workers"] = 0
+    train_loader, val_loader, test_loader, _ = get_dataloaders(cfg_safe)
     result = {}
     for split, loader in [("train", train_loader), ("val", val_loader),
                           ("test", test_loader)]:
