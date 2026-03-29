@@ -52,6 +52,7 @@ class DAQCNN(nn.Module):
         use_jit: bool = False,
         override_quantum_out_channels: int = None,
         include_correlators: bool = False,
+        head_hidden_channels: int = 64,
     ):
         super().__init__()
 
@@ -84,7 +85,9 @@ class DAQCNN(nn.Module):
             if in_channels == 3:
                 out_ch *= 3
 
-        self.head = build_classification_head(out_ch, num_classes, dropout, activation)
+        self.head = build_classification_head(
+            out_ch, num_classes, dropout, activation, hidden_channels=head_hidden_channels
+        )
 
         if classical_device is not None:
             self.to(classical_device)
