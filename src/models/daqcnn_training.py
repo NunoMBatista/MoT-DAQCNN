@@ -281,24 +281,17 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
         train_accs.append(train_acc)
         val_accs.append(val_acc)
 
-        # Real-time W&B logging
+        # Real-time W&B logging (if active)
         try:
             import wandb
             if wandb.run is not None:
-                log_dict = {
+                wandb.log({
                     "epoch": epoch,
                     "train/loss": train_loss,
                     "train/acc": train_acc,
                     "val/loss": val_loss,
                     "val/acc": val_acc,
-                    "lr": optimizer.param_groups[0]['lr']
-                }
-                # If this is part of an HP search, tag the metrics with the trial number
-                trial_num = cfg.get("_trial_number")
-                if trial_num is not None:
-                    log_dict["trial_number"] = trial_num
-                
-                wandb.log(log_dict)
+                })
         except ImportError:
             pass
 

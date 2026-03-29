@@ -447,9 +447,6 @@ class HPSearchObjective:
             cfg_s = copy.deepcopy(cfg)
             cfg_s.setdefault("misc", {})["seed"] = s
             
-            # Inject trial number so the training script can tag its W&B logs
-            cfg_s["_trial_number"] = trial.number
-
             try:
                 set_seed(s)
                 result = self._runner(cfg_s, s, seed_dir, trial)
@@ -1313,18 +1310,19 @@ def main():
     # Finalize W&B run (if enabled)
     if wandb_run is not None:
         try:
-            # Headline results into summary
-            wandb_run.summary["search/search_time_s"] = search_time
-            wandb_run.summary["search/n_trials_completed"] = len(completed)
-            wandb_run.summary["search/n_trials_failed_or_pruned"] = len(failed)
-            if completed:
-                wandb_run.summary["search/best_trial_number"] = int(
-                    study.best_trial.number
-                )
-                wandb_run.summary["search/best_value"] = float(study.best_trial.value)
+            # Headline results into summary (only if run is still active)
+            if hasattr(wandb_run, "summary"):
+                wandb_run.summary["search/search_time_s"] = search_time
+                wandb_run.summary["search/n_trials_completed"] = len(completed)
+                wandb_run.summary["search/n_trials_failed_or_pruned"] = len(failed)
+                if completed:
+                    wandb_run.summary["search/best_trial_number"] = int(
+                        study.best_trial.number
+                    )
+                    wandb_run.summary["search/best_value"] = float(study.best_trial.value)
 
             # Optionally log a trials table for quick browsing
-            if args.wandb_log_trials_table and completed:
+            if args.wandb_log_trials_table and completed and hasattr(wandb, "Table"):
                 # Build columns from observed params
                 param_names = set()
                 for t in completed:
@@ -1354,8 +1352,11 @@ def main():
                     row.append(t.user_attrs.get("test_recall"))
                     row.append(t.user_attrs.get("test_loss"))
                     row.append(t.user_attrs.get("duration_s"))
-                    table.add_data(*row)
-                wandb_run.log({"optuna/trials": table})
+                
+                try:
+                    wandb_run.log({"optuna/trials": table})
+                except Exception:
+                    pass
 
             # Save key files for convenience (does not force artifact upload)
             # Upload whenever they exist.
