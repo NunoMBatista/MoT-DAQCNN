@@ -281,6 +281,21 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
         train_accs.append(train_acc)
         val_accs.append(val_acc)
 
+        # Real-time W&B logging
+        try:
+            import wandb
+            if wandb.run is not None:
+                wandb.log({
+                    "epoch": epoch,
+                    "train/loss": train_loss,
+                    "train/acc": train_acc,
+                    "val/loss": val_loss,
+                    "val/acc": val_acc,
+                    "lr": optimizer.param_groups[0]['lr']
+                })
+        except ImportError:
+            pass
+
         dt = time.time() - t0
 
         epoch_pbar.set_description(

@@ -400,22 +400,72 @@ class HPSearchObjective:
         # 1. Build config for this trial
         cfg = build_trial_config(self.base_cfg, self.search_space, trial)
 
-        # 2. Create trial output directory
+        # 2. Automatic Cache Generation
+        # Before running the trial, check if the quantum features exist.
+        # If not, generate them once. This prevents expensive quantum
+        # simulation in every epoch of the training loop.
+        from src.utils.quantum_dataset_cache import find_cached_quantum_dataset
+        
+        cached_path = find_cached_quantum_dataset(cfg)
+        if cached_path is None:
+            print(f"\n[Trial {trial.number}] No cache found for physical parameters. Generating cache...")
+            from experiments.create_quantum_dataset import load_params_from_config, main as generate_main
+            
+            # Use a temporary hack: write the trial config to a temp file
+            # so the generator can load it.
+            os.makedirs(self.output_root, exist_ok=True)
+            tmp_cfg_path = os.path.join(self.output_root, f"tmp_trial_{trial.number}_config.yml")
+            with open(tmp_cfg_path, "w") as f:
+                yaml.dump(cfg, f)
+            
+            # Temporarily override sys.argv to pass the config to generate_main
+            old_argv = sys.argv
+            sys.argv = ["create_quantum_dataset.py", "--config", tmp_cfg_path]
+            try:
+                generate_main()
+            finally:
+                sys.argv = old_argv
+                if os.path.exists(tmp_cfg_path):
+                    os.remove(tmp_cfg_path)
+            
+            print(f"[Trial {trial.number}] Cache generation complete.\n")
+
+        # 3. Create trial output directory
         trial_dir = os.path.join(self.output_root, f"trial_{trial.number:04d}")
         os.makedirs(trial_dir, exist_ok=True)
 
-        # Save the trial config for reproducibility (seed-agnostic template)
+        # Save the trial config for reproducibility
         trial_cfg_path = os.path.join(trial_dir, "config.yml")
         with open(trial_cfg_path, "w") as f:
             yaml.dump(cfg, f, default_flow_style=False)
 
-        # 3. Run the pipeline once per trial seed and collect results
+        # 4. Run the pipeline once per trial seed
         seed_results = []
         for s in self.trial_seeds:
             seed_dir = os.path.join(trial_dir, f"seed_{s}")
             os.makedirs(seed_dir, exist_ok=True)
             cfg_s = copy.deepcopy(cfg)
             cfg_s.setdefault("misc", {})["seed"] = s
+            
+            # --- Initialize Child W&B Run for this seed ---
+            child_run = None
+            if wandb is not None and wandb.run is not None:
+                # Inherit project/entity from parent
+                parent = wandb.run
+                run_name = f"trial-{trial.number:03d}-seed-{s}"
+                try:
+                    child_run = wandb.init(
+                        project=parent.project,
+                        entity=parent.entity,
+                        group=parent.group,
+                        job_type="trial",
+                        name=run_name,
+                        config=cfg_s,
+                        reinit=True,
+                    )
+                except Exception as e:
+                    print(f"[wandb] Failed to init child run: {e}")
+
             try:
                 set_seed(s)
                 result = self._runner(cfg_s, s, seed_dir, trial)
@@ -424,10 +474,12 @@ class HPSearchObjective:
                 error_path = os.path.join(seed_dir, "error.txt")
                 with open(error_path, "w") as ef:
                     import traceback
-
                     ef.write(f"Trial {trial.number} seed {s} failed:\n")
                     ef.write(traceback.format_exc())
                 warnings.warn(f"Trial {trial.number} seed {s} failed: {e}")
+            finally:
+                if child_run is not None:
+                    child_run.finish()
 
         if not seed_results:
             raise optuna.TrialPruned("All seeds failed for this trial")

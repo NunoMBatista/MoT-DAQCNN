@@ -1,0 +1,50 @@
+# =============================================================================
+# Comprehensive HP Search — Analog + ZZ DAQCNN on BreastMNIST
+# =============================================================================
+
+settings:
+  metric: test_acc
+  direction: maximize
+  study_name: "analog_zz_comprehensive"
+
+search_space:
+  # === Optimizer ===
+  optim.lr:
+    type: loguniform
+    low:  1.0e-5
+    high: 5.0e-3
+
+  optim.weight_decay:
+    type: loguniform
+    low:  1.0e-8
+    high: 1.0e-3
+
+  optim.grad_clip:
+    type: uniform
+    low:  0.1
+    high: 5.0
+
+  optim.patience:
+    type: int
+    low:  5
+    high: 25
+    step: 5
+
+  optim.use_scheduler:
+    type: categorical
+    choices: [true, false]
+
+  # === Model (Classical Head) ===
+  model.dropout:
+    type: uniform
+    low:  0.1
+    high: 0.8
+
+  model.activation:
+    type: categorical
+    choices: ["relu", "gelu"]
+
+  # === Dataset ===
+  dataset.batch_size:
+    type: categorical
+    choices: [16, 32, 64, 128]
