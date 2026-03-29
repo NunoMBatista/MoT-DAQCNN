@@ -447,24 +447,8 @@ class HPSearchObjective:
             cfg_s = copy.deepcopy(cfg)
             cfg_s.setdefault("misc", {})["seed"] = s
             
-            # --- Initialize Child W&B Run for this seed ---
-            child_run = None
-            if wandb is not None and wandb.run is not None:
-                # Inherit project/entity from parent
-                parent = wandb.run
-                run_name = f"trial-{trial.number:03d}-seed-{s}"
-                try:
-                    child_run = wandb.init(
-                        project=parent.project,
-                        entity=parent.entity,
-                        group=parent.group,
-                        job_type="trial",
-                        name=run_name,
-                        config=cfg_s,
-                        reinit=True,
-                    )
-                except Exception as e:
-                    print(f"[wandb] Failed to init child run: {e}")
+            # Inject trial number so the training script can tag its W&B logs
+            cfg_s["_trial_number"] = trial.number
 
             try:
                 set_seed(s)
@@ -477,9 +461,6 @@ class HPSearchObjective:
                     ef.write(f"Trial {trial.number} seed {s} failed:\n")
                     ef.write(traceback.format_exc())
                 warnings.warn(f"Trial {trial.number} seed {s} failed: {e}")
-            finally:
-                if child_run is not None:
-                    child_run.finish()
 
         if not seed_results:
             raise optuna.TrialPruned("All seeds failed for this trial")
