@@ -1,6 +1,6 @@
 # MoT-DAQCNN: Comprehensive Hyperparameter Search (BreastMNIST)
 
-This document contains the sequential commands to run a large-scale, robust comparison between **Digital vs. Analog** encoding and **4-Kernel vs. 8-Kernel** configurations, all utilizing **ZZ correlator measurements**.
+This document contains the sequential commands to run a large-scale, robust comparison between **Digital vs. Analog** encoding and **1-Kernel vs. 4-Kernel vs. 8-Kernel** configurations, all utilizing **ZZ correlator measurements**.
 
 ## Common Parameters for All Runs
 - **Trials:** 1,000
@@ -11,14 +11,47 @@ This document contains the sequential commands to run a large-scale, robust comp
 
 ---
 
-## Phase 1: 4-Kernel Comparison (Isolating the Physics)
-Using the kernels: `grid`, `chain`, `horizontal`, `kings`.
+## Phase 0: Single-Kernel Baseline (The "Atomic" Comparison)
+Tunes which **single** quantum topology is best (`kings`, `star`, etc.) alongside classical HPs.
 
-### 1. Digital Encoding (RY Gates) + ZZ
+### 1. Digital Encoding (RY Gates) + ZZ (1-Kernel)
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist/original/1_kernel_3x3_digital_zz.yml \
+    --search-config configs/breast_mnist/hp_search/digital_zz_single_kernel_search.yml \
+    --n-trials 1000 \
+    --trial-seeds 0 1 2 3 4 5 6 7 8 9 10 \
+    --validate-top-k 5 \
+    --validation-seeds 11 12 13 14 15 16 17 18 19 20 \
+    --study-name hp_digital_1kern_zz \
+    --wandb \
+    --wandb-log-trials-table
+```
+
+### 2. Analog Encoding (Local Detuning) + ZZ (1-Kernel)
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist/original/1_kernel_3x3_analog_zz.yml \
+    --search-config configs/breast_mnist/hp_search/analog_zz_single_kernel_search.yml \
+    --n-trials 1000 \
+    --trial-seeds 0 1 2 3 4 5 6 7 8 9 10 \
+    --validate-top-k 5 \
+    --validation-seeds 11 12 13 14 15 16 17 18 19 20 \
+    --study-name hp_analog_1kern_zz \
+    --wandb \
+    --wandb-log-trials-table
+```
+
+---
+
+## Phase 1: 4-Kernel Comparison (Isolating the Physics)
+Uses three fixed kernels (`grid`, `chain`, `horizontal`) and **tunes the 4th kernel** from a diverse list (`kings`, `vertical`, `cross`, `ring`, `star`), exactly matching your previous TS-MoE methodology.
+
+### 3. Digital Encoding (RY Gates) + ZZ (4-Kernels)
 ```bash
 python experiments/hyperparameter_search.py \
     --config configs/breast_mnist/original/4_kernels_3x3_digital_zz.yml \
-    --search-config configs/breast_mnist/hp_search/digital_zz_search.yml \
+    --search-config configs/breast_mnist/hp_search/digital_zz_4kern_search.yml \
     --n-trials 1000 \
     --trial-seeds 0 1 2 3 4 5 6 7 8 9 10 \
     --validate-top-k 5 \
@@ -28,11 +61,11 @@ python experiments/hyperparameter_search.py \
     --wandb-log-trials-table
 ```
 
-### 2. Analog Encoding (Local Detuning) + ZZ
+### 4. Analog Encoding (Local Detuning) + ZZ (4-Kernels)
 ```bash
 python experiments/hyperparameter_search.py \
     --config configs/breast_mnist/original/4_kernels_3x3_analog_zz.yml \
-    --search-config configs/breast_mnist/hp_search/analog_zz_search.yml \
+    --search-config configs/breast_mnist/hp_search/analog_zz_4kern_search.yml \
     --n-trials 1000 \
     --trial-seeds 0 1 2 3 4 5 6 7 8 9 10 \
     --validate-top-k 5 \
@@ -45,13 +78,13 @@ python experiments/hyperparameter_search.py \
 ---
 
 ## Phase 2: 8-Kernel Comparison (Isolating Diversity)
-Using all 8 topologies: `kings`, `horizontal`, `vertical`, `cross`, `ring`, `chain`, `star`, `grid`.
+Uses all 8 fixed topologies to provide the maximum physical feature density.
 
-### 3. Digital Encoding (RY Gates) + ZZ
+### 5. Digital Encoding (RY Gates) + ZZ (8-Kernels)
 ```bash
 python experiments/hyperparameter_search.py \
     --config configs/breast_mnist/original/all_kernels_3x3_digital_zz.yml \
-    --search-config configs/breast_mnist/hp_search/digital_zz_search.yml \
+    --search-config configs/breast_mnist/hp_search/digital_zz_8kern_search.yml \
     --n-trials 1000 \
     --trial-seeds 0 1 2 3 4 5 6 7 8 9 10 \
     --validate-top-k 5 \
@@ -61,11 +94,11 @@ python experiments/hyperparameter_search.py \
     --wandb-log-trials-table
 ```
 
-### 4. Analog Encoding (Local Detuning) + ZZ
+### 6. Analog Encoding (Local Detuning) + ZZ (8-Kernels)
 ```bash
 python experiments/hyperparameter_search.py \
     --config configs/breast_mnist/original/all_kernels_3x3_analog_zz.yml \
-    --search-config configs/breast_mnist/hp_search/analog_zz_search.yml \
+    --search-config configs/breast_mnist/hp_search/analog_zz_8kern_search.yml \
     --n-trials 1000 \
     --trial-seeds 0 1 2 3 4 5 6 7 8 9 10 \
     --validate-top-k 5 \

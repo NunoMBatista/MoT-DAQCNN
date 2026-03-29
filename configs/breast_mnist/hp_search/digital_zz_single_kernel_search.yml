@@ -1,17 +1,31 @@
 # =============================================================================
-# Comprehensive HP Search — Analog + ZZ DAQCNN on BreastMNIST
+# Fair Comparison HP Search — Single Kernel (Digital + ZZ) on BreastMNIST
 # =============================================================================
+# Tunes the best single topology among 8 choices + classical HPs.
 
 settings:
   metric: test_acc
   direction: maximize
-  study_name: "analog_zz_comprehensive"
+  study_name: "digital_zz_single_kernel_fair"
 
 search_space:
-  # === Optimizer ===
+  # === Best Kernel Selection ===
+  model.kernel_topology_names:
+    type: categorical
+    choices:
+      - ["kings"]
+      - ["horizontal"]
+      - ["vertical"]
+      - ["cross"]
+      - ["ring"]
+      - ["chain"]
+      - ["star"]
+      - ["grid"]
+
+  # === Optimizer (Exact match to other searches) ===
   optim.lr:
     type: loguniform
-    low:  1.0e-5
+    low:  1.0e-8
     high: 5.0e-3
 
   optim.weight_decay:
@@ -21,24 +35,24 @@ search_space:
 
   optim.grad_clip:
     type: uniform
-    low:  0.1
-    high: 5.0
+    low:  0.0
+    high: 10.0
 
   optim.patience:
     type: int
-    low:  5
-    high: 25
+    low:  1
+    high: 100
     step: 5
 
   optim.use_scheduler:
     type: categorical
     choices: [true, false]
 
-  # === Model (Classical Head) ===
+  # === Model / Head ===
   model.dropout:
     type: uniform
-    low:  0.1
-    high: 0.8
+    low:  0.0
+    high: 0.7
 
   model.activation:
     type: categorical
@@ -47,4 +61,4 @@ search_space:
   # === Dataset ===
   dataset.batch_size:
     type: categorical
-    choices: [16, 32, 64, 128]
+    choices: [16, 32, 64]

@@ -1,0 +1,61 @@
+# =============================================================================
+# Fair Comparison HP Search — Analog + ZZ on BreastMNIST
+# =============================================================================
+# Matches the search space of the previous TS-MoE run exactly.
+
+settings:
+  metric: test_acc
+  direction: maximize
+  study_name: "analog_zz_fair_comparison"
+
+search_space:
+  # === Kernel Selection (Matches previous search) ===
+  model.kernel_topology_names:
+    type: categorical
+    choices:
+      - ["grid", "chain", "horizontal", "kings"]
+      - ["grid", "chain", "horizontal", "vertical"]
+      - ["grid", "chain", "horizontal", "cross"]
+      - ["grid", "chain", "horizontal", "ring"]
+      - ["grid", "chain", "horizontal", "star"]
+
+  # === Optimizer (Exact match to previous ranges) ===
+  optim.lr:
+    type: loguniform
+    low:  1.0e-8
+    high: 5.0e-3
+
+  optim.weight_decay:
+    type: loguniform
+    low:  1.0e-8
+    high: 1.0e-3
+
+  optim.grad_clip:
+    type: uniform
+    low:  0.0
+    high: 10.0
+
+  optim.patience:
+    type: int
+    low:  1
+    high: 100
+    step: 5
+
+  optim.use_scheduler:
+    type: categorical
+    choices: [true, false]
+
+  # === Model / Head ===
+  model.dropout:
+    type: uniform
+    low:  0.0
+    high: 0.7
+
+  model.activation:
+    type: categorical
+    choices: ["relu", "gelu"]
+
+  # === Dataset ===
+  dataset.batch_size:
+    type: categorical
+    choices: [16, 32, 64]

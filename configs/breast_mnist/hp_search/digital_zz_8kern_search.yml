@@ -1,17 +1,18 @@
 # =============================================================================
-# Comprehensive HP Search — Digital + ZZ DAQCNN on BreastMNIST
+# Fair Comparison HP Search — Digital + ZZ (8-Kernels) on BreastMNIST
 # =============================================================================
+# Uses all 8 fixed kernels. Classical ranges match the 4-kernel search exactly.
 
 settings:
   metric: test_acc
   direction: maximize
-  study_name: "digital_zz_comprehensive"
+  study_name: "digital_zz_8kern_fair"
 
 search_space:
-  # === Optimizer ===
+  # === Optimizer (Exact match to 4-kernel search) ===
   optim.lr:
     type: loguniform
-    low:  1.0e-5
+    low:  1.0e-8
     high: 5.0e-3
 
   optim.weight_decay:
@@ -21,24 +22,24 @@ search_space:
 
   optim.grad_clip:
     type: uniform
-    low:  0.1
-    high: 5.0
+    low:  0.0
+    high: 10.0
 
   optim.patience:
     type: int
-    low:  5
-    high: 25
+    low:  1
+    high: 100
     step: 5
 
   optim.use_scheduler:
     type: categorical
     choices: [true, false]
 
-  # === Model (Classical Head) ===
+  # === Model / Head ===
   model.dropout:
     type: uniform
-    low:  0.1
-    high: 0.8
+    low:  0.0
+    high: 0.7
 
   model.activation:
     type: categorical
@@ -47,4 +48,4 @@ search_space:
   # === Dataset ===
   dataset.batch_size:
     type: categorical
-    choices: [16, 32, 64, 128]
+    choices: [16, 32, 64]
