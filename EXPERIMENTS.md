@@ -1,6 +1,14 @@
 # MoT-DAQCNN: Comprehensive Hyperparameter Search (BreastMNIST)
 
-This document contains the sequential commands to run a large-scale, robust comparison between **Digital vs. Analog** encoding and **1-Kernel vs. 4-Kernel vs. 8-Kernel** configurations, all utilizing **ZZ correlator measurements**.
+## Recommended Execution Order
+1. **Digital (1-Kern)**: Establishing the gate-based baseline.
+2. **Digital (4-Kern)**: Replicating your previous setup with ZZ.
+3. **Digital (8-Kern)**: Testing maximum gate-based diversity.
+4. **Analog (1-Kern)**: First test of the grounded-physics approach.
+5. **Analog (4-Kern)**: Fair comparison vs Digital (4-Kern).
+6. **Analog (8-Kern)**: The "Ultimate" grounded-physics model.
+
+---
 
 ## Common Parameters for All Runs
 - **Trials:** 1,000
