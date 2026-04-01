@@ -1,0 +1,263 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{geometry}
+\usepackage{tikz}
+
+\geometry{margin=1in}
+
+\title{ZZ-AQCNN: Advanced Analog Quantum Convolutional Neural Networks with ZZ Entanglement for Medical Image Classification}
+\author{Team ZZ-AQCNN}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report details our development of the ZZ-AQCNN (Analog Quantum Convolutional Neural Network with ZZ Entanglement) architecture for medical image classification. We explore the inclusion of ZZ entanglement observables and prioritize analog Hamiltonian evolution over traditional digital gate-based encoding. While initial experiments with a dynamic router showed instability on the BreastMNIST dataset, we pivoted towards optimizing a robust, physics-grounded quantum kernel enriched with higher-order correlations. We present a comprehensive hyperparameter search across multiple topologies and encoding modes.
+\end{abstract}
+
+\section{Introduction}
+The classification of medical imaging using quantum-classical hybrids is a rapidly evolving field. This work, conducted by the OQI group, builds upon our previous methodology using Guided Auto-Encoders (GAE) and neutral-atom reservoir computing \cite{oqi2024}. While the GAE-QRC approach demonstrated the potential of Rydberg-state encoding for polyp detection, the current ZZ-AQCNN framework represents a strategic pivot toward a more hardware-aware architecture.
+
+The transition from a global reservoir to a patch-based quantum kernel is motivated by several key technical advantages:
+\begin{enumerate}
+    \item \textbf{Spatial Locality}: By processing 3x3 image patches directly, we preserve the spatial correlations of the medical scans, mirroring the inductive bias of classical CNNs.
+    \item \textbf{Native 2D Topology}: ZZ-AQCNN leverages the natural 2D arrangement of neutral-atom arrays. Unlike 1D chains, our diverse topologies (Kings, Ring, Grid) exploit the Rydberg blockade effect across multiple spatial dimensions.
+    \item \textbf{Efficiency and Scalability}: The kernel approach eliminates the need for complex surrogate-driven training of auto-encoders, focusing computational resources on the high-dimensional feature mapping provided by the analog Hamiltonian.
+\end{enumerate}
+
+\section{Methodology}
+
+\subsection{Encoding Schemes}
+We distinguish between two fundamentally different ways of mapping classical image data $\mathbf{x}$ into the quantum Hilbert space.
+
+\subsubsection{Digital Encoding (State-Based)}
+In the digital configuration, the data is encoded as a "snapshot" at $t=0$. Each pixel $x_i \in [0, \pi]$ is used as the parameter for a rotation gate $RY(x_i)$, followed by a Hadamard gate $H$. This prepares a data-dependent initial state $|\psi(\mathbf{x})\rangle$, which then evolves under a \textit{static} Hamiltonian $H_{fixed}$ for a duration $T$.
+\begin{equation}
+|\Psi_{out}\rangle = e^{-i H_{fixed} T} \left( \bigotimes_{i=1}^N H \cdot RY(x_i) \right) |0\rangle^{\otimes N}
+\end{equation}
+
+\subsubsection{Analog Encoding (Hamiltonian-Based)}
+In our prioritized analog mode, we eliminate initial gate operations ($|\psi_{t=0}\rangle = |0\rangle^{\otimes N}$) and instead inject the data directly into the system's dynamics. Each pixel $x_i$ is mapped to the local detuning coefficient $\delta_i$ of the Rydberg Hamiltonian. The quantum state "feels" the image data throughout the entire evolution period $[0, T]$, allowing for more complex, non-linear feature extraction that is grounded in the physical landscape of the atoms.
+\begin{equation}
+|\Psi_{out}\rangle = \mathcal{T} \exp \left( -i \int_0^T H(\mathbf{x}, t) dt \right) |0\rangle^{\otimes N}
+\end{equation}
+where $H(\mathbf{x}, t)$ contains the term $\sum_i x_i n_i$. This scheme is highly hardware-efficient as it leverages the natural control fields of neutral-atom processors.
+
+\subsection{ZZ Entanglement Correlators}
+To capture richer features, we measure both $\langle \sigma_Z^{(i)} \rangle$ and $\langle \sigma_Z^{(i)} \sigma_Z^{(j)} \rangle$ for all $i < j$. For a 9-qubit kernel, this increases the feature count from 9 to 45 ($9 + \binom{9}{2}$), potentially providing the classical head with deeper insights into the quantum state's entanglement structure.
+
+\subsection{Teacher-Student Mixture of Experts (MoE)}
+We initially explored a dynamic kernel selection approach where a lightweight student network would "route" patches to the best performing kernel among a set of teachers. However, results on BreastMNIST were unstable, possibly due to the small patch size (3x3) and the high variance in quantum feature distributions. This led to our current focus on perfecting the single-kernel and multi-kernel configurations without dynamic routing.
+
+\section{Experimental Design}
+
+\subsection{Topological Diversity and Feature Extraction}
+The strength of the ZZ-AQCNN approach lies in the structural diversity of its kernels. By manipulating the physical coordinates of the 9 qubits, we effectively create different "quantum receptive fields." Figure \ref{fig:topologies} visualizes the interaction graphs for each of the 8 manual topologies.
+
+\begin{figure}[htbp]
+    \centering
+    \tikzset{qnode/.style={circle, fill=black, inner sep=1.2pt}}
+    \tikzset{link/.style={draw=black!60, thin}}
+    
+    \begin{subfigure}[b]{0.22\textwidth}
+        \centering
+        \begin{tikzpicture}[scale=0.6]
+            \foreach \x in {0,1,2} \foreach \y in {0,1,2} \node[qnode] (\x\y) at (\x,\y) {};
+            \foreach \x in {0,1,2} \foreach \y in {0,1} \draw[link] (\x\y) -- (\x,\y+1);
+            \foreach \x in {0,1} \foreach \y in {0,1,2} \draw[link] (\x\y) -- (\x+1,\y);
+            \foreach \x in {0,1} \foreach \y in {0,1} {\draw[link] (\x\y) -- (\x+1,\y+1); \draw[link] (\x,\y+1) -- (\x+1,\y);}
+        \end{tikzpicture}
+        \caption{Kings}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.22\textwidth}
+        \centering
+        \begin{tikzpicture}[scale=0.6]
+            \foreach \x in {0,1,2} \foreach \y in {0,1,2} \node[qnode] (\x\y) at (\x,\y) {};
+            \foreach \y in {0,1,2} \draw[link] (0\y) -- (1\y) -- (2\y);
+        \end{tikzpicture}
+        \caption{Horizontal}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.22\textwidth}
+        \centering
+        \begin{tikzpicture}[scale=0.6]
+            \foreach \x in {0,1,2} \foreach \y in {0,1,2} \node[qnode] (\x\y) at (\x,\y) {};
+            \foreach \x in {0,1,2} \draw[link] (\x0) -- (\x1) -- (\x2);
+        \end{tikzpicture}
+        \caption{Vertical}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.22\textwidth}
+        \centering
+        \begin{tikzpicture}[scale=0.6]
+            \foreach \x in {0,1,2} \foreach \y in {0,1,2} \node[qnode] (\x\y) at (\x,\y) {};
+            \draw[link] (11) -- (10); \draw[link] (11) -- (12);
+            \draw[link] (11) -- (01); \draw[link] (11) -- (21);
+        \end{tikzpicture}
+        \caption{Cross}
+    \end{subfigure}
+    
+    \vspace{1em}
+    
+    \begin{subfigure}[b]{0.22\textwidth}
+        \centering
+        \begin{tikzpicture}[scale=0.6]
+            \foreach \x in {0,1,2} \foreach \y in {0,1,2} \node[qnode] (\x\y) at (\x,\y) {};
+            \draw[link] (00) -- (10) -- (20) -- (21) -- (22) -- (12) -- (02) -- (01) -- (00);
+        \end{tikzpicture}
+        \caption{Ring}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.22\textwidth}
+        \centering
+        \begin{tikzpicture}[scale=0.6]
+            \foreach \x in {0,1,2} \foreach \y in {0,1,2} \node[qnode] (\x\y) at (\x,\y) {};
+            \draw[link] (00) -- (10) -- (20) -- (21) -- (11) -- (01) -- (02) -- (12) -- (22);
+        \end{tikzpicture}
+        \caption{Chain}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.22\textwidth}
+        \centering
+        \begin{tikzpicture}[scale=0.6]
+            \foreach \x in {0,1,2} \foreach \y in {0,1,2} \node[qnode] (\x\y) at (\x,\y) {};
+            \foreach \x in {0,1,2} \foreach \y in {0,1,2} {\ifnum \x=1 \ifnum \y=1 \else \draw[link] (11) -- (\x\y); \fi \else \draw[link] (11) -- (\x\y); \fi}
+        \end{tikzpicture}
+        \caption{Star}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.22\textwidth}
+        \centering
+        \begin{tikzpicture}[scale=0.6]
+            \foreach \x in {0,1,2} \foreach \y in {0,1,2} \node[qnode] (\x\y) at (\x,\y) {};
+            \foreach \x in {0,1,2} \foreach \y in {0,1} \draw[link] (\x\y) -- (\x,\y+1);
+            \foreach \x in {0,1} \foreach \y in {0,1,2} \draw[link] (\x\y) -- (\x+1,\y);
+        \end{tikzpicture}
+        \caption{Grid}
+    \end{subfigure}
+    \caption{Visualization of the 8 kernel topologies used in ZZ-AQCNN. Nodes represent qubits mapped to image pixels; lines represent strong Hamiltonian interactions ($J_{ij}$). Isolated nodes represent qubits displaced to the \textit{FAR} position.}
+    \label{fig:topologies}
+\end{figure}
+
+The fixed quantum parameters for the analog evolution are:
+\begin{itemize}
+    \item \textbf{Evolution Time ($T$)}: 2.5
+    \item \textbf{Scaling Factor ($C_6$)}: 1.0
+    \item \textbf{Evolution Mode}: Trotterization (step size $dt = 0.05$)
+\end{itemize}
+
+Table \ref{tab:topologies} details the coordinate logic for our diverse kernel set.
+
+\begin{table}[h]
+    \centering
+    \caption{ZZ-AQCNN 3x3 Kernel Topologies and Coordinate Logic.}
+    \begin{tabular}{ll}
+        \toprule
+        Topology & Coordinate Logic / Geometry \\
+        \midrule
+        \textit{Kings}      & Full 3x3 square grid ($x, y \in \{0, 1, 2\}$). \\
+        \textit{Horizontal} & Rows are unit-spaced; columns are separated by \textit{FAR}. \\
+        \textit{Vertical}   & Columns are unit-spaced; rows are separated by \textit{FAR}. \\
+        \textit{Cross}      & Center and cardinal directions at unit spacing; corners at \textit{FAR}. \\
+        \textit{Ring}       & 8 boundary qubits in a square; center qubit at \textit{FAR}. \\
+        \textit{Chain}      & Linear arrangement: $\mathbf{r}_i = (0, i)$ for $i=0 \dots 8$. \\
+        \textit{Star}       & Center at $(0,0)$; 8 spokes arranged in a circle at radius 1. \\
+        \textit{Grid}       & Nearest neighbors at spacing 1.5; diagonals at $\approx 2.12$ (weakened). \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:topologies}
+\end{table}
+
+\subsection{Hyperparameter Search Space}
+To ensure a fair comparison and robust performance, we perform a 1,000-trial Optuna search for each experimental phase. The search space encompasses both the quantum topology (for 1-kernel runs) and the classical classification head.
+
+\begin{table}[h]
+    \centering
+    \caption{ZZ-AQCNN Hyperparameter Search Space.}
+    \begin{tabular}{lll}
+        \toprule
+        Parameter & Type & Range / Choices \\
+        \midrule
+        \textit{Topology} (Single) & Categorical & \{Kings, Horiz, Vert, Cross, Ring, Chain, Star, Grid\} \\
+        \textit{Learning Rate} & Log-Uniform & $[10^{-8}, 5 \times 10^{-3}]$ \\
+        \textit{Weight Decay} & Log-Uniform & $[10^{-8}, 10^{-3}]$ \\
+        \textit{Grad Clipping} & Uniform & $[0.0, 10.0]$ \\
+        \textit{Dropout} & Uniform & $[0.0, 0.7]$ \\
+        \textit{Activation} & Categorical & \{ReLU, GeLU\} \\
+        \textit{Batch Size} & Categorical & \{16, 32, 64\} \\
+        \textit{Patience} & Integer & $[1, 100]$ (step 5) \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:hp_search}
+\end{table}
+
+\subsection{Planned Experiments}
+We are running six primary experimental phases:
+\begin{enumerate}
+    \item \textbf{Digital (1-Kern)}: Gate-based baseline with ZZ correlators.
+    \item \textbf{Analog (1-Kern)}: Physics-grounded approach with single best topology.
+    \item \textbf{Digital (4-Kern)}: Comparison using fixed topologies plus one tuned.
+    \item \textbf{Analog (4-Kern)}: Fair comparison of multi-kernel analog features.
+    \item \textbf{Digital (8-Kern)}: Maximum diversity in gate-based features.
+    \item \textbf{Analog (8-Kern)}: The complete grounded-physics model.
+\end{enumerate}
+
+\section{Results and Discussion}
+
+\subsection{Comparative Performance Matrix}
+The primary objective of our experimental campaign is to quantify the performance gain provided by the ZZ entanglement correlators and the shift to analog Hamiltonian encoding. We compare our results against two key benchmarks:
+\begin{enumerate}
+    \item \textbf{Classical Baseline}: A standard CNN architecture where the quantum kernel is replaced by a classical 3x3 convolutional layer. To ensure a "fair comparison," we match the total number of trainable parameters between the classical baseline and the ZZ-AQCNN classification head.
+    \item \textbf{Original DAQCNN}: The digital-gate approach using only $Z$ measurements (no ZZ correlations), as described in \cite{daqcnn2024}.
+\end{enumerate}
+
+Table \ref{tab:main_results} presents the test accuracies achieved across the different experimental phases. For the "1-Kernel" configurations, the reported accuracy represents the performance of the \textbf{best individual topology} as identified by the 1,000-trial Optuna search.
+
+\begin{table}[h]
+    \centering
+    \caption{ZZ-AQCNN Performance Matrix on BreastMNIST (Placeholders).}
+    \begin{tabular}{l c c c c}
+        \toprule
+        Config & Classical & Original DAQCNN & Digital + ZZ & Analog + ZZ \\
+               & Baseline & (No ZZ) & (Enhanced) & (ZZ-AQCNN) \\
+        \midrule
+        1-Kernel (Best) & 0.0\% & 0.0\% & 0.0\% & 0.0\% \\
+        4-Kernels       & 0.0\% & 0.0\% & 0.0\% & 0.0\% \\
+        8-Kernels       & ---   & ---   & 0.0\% & 0.0\% \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:main_results}
+\end{table}
+
+\subsection{The Impact of ZZ Entanglement}
+By including the $ZZ$ correlators, we increase the feature density per kernel from 9 to 45 (for a 3x3 kernel). Preliminary observations suggest that this richer feature space allows the classical classification head to draw more nuanced decision boundaries, particularly in the high-variance regions of the BreastMNIST dataset.
+
+\subsection{Encoding Efficiency: Digital vs. Analog}
+A key finding of this work is the trade-off between the precision of digital gate-based encoding and the physical realism of analog Hamiltonian encoding. While digital encoding allows for exact state preparation, the analog mode more closely mirrors the natural evolution of neutral-atom processors, potentially offering a more "organic" feature extraction process that is robust to the types of noise found in NISQ-era hardware.
+
+\section{Conclusion}
+The inclusion of ZZ entanglement and the shift to analog Hamiltonian encoding represent a significant step towards more physically realistic and potentially more powerful Quantum CNNs. While the dynamic routing approach explored during the transition from QGARS proved challenging, the current results from the Analog ZZ search will define the new state-of-the-art for our architecture on BreastMNIST.
+
+\begin{thebibliography}{9}
+\bibitem{daqcnn2024}
+Simen, A., Flores-Garrigos, C., Hegade, N. N., et al. (2024).
+\textit{Digital-analog quantum convolutional neural networks for image classification}.
+Physical Review Research, 6(4), L042060.
+
+\bibitem{oqi2024}
+Batista, N., Morgado, A., Ferraz, O., Pratapsi, S. S., Lobo, J., and Falcao, G. (2025).
+\textit{Medical Imaging Classification with Cold-Atom Reservoir Computing Using Auto-Encoders and Surrogate-Driven Training}.
+In 2025 IEEE International Conference on Quantum Artificial Intelligence (QAI), pp. 373-380.
+\end{thebibliography}
+
+\end{document}
+al Intelligence (QAI), pp. 373-380.
+\end{thebibliography}
+
+\end{document}

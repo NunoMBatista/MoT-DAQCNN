@@ -1,4 +1,4 @@
-# MoT-DAQCNN: Comprehensive Hyperparameter Search (BreastMNIST)
+# ZZ-AQCNN: Comprehensive Hyperparameter Search (BreastMNIST)
 
 ## Recommended Execution Order
 1. **Digital (1-Kern)**: Establishing the gate-based baseline.
