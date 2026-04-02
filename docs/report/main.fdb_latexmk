@@ -1,7 +1,7 @@
 # Fdb version 4
-["pdflatex"] 1775130315.47706 "/home/nuno/Documents/MoT-DAQCNN/docs/report/main.tex" "main.pdf" "main" 1775130316.72629 0
+["pdflatex"] 1775136261.70698 "/home/nuno/Documents/MoT-DAQCNN/docs/report/main.tex" "main.pdf" "main" 1775136262.77244 0
   "/etc/texmf/web2c/texmf.cnf" 1764507328.4437 475 c0e671620eb5563b2130f56340a5fde8 ""
-  "/home/nuno/Documents/MoT-DAQCNN/docs/report/main.tex" 1775130314.10578 15200 c755025bd5e89fcfb6344699b58b2066 ""
+  "/home/nuno/Documents/MoT-DAQCNN/docs/report/main.tex" 1775136261.47071 15201 0c181b36b1dcdc2d30542441cbe8f499 ""
   "/usr/share/texlive/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/jknappen/ec/ecbx1000.tfm" 1136768653 3584 2d666ecf6d466d8b007246bc2f94d9da ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/jknappen/ec/ecbx1095.tfm" 1136768653 3584 21b378cca2e40816b0e6d74a4dc98f04 ""
@@ -185,9 +185,9 @@
   "/usr/share/texmf/web2c/texmf.cnf" 1707919699 40399 f2c302f7d2af602abb742093540a5834 ""
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1774798681.98626 5472669 54eaf61a88b6b7896ebd0dac973cb29c ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1774798765 8213055 b74f3ced8925d6c470b38bd88fb65d14 ""
-  "main.aux" 1775130316.59776 3544 92aef309a2ae247b0274a5c2af3f3d77 "pdflatex"
-  "main.out" 1775130316.59876 2686 38f732ce2f8644a406391b646adc20e2 "pdflatex"
-  "main.tex" 1775130314.10578 15200 c755025bd5e89fcfb6344699b58b2066 ""
+  "main.aux" 1775136262.68862 3544 92aef309a2ae247b0274a5c2af3f3d77 "pdflatex"
+  "main.out" 1775136262.68862 2686 38f732ce2f8644a406391b646adc20e2 "pdflatex"
+  "main.tex" 1775136261.47071 15201 0c181b36b1dcdc2d30542441cbe8f499 ""
   (generated)
   "main.aux"
   "main.log"
