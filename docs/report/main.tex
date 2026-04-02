@@ -163,27 +163,7 @@ The fixed quantum parameters for the analog evolution are:
     \item \textbf{Evolution Mode}: Trotterization (step size $dt = 0.05$)
 \end{itemize}
 
-Table \ref{tab:topologies} details the coordinate logic for our diverse kernel set.
 
-\begin{table}[h]
-    \centering
-    \caption{ZZ-AQCNN 3x3 Kernel Topologies and Coordinate Logic.}
-    \begin{tabular}{ll}
-        \toprule
-        Topology & Coordinate Logic / Geometry \\
-        \midrule
-        \textit{Kings}      & Full 3x3 square grid ($x, y \in \{0, 1, 2\}$). \\
-        \textit{Horizontal} & Rows are unit-spaced; columns are separated by \textit{FAR}. \\
-        \textit{Vertical}   & Columns are unit-spaced; rows are separated by \textit{FAR}. \\
-        \textit{Cross}      & Center and cardinal directions at unit spacing; corners at \textit{FAR}. \\
-        \textit{Ring}       & 8 boundary qubits in a square; center qubit at \textit{FAR}. \\
-        \textit{Chain}      & Linear arrangement: $\mathbf{r}_i = (0, i)$ for $i=0 \dots 8$. \\
-        \textit{Star}       & Center at $(0,0)$; 8 spokes arranged in a circle at radius 1. \\
-        \textit{Grid}       & Nearest neighbors at spacing 1.5; diagonals at $\approx 2.12$ (weakened). \\
-        \bottomrule
-    \end{tabular}
-    \label{tab:topologies}
-\end{table}
 
 \subsection{Hyperparameter Search Space}
 To ensure a fair comparison and robust performance, we perform a 1,000-trial Optuna search for each experimental phase. The search space encompasses both the quantum topology (for 1-kernel runs) and the classical classification head.
