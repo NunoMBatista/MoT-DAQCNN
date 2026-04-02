@@ -14,7 +14,7 @@
 
 \geometry{margin=1in}
 
-\title{ZZ-AQCNN: Advanced Analog Quantum Convolutional Neural Networks with ZZ Entanglement for Medical Image Classification}
+\title{ZZ-AQCNN: Analog Quantum Convolutional Neural Networks with ZZ Entanglement for Medical Image Classification}
 \author{Team ZZ-AQCNN}
 \date{\today}
 
@@ -23,17 +23,17 @@
 \maketitle
 
 \begin{abstract}
-This report details our development of the ZZ-AQCNN (Analog Quantum Convolutional Neural Network with ZZ Entanglement) architecture for medical image classification. We explore the inclusion of ZZ entanglement observables and prioritize analog Hamiltonian evolution over traditional digital gate-based encoding. While initial experiments with a dynamic router showed instability on the BreastMNIST dataset, we pivoted towards optimizing a robust, physics-grounded quantum kernel enriched with higher-order correlations. We present a comprehensive hyperparameter search across multiple topologies and encoding modes.
+This report details our development of the ZZ-AQCNN (Analog Quantum Convolutional Neural Network with ZZ Entanglement) architecture for medical image classification. We explore the inclusion of ZZ entanglement observables and prioritize analog Hamiltonian evolution over traditional digital gate-based encoding. While initial experiments with a dynamic router showed instability on the BreastMNIST dataset, we pivoted towards optimizing a robust CNN, enriched by features extraced from quantum kernels with higher-order correlations. We present a comprehensive hyperparameter search across multiple topologies and encoding modes.
 \end{abstract}
 
 \section{Introduction}
-The classification of medical imaging using quantum-classical hybrids is a rapidly evolving field. This work, conducted by the OQI group, builds upon our previous methodology using Guided Auto-Encoders (GAE) and neutral-atom reservoir computing \cite{oqi2024}. While the GAE-QRC approach demonstrated the potential of Rydberg-state encoding for polyp detection, the current ZZ-AQCNN framework represents a strategic pivot toward a more hardware-aware architecture.
+The classification of medical imaging using quantum-classical hybrids is a rapidly evolving field. This work is an alternative approach to our previous methodology: \textbf{QGARS} (Quantum Guided Autoencoder with Reservoir Surrogate) \cite{oqi2024}. While the QGARS approach demonstrated the potential of Rydberg-state encoding for polyp detection using a task-guided latent space, the current ZZ-AQCNN framework represents a strategic pivot toward a more hardware-aware architecture.
 
-The transition from a global reservoir to a patch-based quantum kernel is motivated by several key technical advantages:
+The transition from a global reservoir with a surrogate-driven autoencoder to a patch-based quantum kernel is motivated by several key technical advantages:
 \begin{enumerate}
     \item \textbf{Spatial Locality}: By processing 3x3 image patches directly, we preserve the spatial correlations of the medical scans, mirroring the inductive bias of classical CNNs.
-    \item \textbf{Native 2D Topology}: ZZ-AQCNN leverages the natural 2D arrangement of neutral-atom arrays. Unlike 1D chains, our diverse topologies (Kings, Ring, Grid) exploit the Rydberg blockade effect across multiple spatial dimensions.
-    \item \textbf{Efficiency and Scalability}: The kernel approach eliminates the need for complex surrogate-driven training of auto-encoders, focusing computational resources on the high-dimensional feature mapping provided by the analog Hamiltonian.
+    \item \textbf{Native 2D Topology}: ZZ-AQCNN leverages the natural 2D arrangement of neutral-atom arrays. Unlike the 1D chains utilized in our reservoir model, our diverse topologies exploit the Rydberg blockade effect across multiple spatial dimensions.
+    \item \textbf{Efficiency and Scalability}: The kernel approach eliminates the need for the complex surrogate-driven training of auto-encoders required by QGARS, focusing computational resources on the high-dimensional feature mapping provided by the analog Hamiltonian.
 \end{enumerate}
 
 \section{Methodology}
@@ -41,29 +41,29 @@ The transition from a global reservoir to a patch-based quantum kernel is motiva
 \subsection{Encoding Schemes}
 We distinguish between two fundamentally different ways of mapping classical image data $\mathbf{x}$ into the quantum Hilbert space.
 
-\subsubsection{Digital Encoding (State-Based)}
-In the digital configuration, the data is encoded as a "snapshot" at $t=0$. Each pixel $x_i \in [0, \pi]$ is used as the parameter for a rotation gate $RY(x_i)$, followed by a Hadamard gate $H$. This prepares a data-dependent initial state $|\psi(\mathbf{x})\rangle$, which then evolves under a \textit{static} Hamiltonian $H_{fixed}$ for a duration $T$.
+\subsubsection{Digital Encoding}
+In the digital configuration, the data from the pixels is all encoded in the initial states of the atoms at $t=0$. Each pixel $x_i \in [0, \pi]$ is used as the parameter for a rotation gate $RY(x_i)$, followed by a Hadamard gate $H$. This prepares a data-dependent initial state $|\psi(\mathbf{x})\rangle$, which then evolves under a static Hamiltonian $H_{\text{fixed}}$ for a duration $T$.
 \begin{equation}
 |\Psi_{out}\rangle = e^{-i H_{fixed} T} \left( \bigotimes_{i=1}^N H \cdot RY(x_i) \right) |0\rangle^{\otimes N}
 \end{equation}
 
-\subsubsection{Analog Encoding (Hamiltonian-Based)}
-In our prioritized analog mode, we eliminate initial gate operations ($|\psi_{t=0}\rangle = |0\rangle^{\otimes N}$) and instead inject the data directly into the system's dynamics. Each pixel $x_i$ is mapped to the local detuning coefficient $\delta_i$ of the Rydberg Hamiltonian. The quantum state "feels" the image data throughout the entire evolution period $[0, T]$, allowing for more complex, non-linear feature extraction that is grounded in the physical landscape of the atoms.
+\subsubsection{Analog Encoding}
+In our prioritized analog mode, we eliminate initial gate operations ($|\psi_{t=0}\rangle = |0\rangle^{\otimes N}$) and instead inject the data directly into the system's dynamics. Each pixel $x_i$ is mapped to the local detuning coefficient $\delta_i$ of the Rydberg Hamiltonian. The quantum state evolves according to the image data throughout the entire evolution period $[0, T]$, allowing for more complex, non-linear feature extraction.
 \begin{equation}
 |\Psi_{out}\rangle = \mathcal{T} \exp \left( -i \int_0^T H(\mathbf{x}, t) dt \right) |0\rangle^{\otimes N}
 \end{equation}
-where $H(\mathbf{x}, t)$ contains the term $\sum_i x_i n_i$. This scheme is highly hardware-efficient as it leverages the natural control fields of neutral-atom processors.
+where $H(\mathbf{x}, t)$ contains the term $\sum_i x_i n_i$. This scheme is highly hardware-native as it leverages the natural control fields of neutral-atom processors.
 
 \subsection{ZZ Entanglement Correlators}
 To capture richer features, we measure both $\langle \sigma_Z^{(i)} \rangle$ and $\langle \sigma_Z^{(i)} \sigma_Z^{(j)} \rangle$ for all $i < j$. For a 9-qubit kernel, this increases the feature count from 9 to 45 ($9 + \binom{9}{2}$), potentially providing the classical head with deeper insights into the quantum state's entanglement structure.
 
 \subsection{Teacher-Student Mixture of Experts (MoE)}
-We initially explored a dynamic kernel selection approach where a lightweight student network would "route" patches to the best performing kernel among a set of teachers. However, results on BreastMNIST were unstable, possibly due to the small patch size (3x3) and the high variance in quantum feature distributions. This led to our current focus on perfecting the single-kernel and multi-kernel configurations without dynamic routing.
+We initially explored a dynamic kernel selection approach where a lightweight network would route patches to the best performing kernel. However, results on BreastMNIST were unstable, possibly due to the small patch size (3x3), the high variance in quantum feature distributions, and all of the hyperparameters that needed to be tuned due to the additional complexity. This led to our current focus on perfecting the single-kernel and multi-kernel configurations without dynamic routing.
 
 \section{Experimental Design}
 
 \subsection{Topological Diversity and Feature Extraction}
-The strength of the ZZ-AQCNN approach lies in the structural diversity of its kernels. By manipulating the physical coordinates of the 9 qubits, we effectively create different "quantum receptive fields." Figure \ref{fig:topologies} visualizes the interaction graphs for each of the 8 manual topologies.
+The strength of the ZZ-AQCNN approach lies in the structural diversity of its kernels. By manipulating the physical coordinates of the 9 qubits, we effectively create different quantum receptive fields (see Figure \ref{fig:topologies}).
 
 \begin{figure}[htbp]
     \centering
@@ -141,9 +141,20 @@ The strength of the ZZ-AQCNN approach lies in the structural diversity of its ke
         \end{tikzpicture}
         \caption{Grid}
     \end{subfigure}
-    \caption{Visualization of the 8 kernel topologies used in ZZ-AQCNN. Nodes represent qubits mapped to image pixels; lines represent strong Hamiltonian interactions ($J_{ij}$). Isolated nodes represent qubits displaced to the \textit{FAR} position.}
+    \caption{Visualization of the 8 kernel topologies. Nodes represent qubits; lines represent strong Hamiltonian interactions ($J_{ij}$). Isolated nodes represent qubits displaced to the \textit{FAR} position.}
     \label{fig:topologies}
 \end{figure}
+
+The idea behind the functional role of each topology is described below:
+\begin{description}
+    \item[Kings]: Captures dense, complex correlations including all nearest-neighbor and diagonal interactions.
+    \item[Horizontal/Vertical]: Filters sensitive to directional gradients and edges.
+    \item[Cross]: Focuses on cardinal neighbors; designed to capture local ``plus-sign'' features.
+    \item[Ring]: Captures peripheral context by connecting boundary qubits and isolating the center.
+    \item[Chain]: Arrangement in a single linear path to learn high-order, sequential correlations.
+    \item[Star]: The center pixel is connected to all neighbors while suppressing peripheral cross-talk.
+    \item[Grid]: A standard 2D lattice where nearest-neighbor interactions are prioritized over diagonals.
+\end{description}
 
 The fixed quantum parameters for the analog evolution are:
 \begin{itemize}
@@ -197,39 +208,36 @@ To ensure a fair comparison and robust performance, we perform a 1,000-trial Opt
     \label{tab:hp_search}
 \end{table}
 
-\subsection{Planned Experiments}
-We are running six primary experimental phases:
-\begin{enumerate}
-    \item \textbf{Digital (1-Kern)}: Gate-based baseline with ZZ correlators.
-    \item \textbf{Analog (1-Kern)}: Physics-grounded approach with single best topology.
-    \item \textbf{Digital (4-Kern)}: Comparison using fixed topologies plus one tuned.
-    \item \textbf{Analog (4-Kern)}: Fair comparison of multi-kernel analog features.
-    \item \textbf{Digital (8-Kern)}: Maximum diversity in gate-based features.
-    \item \textbf{Analog (8-Kern)}: The complete grounded-physics model.
-\end{enumerate}
-
 \section{Results and Discussion}
 
 \subsection{Comparative Performance Matrix}
-The primary objective of our experimental campaign is to quantify the performance gain provided by the ZZ entanglement correlators and the shift to analog Hamiltonian encoding. We compare our results against two key benchmarks:
+The primary objective of our experiments is to quantify the performance gain provided by the ZZ entanglement correlators and the shift to analog Hamiltonian encoding. We compare our results against two key benchmarks:
 \begin{enumerate}
-    \item \textbf{Classical Baseline}: A standard CNN architecture where the quantum kernel is replaced by a classical 3x3 convolutional layer. To ensure a "fair comparison," we match the total number of trainable parameters between the classical baseline and the ZZ-AQCNN classification head.
-    \item \textbf{Original DAQCNN}: The digital-gate approach using only $Z$ measurements (no ZZ correlations), as described in \cite{daqcnn2024}.
+    \item \textbf{Classical Baseline}: A standard CNN architecture where the quantum kernel is replaced by a classical 3x3 convolutional layer. To ensure a fair comparison, we match the total number of trainable parameters between the classical baseline and the ZZ-AQCNN classification head.
+    \item \textbf{Original DAQCNN}: The digital-gate approach using only $Z$ measurements (no ZZ correlations), exactly as described in \cite{daqcnn2024}.
 \end{enumerate}
 
-Table \ref{tab:main_results} presents the test accuracies achieved across the different experimental phases. For the "1-Kernel" configurations, the reported accuracy represents the performance of the \textbf{best individual topology} as identified by the 1,000-trial Optuna search.
+Table \ref{tab:main_results} presents the test accuracies achieved across the different experimental phases. For the 1-Kernel configurations, the reported accuracy represents the performance of the \textbf{best individual topology} as identified by the 1,000-trial Optuna search.
 
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
-    \caption{ZZ-AQCNN Performance Matrix on BreastMNIST (Placeholders).}
+    \caption{ZZ-AQCNN Performance Matrix on BreastMNIST. Results are reported as mean $\pm$ standard deviation across 10 validation seeds for the top-performing trials.}
     \begin{tabular}{l c c c c}
         \toprule
-        Config & Classical & Original DAQCNN & Digital + ZZ & Analog + ZZ \\
-               & Baseline & (No ZZ) & (Enhanced) & (ZZ-AQCNN) \\
+        Config / Metric & Classical & Original DAQCNN & Digital + ZZ & Analog + ZZ \\
+                        & Baseline & (No ZZ) & (Enhanced) & (ZZ-AQCNN) \\
         \midrule
-        1-Kernel (Best) & 0.0\% & 0.0\% & 0.0\% & 0.0\% \\
-        4-Kernels       & 0.0\% & 0.0\% & 0.0\% & 0.0\% \\
-        8-Kernels       & ---   & ---   & 0.0\% & 0.0\% \\
+        \textbf{1-Kernel (Best)} & & & & \\
+        Test Acc (\%) & $0.0 \pm 0.0$ & $86.7 \pm 1.3$ & $0.0 \pm 0.0$ & $0.0 \pm 0.0$ \\
+        ROC-AUC       & $0.00 \pm 0.0$ & $0.88 \pm 0.01$ & $0.00 \pm 0.0$ & $0.00 \pm 0.0$ \\
+        \midrule
+        \textbf{4-Kernels} & & & & \\
+        Test Acc (\%) & $0.0 \pm 0.0$ & $88.1 \pm 1.0$ & $0.0 \pm 0.0$ & $0.0 \pm 0.0$ \\
+        ROC-AUC       & $0.00 \pm 0.0$ & $0.89 \pm 0.01$ & $0.00 \pm 0.0$ & $0.00 \pm 0.0$ \\
+        \midrule
+        \textbf{8-Kernels} & & & & \\
+        Test Acc (\%) & ---   & ---   & $0.0 \pm 0.0$ & $0.0 \pm 0.0$ \\
+        ROC-AUC       & ---   & ---   & $0.00 \pm 0.0$ & $0.00 \pm 0.0$ \\
         \bottomrule
     \end{tabular}
     \label{tab:main_results}
@@ -239,7 +247,7 @@ Table \ref{tab:main_results} presents the test accuracies achieved across the di
 By including the $ZZ$ correlators, we increase the feature density per kernel from 9 to 45 (for a 3x3 kernel). Preliminary observations suggest that this richer feature space allows the classical classification head to draw more nuanced decision boundaries, particularly in the high-variance regions of the BreastMNIST dataset.
 
 \subsection{Encoding Efficiency: Digital vs. Analog}
-A key finding of this work is the trade-off between the precision of digital gate-based encoding and the physical realism of analog Hamiltonian encoding. While digital encoding allows for exact state preparation, the analog mode more closely mirrors the natural evolution of neutral-atom processors, potentially offering a more "organic" feature extraction process that is robust to the types of noise found in NISQ-era hardware.
+A key finding of this work is the trade-off between the precision of digital gate-based encoding and the physical realism of analog Hamiltonian encoding. While digital encoding allows for exact state preparation, the analog mode more closely mirrors the natural evolution of neutral-atom processors.
 
 \section{Conclusion}
 The inclusion of ZZ entanglement and the shift to analog Hamiltonian encoding represent a significant step towards more physically realistic and potentially more powerful Quantum CNNs. While the dynamic routing approach explored during the transition from QGARS proved challenging, the current results from the Analog ZZ search will define the new state-of-the-art for our architecture on BreastMNIST.
@@ -254,10 +262,6 @@ Physical Review Research, 6(4), L042060.
 Batista, N., Morgado, A., Ferraz, O., Pratapsi, S. S., Lobo, J., and Falcao, G. (2025).
 \textit{Medical Imaging Classification with Cold-Atom Reservoir Computing Using Auto-Encoders and Surrogate-Driven Training}.
 In 2025 IEEE International Conference on Quantum Artificial Intelligence (QAI), pp. 373-380.
-\end{thebibliography}
-
-\end{document}
-al Intelligence (QAI), pp. 373-380.
 \end{thebibliography}
 
 \end{document}
