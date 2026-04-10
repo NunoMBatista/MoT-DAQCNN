@@ -20,8 +20,8 @@ def analyze_importance(file_path):
     n_zz = 36
     features_per_kernel = n_z + n_zz
     
-    # Slice the first kernel's features
-    X_kernel = X[:, :features_per_kernel]
+    # Slice the first kernel's features and apply global average pooling
+    X_kernel = X[:, :features_per_kernel, :, :].mean(axis=(2, 3))
     
     print(f"Training Random Forest on {X_kernel.shape[0]} samples...")
     rf = RandomForestClassifier(n_estimators=100, random_state=42)
@@ -55,7 +55,7 @@ def analyze_importance(file_path):
 
 if __name__ == "__main__":
     # Point this to your local NPZ file
-    path = "data/quantum_datasets/breast_mnist__k3_s3_tkin-hor-ver-cro-rin-cha-sta-gri_ev2.50_sc1_gray.npz"
+    path = "data/quantum_datasets/breast_mnist__k3_s3_tkin-hor-ver-cro-rin-cha-sta-gri_ev2.50_sc1_gray_zz.npz"
     if os.path.exists(path):
         analyze_importance(path)
     else:

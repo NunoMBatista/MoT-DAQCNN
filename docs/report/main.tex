@@ -190,6 +190,9 @@ To ensure a fair comparison and robust performance, we perform a 1,000-trial Opt
 
 \section{Results and Discussion}
 
+\subsection{Project Scope and Current Progress}
+While our overarching experimental design encompasses multi-kernel ensembles (4-kernel and 8-kernel configurations) to maximize topological diversity, the computational intensity of simulating analog Hamiltonian dynamics has necessitated a phased approach. This report focuses on Phase 1: establishing a rigorous \textbf{1-Kernel proof-of-concept} for the ZZ-AQCNN architecture. The enhanced multi-kernel configurations are currently computing and represent ongoing future work.
+
 \subsection{Comparative Performance Matrix}
 The primary objective of our experiments is to quantify the performance gain provided by the ZZ entanglement correlators and the shift to analog Hamiltonian encoding. We compare our results against two key benchmarks:
 \begin{enumerate}
@@ -197,7 +200,7 @@ The primary objective of our experiments is to quantify the performance gain pro
     \item \textbf{Original DAQCNN}: The digital-gate approach using only $Z$ measurements (no ZZ correlations), exactly as described in \cite{daqcnn2024}.
 \end{enumerate}
 
-Table \ref{tab:main_results} presents the test accuracies achieved across the different experimental phases. For the 1-Kernel configurations, the reported accuracy represents the performance of the \textbf{best individual topology} as identified by the 1,000-trial Optuna search.
+Table \ref{tab:main_results} presents the test accuracies achieved across the different experimental phases. For the 1-Kernel configurations, the reported accuracy represents the performance of the \textbf{best individual topology} as identified by the 1,000-trial Optuna search. Results for the 4-Kernel and 8-Kernel ZZ-enhanced models are marked as placeholders pending the completion of their respective searches.
 
 \begin{table}[htbp]
     \centering

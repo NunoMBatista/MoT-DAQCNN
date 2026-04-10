@@ -1,0 +1,69 @@
+[
+  {
+    "dataset_name": "breast_mnist",
+    "split": "train",
+    "n_samples": 546,
+    "kernel_names": [
+      "kings",
+      "horizontal_chains",
+      "vertical_chains",
+      "diagonal_chains",
+      "block_2x2"
+    ],
+    "pairwise_cka": [
+      {
+        "kernel_i": "kings",
+        "kernel_j": "horizontal_chains",
+        "cka": 0.996953
+      },
+      {
+        "kernel_i": "kings",
+        "kernel_j": "vertical_chains",
+        "cka": 0.996829
+      },
+      {
+        "kernel_i": "kings",
+        "kernel_j": "diagonal_chains",
+        "cka": 0.996786
+      },
+      {
+        "kernel_i": "kings",
+        "kernel_j": "block_2x2",
+        "cka": 0.997078
+      },
+      {
+        "kernel_i": "horizontal_chains",
+        "kernel_j": "vertical_chains",
+        "cka": 0.997175
+      },
+      {
+        "kernel_i": "horizontal_chains",
+        "kernel_j": "diagonal_chains",
+        "cka": 0.997158
+      },
+      {
+        "kernel_i": "horizontal_chains",
+        "kernel_j": "block_2x2",
+        "cka": 0.997048
+      },
+      {
+        "kernel_i": "vertical_chains",
+        "kernel_j": "diagonal_chains",
+        "cka": 0.997291
+      },
+      {
+        "kernel_i": "vertical_chains",
+        "kernel_j": "block_2x2",
+        "cka": 0.99702
+      },
+      {
+        "kernel_i": "diagonal_chains",
+        "kernel_j": "block_2x2",
+        "cka": 0.997341
+      }
+    ],
+    "mean_cka": 0.997068,
+    "max_cka": 0.997341,
+    "min_cka": 0.996786
+  }
+]
