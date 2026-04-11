@@ -1,0 +1,35 @@
+dataset:
+    name: "breast_mnist"
+    data_root: "./data"
+    batch_size: 32
+    num_workers: 2
+    download: true
+    color_space: GRAYSCALE
+
+model:
+    num_classes: 2
+    kernel_size: 3
+    stride: 3
+    # 4 topologies * 9 qubits = 36 embedding dimensions for ViT
+    kernel_topology_names: ["kings", "horizontal", "vertical", "cross"]
+    scaling_factor: 1.0
+    evolution_time: 2.0
+    mode: "trotter"
+    quantum_device: "default.qubit"
+    interface: "torch"
+
+# These will be used later when we train the ViT
+vit_params:
+    num_layers: 3
+    nhead: 4
+    dim_feedforward: 128
+    dropout: 0.1
+
+optim:
+    lr: 0.001
+    epochs: 50
+    weight_decay: 1e-5
+
+misc:
+    seed: 42
+    log_every: 10

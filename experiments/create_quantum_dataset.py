@@ -58,11 +58,11 @@ KERNEL_TOPOLOGY_NAMES = [
     "kings",
     "horizontal",
     "vertical",
-    "cross",
+    # "cross",
     "ring",
-    "chain",
-    "star",
-    "grid",
+    # "chain",
+    # "star",
+    # "grid",
 ]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
