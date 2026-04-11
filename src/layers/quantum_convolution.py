@@ -48,6 +48,8 @@ class QuantumConv2d(nn.Module):
         quantum_device_kwargs=None,
         interface="torch",
         use_jit=False,
+        include_correlators=False,
+        encoding_mode="digital",
     ):
         super().__init__()
 
@@ -92,20 +94,23 @@ class QuantumConv2d(nn.Module):
             quantum_device_kwargs=quantum_device_kwargs,
             interface=interface,
             use_jit=use_jit,
+            include_correlators=include_correlators,
+            encoding_mode=encoding_mode,
         )
 
         self.num_kernels = (
             self.quantum_kernel.num_kernels if num_kernels is None else num_kernels
         )
+        self.measurements_per_kernel = self.quantum_kernel.measurements_per_kernel
 
-        expected_out_channels = self.num_kernels * self.n_qubits
+        expected_out_channels = self.num_kernels * self.measurements_per_kernel
         self.out_channels = (
             out_channels if out_channels is not None else expected_out_channels
         )
 
         if self.out_channels != expected_out_channels:
             raise ValueError(
-                f"QuantumConv2d out_channels must equal num_kernels * kernel_size^2 ({expected_out_channels}), got {self.out_channels}"
+                f"QuantumConv2d out_channels must equal num_kernels * measurements_per_kernel ({expected_out_channels}), got {self.out_channels}"
             )
 
         # Sliding window extractor
@@ -137,7 +142,7 @@ class QuantumConv2d(nn.Module):
             q_out = self.quantum_kernel(
                 patches
             )  # (B*n_patches, num_kernels * n_qubits)
-            q_out = q_out.reshape(B, n_patches, self.num_kernels * self.n_qubits)
+            q_out = q_out.reshape(B, n_patches, self.out_channels)
             q_out = q_out.transpose(1, 2)  # (B, out_channels, n_patches)
             return q_out.reshape(B, self.out_channels, h_out, w_out)
         else:
@@ -152,7 +157,7 @@ class QuantumConv2d(nn.Module):
                 q_out = self.quantum_kernel(
                     patches
                 )  # (B*n_patches, num_kernels * n_qubits)
-                q_out = q_out.reshape(B, n_patches, self.num_kernels * self.n_qubits)
+                q_out = q_out.reshape(B, n_patches, self.out_channels)
                 q_out = q_out.transpose(1, 2)  # (B, out_channels, n_patches)
                 q_out = q_out.reshape(B, self.out_channels, h_out, w_out)
                 channel_outputs.append(q_out)

@@ -50,6 +50,7 @@ outputs/
 notebook_checkpoints/
 jupyter_runtime/
 jupyterlab_settings/
+/hp_search_*/
 data/
 data_raw/
 datasets/

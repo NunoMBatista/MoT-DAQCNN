@@ -1,0 +1,41 @@
+# BreastMNIST DAQCNN (Original Multi-Kernel Pipeline)
+# Features: Analog Encoding (Local Detuning) + ZZ Correlators
+
+dataset:
+  name: breast_mnist
+  data_root: ./data
+  batch_size: 32
+  num_workers: 2
+  download: true
+  color_space: GRAYSCALE
+
+model:
+  architecture: "original"
+  num_classes: 2
+  kernel_size: 3
+  stride: 3
+  # Using all 8 topologies to give the CNN maximum physical features
+  kernel_topology_names: ["kings", "horizontal", "vertical", "cross", "ring", "chain", "star", "grid"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  encoding_mode: "analog"
+  include_correlators: true
+  dropout: 0.5
+  activation: gelu
+  quantum_device: default.qubit
+  classical_device: auto
+
+optim:
+  lr: 0.0001
+  weight_decay: 0.000001
+  epochs: 100
+  grad_clip: 1.0
+  patience: 15
+  use_scheduler: true
+  scheduler_T_max: 100
+  scheduler_eta_min: 0.0
+
+misc:
+  seed: [0, 1, 2, 3, 4]
+  log_every: 50

@@ -85,42 +85,23 @@ def entropy_loss(alpha):
     return h.mean() / max_entropy
 
 
-def build_classification_head(in_channels, num_classes, dropout=0.1, activation="relu"):
-    """Build the shared CNN classification head used by DAQCNN, TeacherMoE, and FinalClassifier.
-
-    All three models use an identical head architecture so their results are
-    directly comparable.  Centralising it here means a single change propagates
-    everywhere and there is no risk of the copies drifting apart.
-
-    Architecture (mirrors the original paper):
-        Conv2d(in_channels -> 64, 2×2, stride=1, no padding)
-        BatchNorm2d(64)
-        Activation (ReLU or GELU)
-        MaxPool2d(2×2, stride=2)
-        Conv2d(64 -> 64, 2×2, stride=1, no padding)
-        Activation
-        Dropout(dropout)
-        Flatten
-        Dropout(dropout)
-        LazyLinear(num_classes)   ← infers spatial dim at first forward pass
+def build_classification_head(in_channels, num_classes, dropout=0.1, activation="relu", hidden_channels=64):
+    """Build the shared CNN classification head.
 
     Args:
-        in_channels: Number of input feature channels (M*N for quantum features).
+        in_channels: Number of input feature channels (M*N).
         num_classes: Number of output logits.
-        dropout: Dropout probability applied before and after Flatten.
-        activation: "relu" (default) or "gelu".
-
-    Returns:
-        nn.Sequential — the classification head, ready to be assigned as
-        ``self.head`` on any model.
+        dropout: Dropout probability.
+        activation: "relu" or "gelu".
+        hidden_channels: Number of filters in the first two Conv2d layers.
     """
     act_fn = nn.GELU() if activation.lower() == "gelu" else nn.ReLU()
     return nn.Sequential(
-        nn.Conv2d(in_channels, 64, kernel_size=2, stride=1, padding=0),
-        nn.BatchNorm2d(64),
+        nn.Conv2d(in_channels, hidden_channels, kernel_size=2, stride=1, padding=0),
+        nn.BatchNorm2d(hidden_channels),
         act_fn,
         nn.MaxPool2d(kernel_size=2, stride=2),
-        nn.Conv2d(64, 64, kernel_size=2, stride=1, padding=0),
+        nn.Conv2d(hidden_channels, hidden_channels, kernel_size=2, stride=1, padding=0),
         act_fn,
         nn.Dropout(dropout),
         nn.Flatten(),

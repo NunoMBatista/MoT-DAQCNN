@@ -1,10 +1,11 @@
 """
 Optuna-based hyperparameter search for all MoT-DAQCNN pipelines.
 
-Supports three architectures:
-    - "original"  : Original DAQCNN baseline
-    - "TS-MoE"    : Teacher-Student Mixture-of-Experts
-    - "gumbel"    : Gumbel-Softmax Mixture-of-Experts
+Supports four architectures:
+    - "original"       : Original DAQCNN baseline
+    - "TS-MoE"         : Teacher-Student Mixture-of-Experts
+    - "gumbel"         : Gumbel-Softmax Mixture-of-Experts
+    - "oracle-routed"  : Oracle-Routed Mixture-of-Topologies
 
 Usage:
     python experiments/hyperparameter_search.py \
@@ -57,7 +58,7 @@ import random
 import sys
 import time
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 import optuna
@@ -323,6 +324,18 @@ def _run_ts_moe_trial(cfg: dict, seed: int, output_dir: str, trial: Any = None) 
     return result
 
 
+def _run_oracle_routed_trial(
+    cfg: dict, seed: int, output_dir: str, trial: Any = None
+) -> dict:
+    """Run one trial of the oracle-routed MoT pipeline."""
+    from src.models.oracle_router_training import run_oracle_routed
+
+    result = run_oracle_routed(
+        cfg, seed, output_dir, verbose=False, set_seed_fn=set_seed
+    )
+    return result
+
+
 # Map from architecture name to runner function
 _RUNNERS = {
     "original": _run_original_trial,
@@ -330,6 +343,7 @@ _RUNNERS = {
     "ts-moe": _run_ts_moe_trial,
     "ts_moe": _run_ts_moe_trial,
     "gumbel": _run_gumbel_trial,
+    "oracle-routed": _run_oracle_routed_trial,
 }
 
 
@@ -386,22 +400,53 @@ class HPSearchObjective:
         # 1. Build config for this trial
         cfg = build_trial_config(self.base_cfg, self.search_space, trial)
 
-        # 2. Create trial output directory
+        # 2. Automatic Cache Generation
+        # Before running the trial, check if the quantum features exist.
+        # If not, generate them once. This prevents expensive quantum
+        # simulation in every epoch of the training loop.
+        from src.utils.quantum_dataset_cache import find_cached_quantum_dataset
+        
+        cached_path = find_cached_quantum_dataset(cfg)
+        if cached_path is None:
+            print(f"\n[Trial {trial.number}] No cache found for physical parameters. Generating cache...")
+            from experiments.create_quantum_dataset import load_params_from_config, main as generate_main
+            
+            # Use a temporary hack: write the trial config to a temp file
+            # so the generator can load it.
+            os.makedirs(self.output_root, exist_ok=True)
+            tmp_cfg_path = os.path.join(self.output_root, f"tmp_trial_{trial.number}_config.yml")
+            with open(tmp_cfg_path, "w") as f:
+                yaml.dump(cfg, f)
+            
+            # Temporarily override sys.argv to pass the config to generate_main
+            old_argv = sys.argv
+            sys.argv = ["create_quantum_dataset.py", "--config", tmp_cfg_path]
+            try:
+                generate_main()
+            finally:
+                sys.argv = old_argv
+                if os.path.exists(tmp_cfg_path):
+                    os.remove(tmp_cfg_path)
+            
+            print(f"[Trial {trial.number}] Cache generation complete.\n")
+
+        # 3. Create trial output directory
         trial_dir = os.path.join(self.output_root, f"trial_{trial.number:04d}")
         os.makedirs(trial_dir, exist_ok=True)
 
-        # Save the trial config for reproducibility (seed-agnostic template)
+        # Save the trial config for reproducibility
         trial_cfg_path = os.path.join(trial_dir, "config.yml")
         with open(trial_cfg_path, "w") as f:
             yaml.dump(cfg, f, default_flow_style=False)
 
-        # 3. Run the pipeline once per trial seed and collect results
+        # 4. Run the pipeline once per trial seed
         seed_results = []
         for s in self.trial_seeds:
             seed_dir = os.path.join(trial_dir, f"seed_{s}")
             os.makedirs(seed_dir, exist_ok=True)
             cfg_s = copy.deepcopy(cfg)
             cfg_s.setdefault("misc", {})["seed"] = s
+            
             try:
                 set_seed(s)
                 result = self._runner(cfg_s, s, seed_dir, trial)
@@ -410,7 +455,6 @@ class HPSearchObjective:
                 error_path = os.path.join(seed_dir, "error.txt")
                 with open(error_path, "w") as ef:
                     import traceback
-
                     ef.write(f"Trial {trial.number} seed {s} failed:\n")
                     ef.write(traceback.format_exc())
                 warnings.warn(f"Trial {trial.number} seed {s} failed: {e}")
@@ -1266,18 +1310,19 @@ def main():
     # Finalize W&B run (if enabled)
     if wandb_run is not None:
         try:
-            # Headline results into summary
-            wandb_run.summary["search/search_time_s"] = search_time
-            wandb_run.summary["search/n_trials_completed"] = len(completed)
-            wandb_run.summary["search/n_trials_failed_or_pruned"] = len(failed)
-            if completed:
-                wandb_run.summary["search/best_trial_number"] = int(
-                    study.best_trial.number
-                )
-                wandb_run.summary["search/best_value"] = float(study.best_trial.value)
+            # Headline results into summary (only if run is still active)
+            if hasattr(wandb_run, "summary"):
+                wandb_run.summary["search/search_time_s"] = search_time
+                wandb_run.summary["search/n_trials_completed"] = len(completed)
+                wandb_run.summary["search/n_trials_failed_or_pruned"] = len(failed)
+                if completed:
+                    wandb_run.summary["search/best_trial_number"] = int(
+                        study.best_trial.number
+                    )
+                    wandb_run.summary["search/best_value"] = float(study.best_trial.value)
 
             # Optionally log a trials table for quick browsing
-            if args.wandb_log_trials_table and completed:
+            if args.wandb_log_trials_table and completed and hasattr(wandb, "Table"):
                 # Build columns from observed params
                 param_names = set()
                 for t in completed:
@@ -1307,8 +1352,11 @@ def main():
                     row.append(t.user_attrs.get("test_recall"))
                     row.append(t.user_attrs.get("test_loss"))
                     row.append(t.user_attrs.get("duration_s"))
-                    table.add_data(*row)
-                wandb_run.log({"optuna/trials": table})
+                
+                try:
+                    wandb_run.log({"optuna/trials": table})
+                except Exception:
+                    pass
 
             # Save key files for convenience (does not force artifact upload)
             # Upload whenever they exist.
@@ -1333,6 +1381,33 @@ def main():
                                 key_files.append(os.path.join(root, fname))
                 except Exception:
                     pass
+
+            # Upload all generated plot/image files from the run directory
+            # (plots/, trials/*/seed_*/..., validation/...).
+            image_exts = {
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".webp",
+                ".gif",
+                ".bmp",
+                ".tif",
+                ".tiff",
+                ".svg",
+                ".pdf",
+            }
+            seen_paths: Set[str] = set(os.path.abspath(p) for p in key_files)
+            try:
+                for root, _dirs, files in os.walk(output_dir):
+                    for fname in files:
+                        ext = os.path.splitext(fname)[1].lower()
+                        if ext in image_exts:
+                            fpath = os.path.abspath(os.path.join(root, fname))
+                            if fpath not in seen_paths:
+                                key_files.append(fpath)
+                                seen_paths.add(fpath)
+            except Exception:
+                pass
 
             for p in key_files:
                 try:

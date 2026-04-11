@@ -11,6 +11,7 @@ Modify the PARAMETERS section below to configure everything — dataset, kernel,
 device, and interface — before running.
 """
 
+import argparse
 import json
 import os
 import sys
@@ -19,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm import tqdm
@@ -33,41 +35,25 @@ from src.utils.color_conversion import rgb_to_grayscale_tensor, rgb_to_hsv_tenso
 from src.utils.data import load_medmnist_dataset
 
 # =============================================================================
-# PARAMETERS - Edit these to configure the quantum dataset generation
+# DEFAULT PARAMETERS - These are overridden if --config is provided
 # =============================================================================
 
-# Which dataset to use — any key from DATASET_REGISTRY in src/config.py, including
-# MedMNIST+ higher-resolution variants:
-#   28×28 (standard): "pneumonia_mnist", "breast_mnist", "tissue_mnist", "oct_mnist", ...
-#   64×64 (MedMNIST+): "pneumonia_mnist_64", "oct_mnist_64", "tissue_mnist_64", ...
-#   128×128 (MedMNIST+): "pneumonia_mnist_128", "oct_mnist_128", ...
-# The image resolution is derived automatically from the dataset name via
-# DATASET_IMAGE_SIZE in src/config.py, or can be overridden with IMAGE_SIZE below.
+# Which dataset to use
 DATASET_NAME = "breast_mnist"
 
 # Color space: "RGB", "HSV", or "GRAYSCALE"
-# HSV: Only V (value) channel is processed with quantum kernels; H and S are passed classically
-# GRAYSCALE: RGB is converted to single grayscale channel
 COLOR_SPACE = "GRAYSCALE"
 
-# Image resolution passed to the MedMNIST dataset constructor as `size=`.
-# Set to None to infer automatically from DATASET_NAME (recommended):
-#   "breast_mnist"    -> 28
-#   "oct_mnist_64"    -> 64
-#   "oct_mnist_128"   -> 128
-# Override here only if you want a resolution that differs from the name convention.
-IMAGE_SIZE = None  # None = auto-infer from DATASET_NAME
+# Image resolution (None = auto-infer)
+IMAGE_SIZE = None
 
 # Kernel size: 2, 3, or 4
 KERNEL_SIZE = 3
 
-# Stride for the convolution (use kernel_size for non-overlapping patches)
+# Stride for the convolution
 STRIDE = 3
 
 # Which topologies to use
-# For 2x2: ["kings", "horizontal", "vertical", "u_shape"]
-# For 3x3: ["kings", "horizontal", "vertical", "cross", "ring", "chain", "star", "grid"]
-# For 4x4: ["kings", "horizontal_chains", "vertical_chains", "diagonal_chains", "block_2x2"]
 KERNEL_TOPOLOGY_NAMES = [
     "kings",
     "horizontal",
@@ -80,13 +66,60 @@ KERNEL_TOPOLOGY_NAMES = [
 ]
 
 # Scaling factor for Rydberg Hamiltonian interaction strength
-SCALING_FACTOR = 1
+SCALING_FACTOR = 1.0
 
 # Evolution time for quantum dynamics
 EVOLUTION_TIME = 2.5
 
-# Evolution mode: "trotter" (discrete steps, faster) or "exact" (ODE solver, slower)
+# Evolution mode: "trotter" or "exact"
 EVOLUTION_MODE = "trotter"
+
+# Encoding mode: "digital" (RY gates) or "analog" (local detuning)
+ENCODING_MODE = "digital"
+
+# Include ZZ correlator measurements (⟨Z_i Z_j⟩)
+INCLUDE_CORRELATORS = False
+
+# PennyLane device ("default.qubit", "lightning.qubit", etc.)
+QUANTUM_DEVICE = "default.qubit"
+
+# Interface ("autograd", "torch")
+INTERFACE = "torch"
+
+# Batch size for processing
+BATCH_SIZE = 8
+
+# Which splits to process
+SPLITS = ["train", "val", "test"]
+
+
+def load_params_from_config(config_path):
+    """Load and map YAML config keys to the global parameter names."""
+    with open(config_path, "r") as f:
+        cfg = yaml.safe_load(f)
+
+    # Use globals() to update the module-level constants
+    g = globals()
+    
+    model_cfg = cfg.get("model", {})
+    dataset_cfg = cfg.get("dataset", {})
+
+    if "name" in dataset_cfg: g["DATASET_NAME"] = dataset_cfg["name"]
+    if "color_space" in dataset_cfg: g["COLOR_SPACE"] = dataset_cfg["color_space"]
+    if "image_size" in dataset_cfg: g["IMAGE_SIZE"] = dataset_cfg["image_size"]
+    if "batch_size" in dataset_cfg: g["BATCH_SIZE"] = dataset_cfg["batch_size"]
+    
+    if "kernel_size" in model_cfg: g["KERNEL_SIZE"] = model_cfg["kernel_size"]
+    if "stride" in model_cfg: g["STRIDE"] = model_cfg["stride"]
+    if "kernel_topology_names" in model_cfg: g["KERNEL_TOPOLOGY_NAMES"] = model_cfg["kernel_topology_names"]
+    if "scaling_factor" in model_cfg: g["SCALING_FACTOR"] = model_cfg["scaling_factor"]
+    if "evolution_time" in model_cfg: g["EVOLUTION_TIME"] = model_cfg["evolution_time"]
+    if "mode" in model_cfg: g["EVOLUTION_MODE"] = model_cfg["mode"]
+    if "encoding_mode" in model_cfg: g["ENCODING_MODE"] = model_cfg["encoding_mode"]
+    if "include_correlators" in model_cfg: g["INCLUDE_CORRELATORS"] = model_cfg["include_correlators"]
+    if "quantum_device" in model_cfg: g["QUANTUM_DEVICE"] = model_cfg["quantum_device"]
+    
+    print(f"Loaded parameters from {config_path}")
 
 # -----------------------------------------------------------------------------
 # Device & interface — benchmark results (breast_mnist train, single topology):
@@ -176,6 +209,14 @@ def generate_output_filename(params):
     elif color_space == "GRAYSCALE":
         filename += "_gray"
 
+    # Add ZZ correlator suffix
+    if params.get("include_correlators", False):
+        filename += "_zz"
+
+    # Add encoding mode suffix
+    if params.get("encoding_mode", "digital") == "analog":
+        filename += "_analog"
+
     filename += ".npz"
     return filename
 
@@ -260,6 +301,13 @@ def process_dataset_through_quantum(
 
 
 def main():
+    parser = argparse.ArgumentParser(description="QUANTUM DATASET GENERATOR")
+    parser.add_argument("--config", type=str, default=None, help="Path to YAML config file")
+    args = parser.parse_args()
+
+    if args.config:
+        load_params_from_config(args.config)
+
     print("=" * 60)
     print("QUANTUM DATASET GENERATOR")
     print("=" * 60)
@@ -284,6 +332,7 @@ def main():
     print(f"  Scaling factor:   {SCALING_FACTOR}")
     print(f"  Evolution time:   {EVOLUTION_TIME}")
     print(f"  Evolution mode:   {EVOLUTION_MODE}")
+    print(f"  ZZ correlators:   {INCLUDE_CORRELATORS}")
     print(f"  Quantum device:   {QUANTUM_DEVICE}")
     print(f"  Interface:        {INTERFACE}")
     print(f"  Batch size:       {BATCH_SIZE}")
@@ -320,7 +369,7 @@ def main():
     # This is the fixed (non-trainable) feature extractor
     print("Initializing quantum convolution layer...")
     q_conv = QuantumConv2d(
-        in_channels=quantum_in_channels,
+        in_channels=in_channels,
         kernel_size=KERNEL_SIZE,
         stride=STRIDE,
         kernel_topology_names=KERNEL_TOPOLOGY_NAMES,
@@ -329,7 +378,10 @@ def main():
         mode=EVOLUTION_MODE,
         quantum_device=QUANTUM_DEVICE,
         interface=INTERFACE,
+        include_correlators=INCLUDE_CORRELATORS,
+        encoding_mode=ENCODING_MODE,
     )
+
 
     # Store the output channels info
     quantum_out_channels = q_conv.out_channels
@@ -346,17 +398,32 @@ def main():
         print(f"Quantum layer outputs {out_channels} channels per image")
 
     # Build channel-to-kernel mapping: for each output channel, record which kernel produced it
+    from itertools import combinations
+
     n_qubits = KERNEL_SIZE * KERNEL_SIZE
     channel_kernel_map = []
     for topo_name in KERNEL_TOPOLOGY_NAMES:
+        # Single-qubit Z measurements
         for qubit_idx in range(n_qubits):
             channel_kernel_map.append(
                 {
                     "channel": len(channel_kernel_map),
                     "kernel": topo_name,
                     "qubit": qubit_idx,
+                    "measurement": "Z",
                 }
             )
+        # ZZ correlator measurements
+        if INCLUDE_CORRELATORS:
+            for qi, qj in combinations(range(n_qubits), 2):
+                channel_kernel_map.append(
+                    {
+                        "channel": len(channel_kernel_map),
+                        "kernel": topo_name,
+                        "qubit_pair": [qi, qj],
+                        "measurement": "ZZ",
+                    }
+                )
     print(f"Channel-kernel mapping: {len(channel_kernel_map)} entries")
     print()
 
@@ -397,6 +464,8 @@ def main():
         "evolution_time": EVOLUTION_TIME,
         "out_channels": out_channels,
         "quantum_out_channels": quantum_out_channels,
+        "include_correlators": INCLUDE_CORRELATORS,
+        "encoding_mode": ENCODING_MODE,
         "channel_kernel_map": channel_kernel_map,
         "created_at": datetime.now().isoformat(),
         "train_samples": len(results["train_labels"]),
