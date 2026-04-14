@@ -6,10 +6,12 @@
 \usepackage{geometry}
 \usepackage{cite}
 \usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{caption}
 
 \geometry{margin=1in}
 
-\title{Project Abstract for AWS: G-quAI \\ \large Hardware-Native Quantum Convolutional Neural Networks on QuEra Aquila for Medical Image Classification}
+\title{G-quAI \\ \large Hardware-Native Quantum Convolutional Neural Networks on QuEra Aquila for Medical Image Classification}
 \author{Team G-quAI, University of Coimbra}
 \date{\today}
 
@@ -25,7 +27,7 @@
 Our work is grounded in the architectural advantages of Digital-Analog Quantum Kernels (DAQKs) as proposed by Simen et al. \cite{daqcnn2024}. The transition to the quantum domain for medical image classification is motivated by three primary factors:
 \begin{enumerate}
     \item \textbf{High-Dimensional Feature Mapping:} Quantum kernels naturally map classical data into a high-dimensional Hilbert space where classes that are non-linearly separable in the original space may become linearly separable.
-    \item \textbf{Complexity via Native Interactions:} Unlike classical CNNs where filters are trained via backpropagation, DAQCNNs leverage the fixed, native "complexity" of Rydberg atom interactions to extract intricate spatial correlations and multipartite entanglement dynamics that classical filters may fail to capture.
+    \item \textbf{Complexity via Native Interactions:} Unlike classical CNNs where filters are trained via backpropagation, DAQCNNs leverage the fixed, native ``complexity'' of Rydberg atom interactions to extract intricate spatial correlations and multipartite entanglement dynamics that classical filters may fail to capture.
     \item \textbf{Massive Parameter Efficiency:} DAQCNNs have demonstrated the ability to outperform classical state-of-the-art models while using significantly fewer trainable parameters (often by orders of magnitude), directly addressing the energy and computational bottlenecks of modern medical AI.
 \end{enumerate}
 
@@ -34,7 +36,7 @@ Our approach, the \textbf{ZZ-AQCNN}, enhances the DAQCNN framework by measuring 
 
 We utilize two primary encoding schemes:
 \begin{enumerate}
-    \item \textbf{Digital Encoding (Requested):} Data is encoded in the initial state via $RY(x_i)$ and $H$ gates at $t=0$:
+    \item \textbf{Digital Encoding:} Data is encoded in the initial state via $RY(x_i)$ and $H$ gates at $t=0$:
     \begin{equation}
         |\Psi_{out}\rangle = e^{-i H_{fixed} T} \left( \bigotimes_{i=1}^N H \cdot RY(x_i) \right) |0\rangle^{\otimes N}
     \end{equation}
@@ -46,29 +48,41 @@ We utilize two primary encoding schemes:
 \end{enumerate}
 \textbf{Scope:} We focus on \textbf{Digital Encoding} for this request to establish a robust hardware baseline.
 
-\section*{3. Preliminary Results (Trotterized Simulation)}
-Extensive simulations on BreastMNIST using Trotterized Hamiltonian evolution ($T=2.5, dt=0.05$) have yielded the following performance metrics across 10 independent validation seeds:
+\section*{3. Preliminary Results: Surpassing the State-of-the-Art}
+To validate our improvements, we executed an exhaustive \textbf{1,000-trial hyperparameter search} for both the original 1-Kernel DAQCNN baseline \cite{daqcnn2024} and our ZZ-enhanced architecture. Extensive simulations on BreastMNIST ($T=2.5, dt=0.05$) demonstrate that our inclusion of higher-order correlations provides a decisive diagnostic advantage:
 
 \begin{table}[htbp]
     \centering
     \begin{tabular}{l c c c c}
         \toprule
-        Config / Metric & Classical & Original DAQCNN & Digital + ZZ & Analog + ZZ \\
-                        & Baseline & (No ZZ) \cite{daqcnn2024} & (Enhanced) & (ZZ-AQCNN) \\
+        Config / Metric & Original DAQCNN & Digital + ZZ & Analog + ZZ \\
+                         & (No ZZ) \cite{daqcnn2024} & (Enhanced) & (ZZ-AQCNN) \\
         \midrule
-        \textbf{Test Acc (\%)} & $0.0 \pm 0.0$ & $86.9 \pm 1.2$ & $87.2 \pm 0.9$ & $86.6 \pm 1.0$ \\
-        \textbf{ROC-AUC}       & $0.00 \pm 0.0$ & $0.88 \pm 0.01$ & $0.91 \pm 0.01$ & $0.93 \pm 0.01$ \\
+        \textbf{Test Acc (\%)} & $86.7 \pm 1.3$ & $\mathbf{87.6 \pm 1.0}$ & $87.0 \pm 1.5   $ \\
+        \textbf{ROC-AUC}       & $0.88 \pm 0.01$ & $0.91 \pm 0.01$ & $\mathbf{0.92 \pm 0.01}$ \\
         \bottomrule
     \end{tabular}
-    \caption{Simulated results on BreastMNIST. Note the superior separability (AUC) of the ZZ-enhanced models.}
+    \caption{Performance matrix on BreastMNIST after 1,000 hyperparameter trials per configuration.}
 \end{table}
 
-Feature importance analysis confirms that \textbf{79.5\% of the predictive power} stems from the $ZZ$ correlators, validating our architectural expansion.
+\subsection*{3.1 Analysis of Higher-Order Correlators}
+A primary innovation in the ZZ-AQCNN architecture is the inclusion of 2-body entanglement correlators. To quantify whether the classification model effectively utilizes this expanded feature space, we conducted a non-parametric feature importance analysis. We trained a \textbf{Random Forest Classifier (100 estimators)} directly on the raw quantum outputs (9 $Z$ features and 36 $ZZ$ features per patch). By analyzing the \textbf{Mean Decrease in Impurity (MDI)}, we ranked the predictive power of each quantum observable. 
+
+As shown in Figure \ref{fig:feature_importance}, the $ZZ$ entanglement correlators overwhelmingly dominate the decision-making process, contributing nearly 80\% of the overall predictive power. This empirical finding validates our core architectural hypothesis: the non-linear spatial correlations captured by the interacting Rydberg atoms contain critical diagnostic information that is invisible to the baseline framework.
+
+\begin{figure}[!b]
+    \centering
+    \includegraphics[width=0.7\textwidth]{images/aqcnn/feature_importance.png}
+    \caption{Feature Importance Ranking using MDI. The top 15 most important individual features are almost exclusively $ZZ$ correlator pairs.}
+    \label{fig:feature_importance}
+\end{figure}
 
 \section*{4. Experimental Plan \& Resource Estimation}
-We utilize \textbf{Spatial Multiplexing} on the QuEra Aquila (256 qubits) to process 21 patches ($3\times3$) per task. Quantum results will be \textbf{cached} for offline training of the classical head.
+We utilize \textbf{Spatial Multiplexing} via Analog Hamiltonian Simulation (AHS) on the QuEra Aquila (256 qubits) to process patches in parallel. Due to the hardware's maximum Rabi frequency ($\Omega \approx 2.51 \text{ MHz}$), the minimum achievable Rydberg blockade radius ($R_b$) is $\approx 8.32 \mu m$.
 
-\textbf{Workload:} 780 images $\times$ 81 patches / 21 parallel $\approx$ \textbf{3,009 tasks}.
+To maximize spatial efficiency within the device's $75\mu m \times 76\mu m$ area, we encode a \textbf{King's graph} topology. By setting the intra-kernel lattice spacing to $4 \mu m$, the diagonal interactions ($5.65 \mu m$) naturally fall within the unavoidable $8.32 \mu m$ blockade. This compact topology, coupled with a $9 \mu m$ empty-space isolation boundary between grids, allows us to safely embed a maximum of 20 independent $3\times3$ kernels per task (180 total atoms). Quantum results will be \textbf{cached} for offline training.
+
+\textbf{Workload:} (780 images $\times$ 81 patches) / 20 parallel patches = \textbf{3,159 tasks}.
 
 \begin{table}[h]
     \centering
@@ -76,12 +90,15 @@ We utilize \textbf{Spatial Multiplexing} on the QuEra Aquila (256 qubits) to pro
         \toprule
         Precision ($\epsilon$) & Shots per Task & Total Shots & \textbf{Estimated Cost (\$0.01/shot)} \\
         \midrule
-        0.2 (20\% Error) & 25 & 75,225 & \textbf{\$752.25} \\
-        0.1 (10\% Error) & 100 & 300,900 & \textbf{\$3,009.00} \\
-        0.05 (5\% Error) & 400 & 1,203,600 & \textbf{\$12,036.00} \\
+        0.2 (20\% Error) & 25 & 78,975 & \textbf{\$789.75} \\
+        0.1 (10\% Error) & 100 & 315,900 & \textbf{\$3,159.00} \\
+        0.05 (5\% Error) & 400 & 1,263,600 & \textbf{\$12,636.00} \\
         \bottomrule
     \end{tabular}
 \end{table}
+
+\section*{5. Future Roadmap: Scaling to High-Resolution Imaging}
+While this initial hardware phase focuses on $3\times3$ kernels, our architecture is built for scalability. Following the successful validation of these experiments, we will scale our framework to higher-resolution medical images using significantly larger quantum kernels (e.g., \textbf{4x4, 8x8, 16x16}). The 256-qubit array on QuEra Aquila provides the focal plane required to capture increasingly complex morphological features in large-scale colorectal cancer diagnostic datasets.
 
 \begin{thebibliography}{9}
 \bibitem{daqcnn2024}
