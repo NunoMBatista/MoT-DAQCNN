@@ -1,0 +1,45 @@
+dataset:
+  batch_size: 16
+  color_space: GRAYSCALE
+  data_root: ./data
+  download: true
+  name: breast_mnist
+  num_workers: 2
+misc:
+  log_every: 50
+  seed:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+model:
+  activation: gelu
+  architecture: original
+  classical_device: auto
+  dropout: 0.5488555076362971
+  encoding_mode: analog
+  evolution_time: 2.5
+  include_correlators: true
+  kernel_size: 3
+  kernel_topology_names:
+  - star
+  mode: trotter
+  num_classes: 2
+  quantum_device: default.qubit
+  scaling_factor: 1.0
+  stride: 3
+optim:
+  epochs: 100
+  grad_clip: 9.434296494363702
+  lr: 0.004957096947035801
+  patience: 96
+  scheduler_T_max: 100
+  scheduler_eta_min: 0.0
+  use_scheduler: true
+  weight_decay: 0.00016947553419389443
