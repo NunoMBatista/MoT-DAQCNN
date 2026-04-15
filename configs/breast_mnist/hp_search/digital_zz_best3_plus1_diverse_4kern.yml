@@ -1,0 +1,85 @@
+# =============================================================================
+# Hyperparameter Search — Digital-Analog ZZ-AQCNN on BreastMNIST (Best 3 + 1 Diverse)
+# =============================================================================
+#
+# This search replicates the "Best 3 + Diverse" strategy from the original
+# DAQCNN pipeline but enables ZZ correlator measurements for all 4 kernels.
+#
+# Top 3 (Fixed): ["grid", "chain", "horizontal"]
+# 4th Kernel (Tuned): One from ["kings", "vertical", "cross", "ring", "star"]
+#
+# Total Trials: 1500
+#
+# Usage:
+#   python experiments/hyperparameter_search.py \
+#       --config configs/breast_mnist/original/4_kernels_3x3.yml \
+#       --search-config configs/breast_mnist/hp_search/digital_zz_best3_plus1_diverse_4kern.yml \
+#       --n-trials 1500 \
+#       --wandb-project MoT-DAQCNN-ZZ-Search
+
+settings:
+  metric: test_acc
+  direction: maximize
+  study_name: hp_digital_zz_breastmnist_best3_plus1_diverse_1500
+
+search_space:
+  # === Forced Parameters for ZZ-AQCNN ===
+  model.include_correlators:
+    type: fixed
+    value: true
+
+  model.encoding_mode:
+    type: fixed
+    value: digital
+
+  # === Kernel topology set ===
+  # Keep [grid, chain, horizontal] fixed and select the 4th kernel from a diverse list.
+  model.kernel_topology_names:
+    type: categorical
+    choices:
+    - ["grid", "chain", "horizontal", "kings"]
+    - ["grid", "chain", "horizontal", "vertical"]
+    - ["grid", "chain", "horizontal", "cross"]
+    - ["grid", "chain", "horizontal", "ring"]
+    - ["grid", "chain", "horizontal", "star"]
+
+  # === Optimizer ===
+  optim.lr:
+    type: loguniform
+    low: 1.0e-8
+    high: 1.0e-2 # Slightly expanded for more exploration
+      
+  optim.weight_decay:
+    type: loguniform
+    low: 1.0e-8
+    high: 1.0e-3
+  
+  optim.grad_clip:
+    type: uniform
+    low: 0.0
+    high: 10.0
+  
+  optim.patience:
+    type: int
+    low: 10
+    high: 100
+    step: 5
+  
+  optim.use_scheduler:
+    type: categorical
+    choices: [true, false]
+  
+  # === Model / Classification Head ===
+  model.dropout:
+    type: uniform
+    low: 0.0
+    high: 0.7
+  
+  model.activation:
+    type: categorical
+    choices: ["relu", "gelu"]
+  
+  # === Dataset ===
+  dataset.batch_size:
+    type: categorical
+    choices: [16, 32, 64] # Focused range for stability
