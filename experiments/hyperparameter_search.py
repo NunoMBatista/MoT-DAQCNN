@@ -1068,6 +1068,8 @@ def main():
                     config=wandb_config,
                     reinit=True,
                 )
+                if wandb_run is not None:
+                    print(f"\n[wandb] Run initialized: {wandb_run.get_url()}\n")
             except Exception as e:
                 print(f"[wandb] Failed to init W&B run: {e}\nContinuing without W&B.")
                 wandb_run = None
