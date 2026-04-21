@@ -336,6 +336,18 @@ def _run_oracle_routed_trial(
     return result
 
 
+def _run_classical_baseline_trial(
+    cfg: dict, seed: int, output_dir: str, trial: Any = None
+) -> dict:
+    """Run one trial of the classical baseline."""
+    from src.models.classical_baseline_training import run_classical_baseline
+
+    result = run_classical_baseline(
+        cfg, seed, output_dir, verbose=False, set_seed_fn=set_seed
+    )
+    return result
+
+
 # Map from architecture name to runner function
 _RUNNERS = {
     "original": _run_original_trial,
@@ -344,6 +356,7 @@ _RUNNERS = {
     "ts_moe": _run_ts_moe_trial,
     "gumbel": _run_gumbel_trial,
     "oracle-routed": _run_oracle_routed_trial,
+    "classical_baseline": _run_classical_baseline_trial,
 }
 
 
@@ -404,31 +417,32 @@ class HPSearchObjective:
         # Before running the trial, check if the quantum features exist.
         # If not, generate them once. This prevents expensive quantum
         # simulation in every epoch of the training loop.
-        from src.utils.quantum_dataset_cache import find_cached_quantum_dataset
-        
-        cached_path = find_cached_quantum_dataset(cfg)
-        if cached_path is None:
-            print(f"\n[Trial {trial.number}] No cache found for physical parameters. Generating cache...")
-            from experiments.create_quantum_dataset import load_params_from_config, main as generate_main
+        if self.architecture != "classical_baseline":
+            from src.utils.quantum_dataset_cache import find_cached_quantum_dataset
             
-            # Use a temporary hack: write the trial config to a temp file
-            # so the generator can load it.
-            os.makedirs(self.output_root, exist_ok=True)
-            tmp_cfg_path = os.path.join(self.output_root, f"tmp_trial_{trial.number}_config.yml")
-            with open(tmp_cfg_path, "w") as f:
-                yaml.dump(cfg, f)
-            
-            # Temporarily override sys.argv to pass the config to generate_main
-            old_argv = sys.argv
-            sys.argv = ["create_quantum_dataset.py", "--config", tmp_cfg_path]
-            try:
-                generate_main()
-            finally:
-                sys.argv = old_argv
-                if os.path.exists(tmp_cfg_path):
-                    os.remove(tmp_cfg_path)
-            
-            print(f"[Trial {trial.number}] Cache generation complete.\n")
+            cached_path = find_cached_quantum_dataset(cfg)
+            if cached_path is None:
+                print(f"\n[Trial {trial.number}] No cache found for physical parameters. Generating cache...")
+                from experiments.create_quantum_dataset import load_params_from_config, main as generate_main
+                
+                # Use a temporary hack: write the trial config to a temp file
+                # so the generator can load it.
+                os.makedirs(self.output_root, exist_ok=True)
+                tmp_cfg_path = os.path.join(self.output_root, f"tmp_trial_{trial.number}_config.yml")
+                with open(tmp_cfg_path, "w") as f:
+                    yaml.dump(cfg, f)
+                
+                # Temporarily override sys.argv to pass the config to generate_main
+                old_argv = sys.argv
+                sys.argv = ["create_quantum_dataset.py", "--config", tmp_cfg_path]
+                try:
+                    generate_main()
+                finally:
+                    sys.argv = old_argv
+                    if os.path.exists(tmp_cfg_path):
+                        os.remove(tmp_cfg_path)
+                
+                print(f"[Trial {trial.number}] Cache generation complete.\n")
 
         # 3. Create trial output directory
         trial_dir = os.path.join(self.output_root, f"trial_{trial.number:04d}")
@@ -1032,7 +1046,13 @@ def main():
             os.environ["WANDB_MODE"] = args.wandb_mode
             os.environ.setdefault("WANDB_SILENT", "true")
 
-            run_name = f"hp_search:{architecture}:{dataset_name}:{time.strftime('%Y%m%d_%H%M%S')}"
+            if architecture == "classical_baseline":
+                fixed = search_cfg.get("search_space", {}).get("model.fixed_random_filters", {}).get("value", base_cfg.get("model", {}).get("fixed_random_filters", False))
+                prefix = "random kernels" if fixed else "trainable kernels"
+                run_name = f"hp_search:{architecture}:{prefix}:{dataset_name}:{time.strftime('%Y%m%d_%H%M%S')}"
+            else:
+                run_name = f"hp_search:{architecture}:{dataset_name}:{time.strftime('%Y%m%d_%H%M%S')}"
+            
             wandb_group = args.wandb_group or study_name
 
             # Keep config JSON-serializable; store YAML dict under a single key.

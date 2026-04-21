@@ -1,0 +1,51 @@
+settings:
+  metric: test_acc
+  direction: maximize
+  study_name: hp_classical_random_baseline_4kern
+
+search_space:
+  # === Force Random Fixed Kernels ===
+  model.fixed_random_filters:
+    type: fixed
+    value: true
+
+  # === Optimizer (Matching your ZZ search) ===
+  optim.lr:
+    type: loguniform
+    low: 1.0e-8
+    high: 1.0e-2
+      
+  optim.weight_decay:
+    type: loguniform
+    low: 1.0e-8
+    high: 1.0e-3
+  
+  optim.grad_clip:
+    type: uniform
+    low: 0.0
+    high: 10.0
+  
+  optim.patience:
+    type: int
+    low: 10
+    high: 100
+    step: 5
+  
+  optim.use_scheduler:
+    type: categorical
+    choices: [true, false]
+  
+  # === Model / Head ===
+  model.dropout:
+    type: uniform
+    low: 0.0
+    high: 0.7
+  
+  model.activation:
+    type: categorical
+    choices: ["relu", "gelu"]
+  
+  # === Dataset ===
+  dataset.batch_size:
+    type: categorical
+    choices: [16, 32, 64]
