@@ -1047,8 +1047,14 @@ def main():
             os.environ.setdefault("WANDB_SILENT", "true")
 
             if architecture == "classical_baseline":
+                is_raw = search_cfg.get("search_space", {}).get("model.raw_features", {}).get("value", base_cfg.get("model", {}).get("raw_features", False))
                 fixed = search_cfg.get("search_space", {}).get("model.fixed_random_filters", {}).get("value", base_cfg.get("model", {}).get("fixed_random_filters", False))
-                prefix = "random kernels" if fixed else "trainable kernels"
+                
+                if is_raw:
+                    prefix = "raw features"
+                else:
+                    prefix = "random kernels" if fixed else "trainable kernels"
+                    
                 run_name = f"hp_search:{architecture}:{prefix}:{dataset_name}:{time.strftime('%Y%m%d_%H%M%S')}"
             else:
                 run_name = f"hp_search:{architecture}:{dataset_name}:{time.strftime('%Y%m%d_%H%M%S')}"

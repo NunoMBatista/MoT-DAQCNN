@@ -56,6 +56,7 @@ def run_classical_baseline(cfg, seed, output_dir, verbose=True, set_seed_fn=None
         activation=model_cfg.get("activation", "relu"),
         head_hidden_channels=model_cfg.get("head_hidden_channels", 64),
         fixed_random_filters=model_cfg.get("fixed_random_filters", False),
+        raw_features=model_cfg.get("raw_features", False),
     )
 
     model.to(device)

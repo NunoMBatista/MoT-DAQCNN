@@ -32,36 +32,41 @@ class ClassicalBaselineCNN(nn.Module):
         activation: str = "relu",
         head_hidden_channels: int = 64,
         fixed_random_filters: bool = False,
+        raw_features: bool = False,
     ):
         super().__init__()
         
-        # Classical equivalent of the quantum layer
-        self.conv = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            bias=False  # The quantum layer effectively acts without a trainable bias
-        )
-        
-        if fixed_random_filters:
-            # Initialize with Kaiming uniform
-            nn.init.kaiming_uniform_(self.conv.weight, a=math.sqrt(5))
-            # Freeze the weights to simulate a fixed non-trainable feature extractor
-            for param in self.conv.parameters():
-                param.requires_grad = False
-                
+        self.raw_features = raw_features
         self.fixed_random_filters = fixed_random_filters
-        self.out_channels = out_channels
+        self.out_channels = out_channels if not raw_features else in_channels
+        
+        if not self.raw_features:
+            # Classical equivalent of the quantum layer
+            self.conv = nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                bias=False  # The quantum layer effectively acts without a trainable bias
+            )
+            
+            if fixed_random_filters:
+                # Initialize with Kaiming uniform
+                nn.init.kaiming_uniform_(self.conv.weight, a=math.sqrt(5))
+                # Freeze the weights to simulate a fixed non-trainable feature extractor
+                for param in self.conv.parameters():
+                    param.requires_grad = False
         
         # The exact same classical head used in DAQCNN
         self.head = build_classification_head(
-            out_channels, num_classes, dropout, activation, hidden_channels=head_hidden_channels
+            self.out_channels, num_classes, dropout, activation, hidden_channels=head_hidden_channels
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Pass through the "quantum-equivalent" classical convolution
-        x = self.conv(x).float()
+        if not self.raw_features:
+            # Pass through the "quantum-equivalent" classical convolution
+            x = self.conv(x).float()
+        
         # Ensure inputs live on the same device as the classical head
         target_device = next(self.head.parameters()).device
         if x.device != target_device:
