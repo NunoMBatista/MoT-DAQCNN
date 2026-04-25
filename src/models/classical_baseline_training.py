@@ -7,6 +7,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
 from src.models.classical_baseline import ClassicalBaselineCNN
+from src.models.vanilla_cnn import VanillaCNN
 from src.utils.data import get_dataloaders
 from src.utils.evaluate import evaluate
 from src.utils.training_utils import resolve_device
@@ -18,7 +19,7 @@ def run_classical_baseline(cfg, seed, output_dir, verbose=True, set_seed_fn=None
     """Run experiment for the Classical Baseline CNN."""
     if verbose:
         print(f"\n{'=' * 60}")
-        print(f"Running classical baseline experiment with seed={seed}")
+        print(f"Running experiment with seed={seed}")
         print(f"{'=' * 60}\n")
 
     if set_seed_fn:
@@ -39,25 +40,35 @@ def run_classical_baseline(cfg, seed, output_dir, verbose=True, set_seed_fn=None
     # Model
     model_cfg = cfg.get("model", {})
     num_classes = model_cfg.get("num_classes", n_classes)
+    architecture = model_cfg.get("architecture", "classical_baseline")
 
     if verbose:
-        print("Building Classical Baseline model...")
+        print(f"Building {architecture} model...")
 
-    # Determine out_channels based on config. If missing, assume 45 for 1-kernel ZZ, 180 for 4-kernel ZZ
-    out_channels = model_cfg.get("out_channels", 180)
+    if architecture == "vanilla_cnn":
+        model = VanillaCNN(
+            num_classes=num_classes,
+            in_channels=model_cfg.get("in_channels", 1),
+            dropout=model_cfg.get("dropout", 0.1),
+            activation=model_cfg.get("activation", "relu"),
+            head_hidden_channels=model_cfg.get("head_hidden_channels", 64),
+        )
+    else:
+        # Determine out_channels based on config. If missing, assume 45 for 1-kernel ZZ, 180 for 4-kernel ZZ
+        out_channels = model_cfg.get("out_channels", 180)
 
-    model = ClassicalBaselineCNN(
-        num_classes=num_classes,
-        in_channels=model_cfg.get("in_channels", 1),
-        kernel_size=model_cfg.get("kernel_size", 3),
-        stride=model_cfg.get("stride", 3),
-        out_channels=out_channels,
-        dropout=model_cfg.get("dropout", 0.1),
-        activation=model_cfg.get("activation", "relu"),
-        head_hidden_channels=model_cfg.get("head_hidden_channels", 64),
-        fixed_random_filters=model_cfg.get("fixed_random_filters", False),
-        raw_features=model_cfg.get("raw_features", False),
-    )
+        model = ClassicalBaselineCNN(
+            num_classes=num_classes,
+            in_channels=model_cfg.get("in_channels", 1),
+            kernel_size=model_cfg.get("kernel_size", 3),
+            stride=model_cfg.get("stride", 3),
+            out_channels=out_channels,
+            dropout=model_cfg.get("dropout", 0.1),
+            activation=model_cfg.get("activation", "relu"),
+            head_hidden_channels=model_cfg.get("head_hidden_channels", 64),
+            fixed_random_filters=model_cfg.get("fixed_random_filters", False),
+            raw_features=model_cfg.get("raw_features", False),
+        )
 
     model.to(device)
 

@@ -348,6 +348,19 @@ def _run_classical_baseline_trial(
     return result
 
 
+def _run_vanilla_cnn_trial(
+    cfg: dict, seed: int, output_dir: str, trial: Any = None
+) -> dict:
+    """Run one trial of the standard Vanilla CNN."""
+    from src.models.classical_baseline_training import run_classical_baseline
+
+    # We reuse the classical_baseline_training logic but it will build the Vanilla model
+    result = run_classical_baseline(
+        cfg, seed, output_dir, verbose=False, set_seed_fn=set_seed
+    )
+    return result
+
+
 # Map from architecture name to runner function
 _RUNNERS = {
     "original": _run_original_trial,
@@ -357,6 +370,7 @@ _RUNNERS = {
     "gumbel": _run_gumbel_trial,
     "oracle-routed": _run_oracle_routed_trial,
     "classical_baseline": _run_classical_baseline_trial,
+    "vanilla_cnn": _run_vanilla_cnn_trial,
 }
 
 
