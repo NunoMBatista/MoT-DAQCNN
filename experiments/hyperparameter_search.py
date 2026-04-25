@@ -431,7 +431,7 @@ class HPSearchObjective:
         # Before running the trial, check if the quantum features exist.
         # If not, generate them once. This prevents expensive quantum
         # simulation in every epoch of the training loop.
-        if self.architecture != "classical_baseline":
+        if self.architecture not in ["classical_baseline", "vanilla_cnn"]:
             from src.utils.quantum_dataset_cache import find_cached_quantum_dataset
             
             cached_path = find_cached_quantum_dataset(cfg)
