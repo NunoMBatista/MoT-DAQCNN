@@ -1,0 +1,59 @@
+settings:
+  metric: test_acc
+  direction: maximize
+  study_name: hp_digital_zz_1kern_fixed_topo
+
+search_space:
+  # === Fix the Topology (Remove the Noise) ===
+  model.kernel_topology_names:
+    type: fixed
+    value: ["vertical"]
+
+  model.include_correlators:
+    type: fixed
+    value: true
+
+  model.encoding_mode:
+    type: fixed
+    value: digital
+
+  # === Optimizer (Exact match to classical search) ===
+  optim.lr:
+    type: loguniform
+    low: 1.0e-8
+    high: 1.0e-2
+      
+  optim.weight_decay:
+    type: loguniform
+    low: 1.0e-8
+    high: 1.0e-3
+  
+  optim.grad_clip:
+    type: uniform
+    low: 0.0
+    high: 10.0
+  
+  optim.patience:
+    type: int
+    low: 10
+    high: 100
+    step: 5
+  
+  optim.use_scheduler:
+    type: categorical
+    choices: [true, false]
+  
+  # === Model / Head ===
+  model.dropout:
+    type: uniform
+    low: 0.0
+    high: 0.7
+  
+  model.activation:
+    type: categorical
+    choices: ["relu", "gelu"]
+  
+  # === Dataset ===
+  dataset.batch_size:
+    type: categorical
+    choices: [16, 32, 64]
