@@ -9,7 +9,8 @@ dataset:
 model:
   kernel_size: 3
   stride: 3
-  kernel_topology_names: ["kings", "horizontal", "vertical", "cross"] #, "ring", "chain", "star", "grid"]
+  kernel_topology_names: ["kings"]
+  # , "horizontal", "vertical", "cross"] #, "ring", "chain", "star", "grid"]
   scaling_factor: 1.0
   evolution_time: 2.5
   mode: trotter
