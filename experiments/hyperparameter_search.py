@@ -1,30 +1,28 @@
 """
-Optuna-based hyperparameter search for all MoT-DAQCNN pipelines.
+Optuna-based hyperparameter search for DAQCNN pipelines.
 
-Supports four architectures:
-    - "original"       : Original DAQCNN baseline
-    - "TS-MoE"         : Teacher-Student Mixture-of-Experts
-    - "gumbel"         : Gumbel-Softmax Mixture-of-Experts
-    - "oracle-routed"  : Oracle-Routed Mixture-of-Topologies
+Supports three architectures:
+    - "original"          : DAQCNN (digital or analog, with/without ZZ correlators)
+    - "classical_baseline": Classical CNN with fixed or trainable convolutional filters
+    - "vanilla_cnn"       : Standard Vanilla CNN
 
 Usage:
     python experiments/hyperparameter_search.py \
-        --config configs/breast_mnist_multi_seed_3kern.yml \
-        --search-config configs/hp_search/breast_mnist_original.yml \
-        --n-trials 50
+        --config configs/breast_mnist/original_daqcnn_best.yml \
+        --search-config configs/breast_mnist/hp_search/digital_zz_single_kernel_search.yml \
+        --n-trials 1000
 
     # Resume a previous search (SQLite DB is auto-created):
     python experiments/hyperparameter_search.py \
-        --config configs/breast_mnist_gumbel_3kern.yml \
-        --search-config configs/hp_search/breast_mnist_gumbel.yml \
-        --n-trials 100 \
+        --config configs/breast_mnist/original_daqcnn_best.yml \
+        --search-config configs/breast_mnist/hp_search/digital_zz_single_kernel_search.yml \
+        --n-trials 500 \
         --resume
 
-    # Compare best results across pipelines (after running all three):
+    # Compare best results across two searches:
     python experiments/hyperparameter_search.py --compare \
         outputs/hp_search_original_*/study.db \
-        outputs/hp_search_gumbel_*/study.db \
-        outputs/hp_search_tsmoe_*/study.db
+        outputs/hp_search_zz_*/study.db
 
 Search Config Format:
     The search YAML defines which hyperparameters to tune and their ranges.
@@ -275,67 +273,6 @@ def _run_original_trial(
     return result
 
 
-def _run_gumbel_trial(cfg: dict, seed: int, output_dir: str, trial: Any = None) -> dict:
-    """Run one trial of the Gumbel-Softmax MoE pipeline."""
-    from src.models.gumbel_moe_training import run_gumbel_moe
-
-    result = run_gumbel_moe(cfg, seed, output_dir, verbose=False, set_seed_fn=set_seed)
-    return result
-
-
-def _run_ts_moe_trial(cfg: dict, seed: int, output_dir: str, trial: Any = None) -> dict:
-    """Run one trial of the TS-MoE pipeline.
-
-    Returns a flattened result dict with the final classifier metrics.
-    """
-    from src.models.train_ts_moe import run_ts_moe_pipeline
-
-    ts_result = run_ts_moe_pipeline(cfg, seed, output_dir, verbose=False)
-
-    # Flatten to standard form
-    final = ts_result["final"]
-    summary = ts_result["summary"]
-
-    # For TS-MoE, skipped final-classifier seeds report None metrics.
-    # Treat them as 0.0 so multi-seed aggregation penalizes instability.
-    test_acc = final.get("test_acc")
-    test_auc = final.get("test_auc")
-    test_f1 = final.get("test_f1")
-    test_recall = final.get("test_recall")
-
-    result = {
-        "seed": seed,
-        "train_losses": final.get("train_losses", []),
-        "val_losses": final.get("val_losses", []),
-        "train_accs": final.get("train_accs", []),
-        "val_accs": final.get("val_accs", []),
-        "test_loss": final.get("test_loss"),
-        "test_acc": 0.0 if test_acc is None else float(test_acc),
-        "test_auc": 0.0 if test_auc is None else float(test_auc),
-        "test_f1": 0.0 if test_f1 is None else float(test_f1),
-        "test_recall": 0.0 if test_recall is None else float(test_recall),
-        "teacher_test_acc": summary.get("teacher_test_acc"),
-        "student_agreement": summary.get("student_agreement"),
-        "patches_passing_threshold_pct": summary.get(
-            "student_patches_passing_threshold_pct"
-        ),
-        "pipeline_time_s": summary.get("pipeline_time_s"),
-    }
-    return result
-
-
-def _run_oracle_routed_trial(
-    cfg: dict, seed: int, output_dir: str, trial: Any = None
-) -> dict:
-    """Run one trial of the oracle-routed MoT pipeline."""
-    from src.models.oracle_router_training import run_oracle_routed
-
-    result = run_oracle_routed(
-        cfg, seed, output_dir, verbose=False, set_seed_fn=set_seed
-    )
-    return result
-
-
 def _run_classical_baseline_trial(
     cfg: dict, seed: int, output_dir: str, trial: Any = None
 ) -> dict:
@@ -364,11 +301,6 @@ def _run_vanilla_cnn_trial(
 # Map from architecture name to runner function
 _RUNNERS = {
     "original": _run_original_trial,
-    "TS-MoE": _run_ts_moe_trial,
-    "ts-moe": _run_ts_moe_trial,
-    "ts_moe": _run_ts_moe_trial,
-    "gumbel": _run_gumbel_trial,
-    "oracle-routed": _run_oracle_routed_trial,
     "classical_baseline": _run_classical_baseline_trial,
     "vanilla_cnn": _run_vanilla_cnn_trial,
 }
@@ -385,7 +317,7 @@ class HPSearchObjective:
     Attributes:
         base_cfg: The base YAML config (unmutated template).
         search_space: Dict mapping dotted config keys to distribution specs.
-        architecture: One of "original", "TS-MoE", "gumbel".
+        architecture: One of "original", "classical_baseline", "vanilla_cnn".
         seed: Fixed seed used for every trial (single-seed exploration).
         output_root: Root output directory for all trials.
         metric: Which metric to optimise (e.g. "test_acc", "test_auc").
@@ -525,15 +457,6 @@ class HPSearchObjective:
             trial.set_user_attr("train_losses", first["train_losses"])
         if first.get("val_losses"):
             trial.set_user_attr("val_losses", first["val_losses"])
-
-        # TS-MoE specific
-        if self.architecture in ("TS-MoE", "ts-moe", "ts_moe"):
-            ta_vals = _vals("teacher_test_acc")
-            if ta_vals:
-                trial.set_user_attr("teacher_test_acc", float(np.mean(ta_vals)))
-            sa_vals = _vals("student_agreement")
-            if sa_vals:
-                trial.set_user_attr("student_agreement", float(np.mean(sa_vals)))
 
         # Save aggregate result summary
         agg_summary: dict = {

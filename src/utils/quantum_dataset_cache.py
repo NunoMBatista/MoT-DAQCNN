@@ -188,8 +188,8 @@ def load_cached_quantum_dataset(
         # IMPORTANT: iterate in channel-index order (the order kernels appear in
         # the feature tensor), NOT alphabetical order.  get_kernel_names() uses
         # the same ordering (sorted by first channel index), so the rebuilt
-        # channel_kernel_map stays consistent with what KernelChannelAttentionBlock
-        # will derive from it.  Alphabetical order would silently misalign channels
+        # channel_kernel_map stays consistent with the multi-kernel channel layout
+        # derived from it.  Alphabetical order would silently misalign channels
         # whenever kernel names don't sort the same way as their channel positions.
         channel_indices = []
         new_channel_map = []
