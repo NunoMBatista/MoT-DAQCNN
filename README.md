@@ -1,104 +1,318 @@
-# Mixture-of-Topologies Digital-Analog Quantum Convolutional Neural Network (MoT-DAQCNN)
+# DAQCNN — Digital-Analog Quantum Convolutional Neural Network
 
 ## Overview
 
-MoT-DAQCNN extends the Digital-Analog Quantum Convolutional Neural Network with a **Teacher-Student Mixture-of-Topologies (TS-MoE)** pipeline that learns to route image patches to the most suitable quantum kernel topology, achieving comparable accuracy with significantly fewer quantum circuit evaluations.
+This repository implements the Digital-Analog Quantum Convolutional Neural Network (DAQCNN) for medical image classification on the MedMNIST benchmark datasets (BreastMNIST, PneumoniaMNIST, TissueMNIST). Quantum kernels based on Rydberg atom Hamiltonians extract features from image patches; a classical CNN head performs the final classification. The key research question is whether entanglement-based feature extraction via ZZ correlators provides a measurable advantage over classical convolutional filters.
 
-## Architectures
+## Physics Background
 
-### Original DAQCNN
+### Rydberg Hamiltonian
 
-The baseline architecture runs all quantum kernel topologies on every image patch and feeds the concatenated features to a classical CNN head.
+Each quantum kernel places $n$ qubits at fixed atom coordinates determined by the kernel topology. The system evolves under the Rydberg Hamiltonian:
+
+$$H(t) = \frac{\Omega}{2} \sum_i X_i \;-\; \sum_i \delta_i \, \hat{n}_i \;+\; \sum_{i < j} \frac{C_6}{r_{ij}^6} \, \hat{n}_i \hat{n}_j$$
+
+where $\Omega$ is the global Rabi frequency, $\delta_i$ is the local detuning, $C_6$ is the van der Waals coefficient, $r_{ij}$ is the inter-atom distance, and $\hat{n}_i = (1 - Z_i)/2$ is the number operator.
+
+### Encoding Modes
+
+Two modes map image pixel values $p_i \in [0, 1]$ into the quantum state:
+
+- **Digital**: each pixel is applied as an $R_Y(p_i \cdot \pi)$ rotation gate before Hamiltonian evolution.
+- **Analog**: pixel values are passed directly as the local detuning parameters $\delta_i$, so the data drives the evolution itself.
+
+### Feature Extraction
+
+After time evolution for duration $T$, the following observables are measured for each patch:
+
+$$\langle Z_i \rangle \quad \text{for all qubits } i, \qquad \langle Z_i \otimes Z_j \rangle \quad \text{for all qubit pairs } i < j$$
+
+For a $3 \times 3$ kernel ($n = 9$ qubits) with ZZ correlators enabled, this yields $9 + \binom{9}{2} = 45$ features per patch. The $\langle ZZ \rangle$ terms capture genuine multi-partite correlations arising from the van der Waals interaction that are inaccessible to single-qubit measurements alone.
+
+### Multi-Kernel Stacking
+
+Running $K$ topologies in parallel yields $K \times 45$ features per patch. All feature maps are concatenated channel-wise before being passed to the classical head.
+
+### Classical CNN Head
+
+The concatenated quantum feature maps are processed by a small classical head:
+
+$$\text{Conv}_{3 \times 3}\text{-BN-ReLU} \;\to\; \text{MaxPool} \;\to\; \text{Conv}_{3 \times 3}\text{-ReLU} \;\to\; \text{Flatten} \;\to\; \text{Linear}(d, C)$$
+
+where $C$ is the number of classes. Only the classical head is trained; the quantum kernels are fixed.
+
+### Kernel Topologies
+
+Eight $3 \times 3$ atom geometries are available, each producing a different van der Waals coupling pattern $J_{ij} = C_6 / r_{ij}^6$:
+
+| Name | Description |
+|------|-------------|
+| `kings` | All 8 nearest neighbours (king moves) |
+| `horizontal` | Three atoms in a row |
+| `vertical` | Three atoms in a column |
+| `cross` | Centre + 4 cardinal neighbours |
+| `ring` | Atoms evenly spaced on a circle |
+| `chain` | Linear chain |
+| `star` | Centre atom connected to 8 surrounding atoms |
+| `grid` | Regular 3x3 grid |
+
+## Prerequisites
+
+- Python 3.10+
+- PyTorch
+- PennyLane
+- NumPy, PyYAML, scikit-learn, matplotlib
+- Optuna (for hyperparameter search)
+- wandb (optional, for experiment tracking)
+- medmnist
+
+Install dependencies:
 
 ```bash
-python experiments/robust_test_original_daqcnn.py --config configs/pneumonia_mnist.yml
+pip install torch pennylane numpy pyyaml scikit-learn matplotlib optuna wandb medmnist
 ```
 
-### TS-MoE Pipeline
+## Typical Workflow
 
-The TS-MoE pipeline trains in three phases:
+The standard workflow has three steps: cache quantum features, search for the best hyperparameters, then validate the best configuration across multiple seeds.
 
-1. **Teacher** — Trains a Grouped SE Block on cached quantum features to learn soft routing weights (alpha) over kernel topologies, with entropy regularization pushing toward decisive (bimodal) routing.
-2. **Student Gatekeeper** — A lightweight MLP (<5k params) distilled from the Teacher, predicting per-patch kernel assignments from raw image pixels alone.
-3. **Final Classifier** — A new CNN head trained on sparse routed features (only the selected kernel's channels per patch).
+### Step 1 — Pre-compute quantum features
+
+Running quantum circuits for every patch in every training batch is slow. The `create_quantum_dataset.py` script runs the full dataset through the quantum kernels once and saves the output feature tensors to disk. Subsequent training runs load directly from this cache.
+
+Edit the `PARAMETERS` section inside the script to set the dataset, kernel topology, encoding mode, and ZZ flag, then run:
 
 ```bash
-# Step 1: Create cached quantum features (run once per dataset)
-python experiments/create_quantum_dataset.py --config configs/pneumonia_mnist_ts_moe.yml
-
-# Step 2: Run the full TS-MoE pipeline
-python -m src.models.train_ts_moe --config configs/pneumonia_mnist_ts_moe.yml
-
-# Or use the experiment runner (handles both architectures via config)
-python experiments/robust_test_original_daqcnn.py --config configs/pneumonia_mnist_ts_moe.yml
+python experiments/create_quantum_dataset.py
 ```
 
-### Switching Architectures
+The cache is written to `data/quantum_datasets/` with a filename encoding all relevant parameters (dataset, kernel size, stride, topologies, evolution time, etc.). The training scripts detect and load it automatically.
 
-Set `model.architecture` in your config file:
+### Step 2 — Hyperparameter search
+
+The search takes a base config (fixing the architecture) and a search config (defining the search space) and runs an Optuna TPE study. Each trial evaluates a single seed for speed; the best configurations are later re-evaluated with multiple seeds.
+
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist/original_daqcnn_best.yml \
+    --search-config configs/breast_mnist/hp_search/digital_zz_single_kernel_search.yml \
+    --n-trials 1000
+```
+
+To resume an interrupted search (the SQLite study database is preserved):
+
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist/original_daqcnn_best.yml \
+    --search-config configs/breast_mnist/hp_search/digital_zz_single_kernel_search.yml \
+    --n-trials 500 \
+    --resume
+```
+
+To validate the top-$k$ trials found during search against multiple held-out seeds:
+
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist/original_daqcnn_best.yml \
+    --search-config configs/breast_mnist/hp_search/digital_zz_single_kernel_search.yml \
+    --validate-top-k 3 \
+    --validation-seeds 0 1 2 3 4 5 6 7 8 9
+```
+
+Key flags:
+
+| Flag | Description |
+|------|-------------|
+| `--config` | Base YAML config file |
+| `--search-config` | Search space YAML file |
+| `--n-trials` | Number of Optuna trials |
+| `--resume` | Resume an existing study |
+| `--validate-top-k N` | Re-run top N trials with full seeds after search |
+| `--validation-seeds` | Seeds to use for validation |
+| `--metric` | Metric to optimise (default: `test_acc`) |
+| `--wandb` | Enable W&B logging |
+
+### Step 3 — Multi-seed validation
+
+Once the best hyperparameters are identified, run a full multi-seed experiment using the best config:
+
+```bash
+python experiments/robust_test_original_daqcnn.py \
+    --config configs/breast_mnist/original_daqcnn_best.yml
+```
+
+The config's `misc.seed` field accepts a list; the script runs one independent training per seed and reports mean ± std across all seeds. Results, checkpoints, and plots are saved under `outputs/run_<dataset>_<timestamp>/`.
+
+## Config Structure
+
+Every experiment is controlled by a single YAML config file. The key fields are:
 
 ```yaml
+dataset:
+  name: breast_mnist          # dataset identifier (breast_mnist, pneumonia_mnist, tissue_mnist)
+  data_root: ./data
+  batch_size: 16
+  color_space: GRAYSCALE
+
 model:
-  architecture: "TS-MoE"   # or "original" for baseline DAQCNN
+  kernel_size: 3              # quantum kernel patch size
+  stride: 3                   # patch stride (non-overlapping when equal to kernel_size)
+  kernel_topology_names:
+    - vertical                # list of topologies; one entry = 1 kernel, multiple = multi-kernel
+  encoding_mode: digital      # digital or analog
+  include_correlators: true   # whether to include ZZ observables
+  evolution_time: 2.5         # Hamiltonian evolution time T
+  scaling_factor: 1.0         # pixel value rescaling before encoding
+  dropout: 0.5
+  activation: gelu
+
+optim:
+  lr: 0.001
+  weight_decay: 1.0e-4
+  epochs: 100
+  patience: 15                # early stopping patience
+  grad_clip: 5.0
+  use_scheduler: true
+
+misc:
+  seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]   # list = multi-seed run
 ```
 
-See `configs/pneumonia_mnist_ts_moe.yml` for a complete TS-MoE config example with all tunable parameters (`ts_moe.lambda_max`, `ts_moe.student_hidden_dims`, etc.).
+Search config files (in `configs/*/hp_search/`) override individual fields with distributions:
 
-## Output Structure
+```yaml
+settings:
+  metric: test_acc
+  direction: maximize
+  study_name: my_search
 
-| Architecture    | Output directory                            | Contents                                                                                                                                                       |
-| --------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Original DAQCNN | `outputs/default_daqcnn_run_<timestamp>/` | Checkpoints, loss curves, ROC, confusion matrix                                                                                                                |
-| TS-MoE          | `outputs/moe_run_<timestamp>/seed_N/`     | `teacher/`, `student/`, `final_classifier/` subdirs with checkpoints, plots, alpha histograms, routing confusion matrices, and `pipeline_summary.json` |
+search_space:
+  model.kernel_topology_names:
+    type: categorical
+    choices:
+      - ["vertical"]
+      - ["horizontal"]
+      - ["star"]
+  optim.lr:
+    type: loguniform
+    low: 1.0e-8
+    high: 5.0e-3
+  model.dropout:
+    type: uniform
+    low: 0.0
+    high: 0.7
+  model.include_correlators:
+    type: fixed
+    value: true             # fixed = not tuned, just overrides base config
+```
 
-## TUI
+Distribution types: `uniform`, `loguniform`, `int`, `categorical`, `fixed`.
 
-Browse trained models (both DAQCNN and TS-MoE) and run inference interactively:
+## Other Experiments
+
+**Feature probing ablation** — evaluates the intrinsic quality of quantum vs. classical features by training a Random Forest and SVM on frozen feature vectors extracted at two bottleneck points (immediately after the quantum kernel layer, and after the full CNN head):
+
+```bash
+python experiments/feature_probing_ablation.py \
+    --seeds 42 1 2 3 4
+```
+
+**CKA kernel similarity** — measures Centred Kernel Alignment between feature representations of different quantum kernel topologies:
+
+```bash
+python experiments/kernel_cka_similarity.py
+```
+
+**Batch runner** — runs a list of shell commands sequentially, useful for submitting a queue of experiments:
+
+```bash
+python experiments/batch_runner.py commands.txt
+```
+
+**TUI** — browse all trained models in `outputs/`, inspect configs, and run inference interactively:
 
 ```bash
 python -m src.tui.run_tui
 ```
 
-TS-MoE runs are labeled with 🔀 in the model tree and display pipeline summary metrics (Teacher accuracy, Student agreement, speedup factor) in the info panel.
-
 ## Project Structure
 
 ```
 src/
+├── physics/
+│   ├── hamiltonian.py           # Rydberg Hamiltonian construction
+│   ├── evolution.py             # Time evolution via Trotter decomposition
+│   └── kernel_topologies.py    # Atom coordinate sets for each topology
 ├── layers/
-│   ├── kernel_channel_attention_block.py  # Patch-wise kernel routing (Teacher core)
-│   ├── daqk.py                  # Digital-analog quantum kernel
-│   └── quantum_convolution.py   # Quantum convolution layer
+│   ├── daqk.py                  # Digital-analog quantum kernel (single topology)
+│   └── quantum_convolution.py  # Sliding-window quantum convolution over an image
 ├── models/
-│   ├── daqcnn.py                # Original DAQCNN model
-│   ├── teacher_moe.py           # Teacher with Kernel Channel Attention routing
-│   ├── student_gatekeeper.py    # Lightweight routing MLP
-│   ├── ts_moe_classification_head.py  # Final classifier on sparse features
-│   ├── teacher_moe_training.py  # Teacher training loop
-│   ├── student_training.py      # Student distillation loop
-│   ├── ts_moe_classification_head_training.py  # Final classifier training
-│   └── train_ts_moe.py          # Unified pipeline orchestrator
-├── utils/
-│   ├── kernel_mapping.py        # Kernel-to-channel grouping
-│   ├── sparse_reconstruction.py # Sparse tensor building from routing
-│   ├── losses.py                # Entropy loss + lambda annealing
-│   ├── evaluate.py              # Metrics (accuracy, AUC, F1, recall)
-│   ├── plotting.py              # All plot functions (histograms, ROC, etc.)
-│   ├── quantum_dataset_cache.py # Cached quantum feature loading
-│   └── model_cache_manager.py   # Checkpoint loading & output scanning
-├── tui/
-│   └── run_tui.py               # Interactive model testing interface
-└── config.py                    # Project paths and constants
+│   ├── daqcnn.py                # Full DAQCNN model (quantum conv + classical head)
+│   ├── daqcnn_training.py       # Training loop, early stopping, evaluation
+│   ├── classical_baseline.py    # Classical CNN with fixed or trainable conv filters
+│   ├── classical_baseline_training.py
+│   └── vanilla_cnn.py           # Standard CNN baseline (no quantum layer)
+└── utils/
+    ├── data.py                  # Dataset loading (MedMNIST)
+    ├── evaluate.py              # Accuracy, AUC, F1, confusion matrix
+    ├── training_utils.py        # Classification head builder, device resolution
+    ├── plotting.py              # Loss curves, ROC curves, confusion matrices
+    ├── quantum_dataset_cache.py # Load pre-computed quantum feature caches
+    ├── model_cache_manager.py   # Checkpoint loading and output directory scanning
+    ├── kernel_mapping.py        # Channel-to-kernel grouping utilities
+    ├── sparse_reconstruction.py # Sparse tensor construction from routing masks
+    ├── color_conversion.py      # RGB to grayscale / HSV conversion
+    ├── hp_search_plots.py       # Optuna study visualisation
+    ├── analyze_feature_importance.py
+    ├── view_results.py          # Print results from an output directory
+    └── wab/
+        └── fetch_original_baseline.py  # W&B result fetching utilities
+
+configs/
+├── breast_mnist/
+│   ├── hp_search/               # Search space YAMLs for each architecture variant
+│   ├── original/                # Fixed configs for direct training runs
+│   ├── cache_generation/        # Configs for create_quantum_dataset.py
+│   ├── original_daqcnn_best.yml # Best validated digital no-ZZ config
+│   ├── digital_zz_best.yml      # Best validated digital ZZ config
+│   └── analog_zz_best.yml       # Best validated analog ZZ config
+├── pneumonia_mnist/
+│   └── original/
+└── tissue_mnist/
+    ├── hp_search/
+    └── original/
+
+experiments/
+├── robust_test_original_daqcnn.py   # Main multi-seed training entry point
+├── hyperparameter_search.py         # Optuna-based HP search
+├── create_quantum_dataset.py        # Pre-compute and cache quantum features
+├── feature_probing_ablation.py      # RF/SVM probing of frozen feature vectors
+├── kernel_cka_similarity.py         # CKA similarity between topology representations
+├── batch_runner.py                  # Sequential batch experiment runner
+└── summarize_results.py             # Aggregate metrics across output directories
+
+data/
+├── *.npz                            # MedMNIST dataset files
+└── quantum_datasets/                # Pre-computed quantum feature caches
+
+docs/
+├── paper/
+│   └── results_report.tex           # Experimental results summary
+├── diagrams/
+│   ├── CNN_diagram.svg
+│   └── pipeline_architecture.svg
+└── weights_and_biases/
+    └── how_to_use.md
 ```
 
-
-## Citations
-
+## Citation
 
 ```bibtex
 @article{simenDigitalanalogQuantumConvolutional2024a,
   title = {Digital-Analog Quantum Convolutional Neural Networks for Image Classification},
-  author = {Simen, Anton and Flores-Garrigos, Carlos and Hegade, Narendra N. and Montalban, Iraitz and Vives-Gilabert, Yolanda and Michon, Eric and Zhang, Qi and Solano, Enrique and Martín-Guerrero, José D.},
+  author = {Simen, Anton and Flores-Garrigos, Carlos and Hegade, Narendra N. and
+            Montalban, Iraitz and Vives-Gilabert, Yolanda and Michon, Eric and
+            Zhang, Qi and Solano, Enrique and Mart{\'i}n-Guerrero, Jos{\'e} D.},
   journal = {Physical Review Research},
   volume = {6},
   number = {4},
@@ -106,3 +320,4 @@ src/
   year = {2024},
   doi = {10.1103/PhysRevResearch.6.L042060}
 }
+```
