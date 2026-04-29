@@ -10,7 +10,7 @@ import os
 import sys
 
 import numpy as np
-from plotting import plot_confusion_matrix
+from src.utils.plotting import plot_confusion_matrix
 
 
 def print_separator(char="=", length=70):
