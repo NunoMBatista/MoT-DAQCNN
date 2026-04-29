@@ -306,43 +306,134 @@ def process_pipeline(classical_config_path, quantum_config_path, seed, output_di
     
     return pipeline_results
 
+def aggregate_results(per_seed_results):
+    """
+    Aggregate per-seed results into mean ± std rows.
+
+    per_seed_results: list of per-seed result lists, where each element is
+        [name, dims, rf_acc_str, rf_auc_str, svm_acc_str, svm_auc_str]
+
+    Returns a list of rows with the same schema but numeric values replaced by
+    "mean±std" strings (or plain "mean" when only one seed was run).
+    """
+    from collections import defaultdict, OrderedDict
+
+    accumulated = OrderedDict()  # name -> {"dims": int, "metrics": [[rf_acc, rf_auc, svm_acc, svm_auc], ...]}
+    for seed_rows in per_seed_results:
+        for row in seed_rows:
+            name, dims = row[0], row[1]
+            metrics = [float(row[2]), float(row[3]), float(row[4]), float(row[5])]
+            if name not in accumulated:
+                accumulated[name] = {"dims": dims, "metrics": []}
+            accumulated[name]["metrics"].append(metrics)
+
+    n_seeds = len(per_seed_results)
+    final_rows = []
+    raw_data = {}  # for JSON export: name -> {mean, std, seeds_data}
+
+    for name, data in accumulated.items():
+        arr = np.array(data["metrics"])  # (n_seeds, 4)
+        means = arr.mean(axis=0)
+        stds = arr.std(axis=0)
+
+        if n_seeds == 1:
+            fmt = [f"{m:.4f}" for m in means]
+        else:
+            fmt = [f"{m:.4f}±{s:.4f}" for m, s in zip(means, stds)]
+
+        final_rows.append([name, data["dims"]] + fmt)
+        raw_data[name] = {
+            "dims": data["dims"],
+            "n_seeds": n_seeds,
+            "means": dict(zip(["rf_acc", "rf_auc", "svm_acc", "svm_auc"], means.tolist())),
+            "stds": dict(zip(["rf_acc", "rf_auc", "svm_acc", "svm_auc"], stds.tolist())),
+            "per_seed": arr.tolist(),
+        }
+
+    return final_rows, raw_data
+
+
 def main():
     parser = argparse.ArgumentParser(description="Feature Probing Ablation Study")
     parser.add_argument("--classical-1kern", type=str, default=None, help="Path to 1-kernel classical baseline config")
     parser.add_argument("--quantum-1kern", type=str, default=None, help="Path to 1-kernel quantum config")
     parser.add_argument("--classical-4kern", type=str, default=None, help="Path to 4-kernel classical baseline config")
     parser.add_argument("--quantum-4kern", type=str, default=None, help="Path to 4-kernel quantum config")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--seeds", type=int, nargs="+", default=None,
+                        help="One or more random seeds. Results are aggregated as mean±std.")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Single random seed (kept for backward compat; prefer --seeds).")
     parser.add_argument("--output-dir", type=str, default="outputs/feature_probing")
     args = parser.parse_args()
 
-    os.makedirs(args.output_dir, exist_ok=True)
-    all_results = []
-
-    # Process 1-Kernel Pipeline
-    if args.classical_1kern and args.quantum_1kern:
-        out_dir = os.path.join(args.output_dir, "1kern")
-        res = process_pipeline(args.classical_1kern, args.quantum_1kern, args.seed, out_dir, "1-Kernel")
-        all_results.extend(res)
-
-    # Process 4-Kernel Pipeline
-    if args.classical_4kern and args.quantum_4kern:
-        out_dir = os.path.join(args.output_dir, "4kern")
-        res = process_pipeline(args.classical_4kern, args.quantum_4kern, args.seed, out_dir, "4-Kernel")
-        # To avoid duplicating Raw Pixels in the final table if both are run
-        if args.classical_1kern and args.quantum_1kern:
-            res = res[1:] 
-        all_results.extend(res)
-
-    # Final Report
-    if all_results:
-        print("\n" + "="*110)
-        print("FINAL RESULTS: FEATURE PROBING ABLATION (THE PERFECT SYMMETRY)")
-        print("="*110)
-        headers = ["Feature Source", "Dimensions", "RF Acc", "RF AUC", "SVM Acc", "SVM AUC"]
-        print(tabulate(all_results, headers=headers, tablefmt="grid"))
+    # Resolve seed list: --seeds takes priority, then --seed, then default 42
+    if args.seeds:
+        seeds = args.seeds
+    elif args.seed is not None:
+        seeds = [args.seed]
     else:
+        seeds = [42]
+
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    # Collect results per seed
+    per_seed_1kern = []
+    per_seed_4kern = []
+
+    for seed in seeds:
+        print(f"\n{'='*60}")
+        print(f"SEED {seed}  ({seeds.index(seed)+1}/{len(seeds)})")
+        print(f"{'='*60}")
+
+        if args.classical_1kern and args.quantum_1kern:
+            out_dir = os.path.join(args.output_dir, "1kern")
+            res = process_pipeline(args.classical_1kern, args.quantum_1kern, seed, out_dir, "1-Kernel")
+            per_seed_1kern.append(res)
+
+        if args.classical_4kern and args.quantum_4kern:
+            out_dir = os.path.join(args.output_dir, "4kern")
+            res = process_pipeline(args.classical_4kern, args.quantum_4kern, seed, out_dir, "4-Kernel")
+            per_seed_4kern.append(res)
+
+    # Combine and aggregate
+    if not per_seed_1kern and not per_seed_4kern:
         print("No configurations provided! Please pass --classical-1kern / --quantum-1kern and/or their 4-kernel counterparts.")
+        return
+
+    combined_per_seed = []
+    n_seeds = max(len(per_seed_1kern), len(per_seed_4kern))
+
+    for i in range(n_seeds):
+        rows = []
+        if i < len(per_seed_1kern):
+            rows.extend(per_seed_1kern[i])
+        if i < len(per_seed_4kern):
+            # Skip the Raw Pixels row if 1-kern results already included it
+            start = 1 if per_seed_1kern else 0
+            rows.extend(per_seed_4kern[i][start:])
+        combined_per_seed.append(rows)
+
+    final_rows, raw_data = aggregate_results(combined_per_seed)
+
+    # Save JSON for reproducibility
+    import json
+    json_path = os.path.join(args.output_dir, "feature_probing_results.json")
+    with open(json_path, "w") as f:
+        json.dump({"seeds": seeds, "results": raw_data}, f, indent=2)
+    print(f"\nResults saved to {json_path}")
+
+    # Print table
+    print("\n" + "="*110)
+    print(f"FINAL RESULTS: FEATURE PROBING ABLATION  (seeds={seeds}, n={len(seeds)})")
+    print("="*110)
+    headers = ["Feature Source", "Dimensions", "RF Acc", "RF AUC", "SVM Acc", "SVM AUC"]
+    print(tabulate(final_rows, headers=headers, tablefmt="grid"))
+
+    # Print LaTeX-ready values
+    print("\n--- LaTeX mean±std values ---")
+    for row in final_rows:
+        print(f"  {row[0]}: RF Acc={row[2]}, RF AUC={row[3]}, SVM Acc={row[4]}, SVM AUC={row[5]}")
+
 
 if __name__ == "__main__":
     main()

@@ -3,6 +3,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{amsmath,amssymb,amsfonts}
+\usepackage{bm}
 \usepackage{geometry}
 \usepackage{booktabs}
 \usepackage{graphicx}
@@ -10,7 +11,7 @@
 
 \geometry{margin=1in}
 
-\title{Comprehensive Experimental Results Report: MoT-DAQCNN \\ \large Early Detection of Colorectal Cancer and Medical Image Benchmarking}
+\title{Experimental Results Summary: MoT-DAQCNN \\ \large Methodologies and Data Tables}
 \author{Team G-quAI, University of Coimbra}
 \date{\today}
 
@@ -18,77 +19,154 @@
 
 \maketitle
 
-\section{Introduction}
-This document summarizes the experimental findings obtained so far for the MoT-DAQCNN project, focusing on BreastMNIST as a proof-of-concept for the early detection of pathologies using Analog-Digital Quantum Convolutional Neural Networks. We compare the performance of fixed quantum interaction physics with various classical baselines.
+\section{Overview}
+This document provides a factual record of the experimental methodologies and results for the MoT-DAQCNN project on the BreastMNIST dataset. The primary objective is to quantify the performance of Analog-Digital Quantum Convolutional Neural Networks using hardware-native Rydberg atom interactions compared to various classical benchmarks.
 
-\section{Current Results (Weights \& Biases Sync)}
-The following table summarizes the top-performing end-to-end configurations extracted from our hyperparameter search pipelines.
+\section{Study 1: End-to-End Performance Benchmarking}
+This study evaluates the final classification performance of the full hybrid pipeline on BreastMNIST. Hyperparameters for each configuration were determined via 500--1,500 Optuna TPE trials; the best configuration was then retrained across 10--11 independent seeds to estimate mean~$\pm$~std. Results marked with~$\dagger$ are from trial seeds (not held-out validation seeds) and lack a std estimate; entries marked \emph{(running)} are still completing their HP search and report the current best trial mean.
+
+Two encoding modes are compared throughout: \textbf{digital}, where each pixel is encoded via an $R_Y$ gate before Hamiltonian evolution, and \textbf{analog}, where pixel values are passed directly as the local detuning parameters $\delta_i$ of the Rydberg Hamiltonian, making the data drive the evolution itself.
 
 \begin{table}[htbp]
     \centering
-    \caption{End-to-End Experimental Results Summary on BreastMNIST.}
-    \begin{tabular}{l c c c c}
+    \caption{End-to-end benchmarking results on BreastMNIST. Entries with
+             mean~$\pm$~std use held-out validation seeds ($n{=}10$);
+             $\dagger$~entries use trial seeds only and are less reliable.
+             Bold marks the best result within the 1-kernel and 4-kernel
+             groups respectively. \emph{Running} entries are preliminary
+             (HP search still ongoing).}
+    \begin{tabular}{l l c c c c}
         \toprule
-        Architecture & Kernels & ZZ Correlators & Test Accuracy & ROC-AUC \\
+        Architecture & Encoding & Kernels & ZZ & Test Acc & ROC-AUC \\
         \midrule
-        \textbf{Quantum (Digital)} & 4 & No & $0.0 \pm 0.0$\% & $0.0 \pm 0.0$ \\
-        \textbf{Quantum (Digital)} & 1 & No & $0.0 \pm 0.0$\% & $0.0 \pm 0.0$ \\
-        \textbf{Quantum (Digital)} & 1 & Yes & $0.0 \pm 0.0$\% & $0.0 \pm 0.0$ \\
-        \textbf{TS-MoE} & 3 & No & $0.0 \pm 0.0$\% & $0.0 \pm 0.0$ \\
-        \textbf{Classical Baseline (Trainable)} & 1 & N/A & $0.0 \pm 0.0$\% & $0.0 \pm 0.0$ \\
-        \textbf{Classical Baseline (Random)} & 1 & N/A & $0.0 \pm 0.0$\% & $0.0 \pm 0.0$ \\
+        % ---- Classical baselines ----
+        Vanilla CNN              & ---     & ---  & No  & \emph{0.8537}$^{\dagger,r}$ & \emph{0.8574}$^{\dagger,r}$ \\
+        Classical Baseline (Random)   & ---     & 1    & No  & $0.8904^\dagger$ & $0.8988^\dagger$ \\
+        Classical Baseline (Trainable)& ---     & 1    & No  & $0.8864^\dagger$ & $0.8890^\dagger$ \\
         \midrule
-        \textbf{Analog ZZ-AQCNN} & 1 & Yes & $0.0 \pm 0.0$\% & $0.0 \pm 0.0$ \\
+        % ---- Quantum without ZZ ----
+        DAQCNN (no ZZ)           & Digital & 1    & No  & $0.8673 \pm 0.0135$ & $0.8818 \pm 0.0129$ \\
+        DAQCNN (no ZZ)           & Digital & 4    & No  & $0.8756 \pm 0.0177$ & $0.8855 \pm 0.0100$ \\
+        \midrule
+        % ---- Quantum + ZZ ----
+        DAQCNN + ZZ              & Digital & 1    & Yes & $0.8756 \pm 0.0104$ & $0.9040 \pm 0.0078$ \\
+        \textbf{DAQCNN + ZZ}     & \textbf{Digital} & \textbf{4} & \textbf{Yes} & $\bm{0.8974}^\dagger$ & $\bm{0.9147}^\dagger$ \\
+        \textbf{AQCNN + ZZ}      & \textbf{Analog}  & \textbf{1} & \textbf{Yes} & $\bm{0.8817}^\dagger$ & $\bm{0.9223}^\dagger$ \\
+        \midrule
+        % ---- Still running ----
+        DAQCNN + ZZ (fixed vertical) & Digital & 1 & Yes & \emph{0.8893}$^{\dagger,r}$ & \emph{0.9147}$^{\dagger,r}$ \\
         \bottomrule
     \end{tabular}
-    \vspace{2pt}
-    \small \\ \textit{*Results from simulated Trotterized evolution.}
+    \smallskip\\
+    \footnotesize $\dagger$~from trial seeds only (no~std). \quad
+    $r$~HP search still running; value is current best trial mean.
 \end{table}
 
-\section{Feature Probing Ablation Study (Perfect Symmetry)}
-To rigorously isolate and prove the representational power (Quantum Advantage) of the ZZ-AQCNN, we conducted a massive, perfectly symmetric feature probing ablation study. We extracted features from three distinct architectural depths and evaluated their intrinsic information content using neutral, task-agnostic arbiters: a Random Forest (RF) and a Support Vector Machine (SVM).
+\paragraph{Notes and caveats.}
+All~$\dagger$ values report the best trial found by Optuna evaluated over 3--11 trial seeds; these differ from the held-out validation mean~$\pm$~std entries in that the same seeds were available to the optimiser. The most notable corrections relative to earlier snapshots: the Digital~ZZ 1-kernel entry previously showed~$0.852/0.864$ (a mid-search snapshot); the validated mean over 10 held-out seeds is~$0.876 \pm 0.010 / 0.904 \pm 0.008$. The best single-number AUC across all finished runs is~$0.922$ for the Analog~ZZ 1-kernel (star topology, 872 Optuna trials, 11 seeds per trial), with Digital~ZZ 4-kernel close behind at~$0.915$ (1,500 trials, 3 seeds per trial); both lack held-out validation and should be treated as upper-bound estimates.
+The classical baseline~$\dagger$ values (Random: $0.899$; Trainable: $0.886$) are likewise from trial seeds over 1,000 Optuna trials and may overestimate held-out performance by~${\sim}1$--$2$\,pp relative to validated quantum entries. The TS-MoE HP search (not shown) returned an unusually low AUC of~$0.831$, which may reflect a poorly converged routing phase rather than an architectural ceiling; it requires a separate investigation before inclusion.
+Two entries remain actively running: Vanilla~CNN and DAQCNN+ZZ (fixed vertical); their final validated mean~$\pm$~std will replace the preliminary values once complete.
 
-This ablation study isolates the feature extraction capacity of the fixed quantum physics from the compression capacity of the classical head, directly answering the question: \textit{Does the Rydberg Hamiltonian naturally map data into a superior diagnostic Hilbert space compared to optimized classical filters?}
+\section{Study 2: Feature Probing Ablation (Linear Probing)}
+This study isolates the representational power of the feature extraction layers. Features are extracted at two bottleneck points: ``After Kernel'' (immediately following the initial convolution/quantum layer) and ``Pre-Dense'' (following the complete classical processing head but before the final linear layer).
+
+For each feature set, two neutral arbiters---a Random Forest (RF) with 100 estimators and a maximum depth of 10, and a Support Vector Machine (SVM) with an RBF kernel---are trained to classify the data. This evaluates the intrinsic separability and interpretability of the features generated by each architecture.
+
+Results are reported as mean~$\pm$~std across 5 independent seeds (42, 1, 2, 3, 4). The quantum kernel features are \emph{task-agnostic}: the Rydberg Hamiltonian evolution is fixed and untrained; only the classical head is optimised per seed. Classical random filters are fixed at initialisation; classical trainable filters are optimised end-to-end. Bold marks the best value per column within each horizontal block.
+
+\paragraph{Interpretation.}
+A first reading of the \emph{After Kernel} rows is sobering: the raw $\langle Z \rangle$ and $\langle ZZ \rangle$ outputs of the quantum layer ($3{,}645$ or $14{,}580$ dimensions for 1- and 4-kernel respectively) are essentially indistinguishable from a random classical projection and only marginally better than raw pixels. For example, the 1-kernel quantum AUC at this stage is $0.839 \pm 0.007$ (RF) versus $0.839$ for random classical projections and $0.842$ for raw pixels. This is not a sign that the quantum features carry no information; it is a consequence of \emph{dimensionality}: with roughly 546 training samples and up to 14,580 raw features, both RF and SVM are operating far above the sample-limited regime and their performance saturates regardless of feature source.
+
+The picture changes sharply at the \emph{Pre-Dense} level, after the classical CNN head (Conv-BN-ReLU $\rightarrow$ MaxPool $\rightarrow$ Conv-ReLU) has compressed and spatially aggregated the kernel outputs into 576-dimensional global feature vectors. Here the quantum features yield RF AUC of $0.911 \pm 0.007$ and SVM AUC of $0.907 \pm 0.009$ for the 1-kernel case, compared to $0.880/0.889$ and $0.874/0.884$ for random and trainable classical filters respectively. The same hierarchy holds for 4 kernels. Critically, the quantum features are never trained on the task; their edge at the Pre-Dense level therefore cannot be attributed to task-specific optimisation. Instead, it suggests that the entanglement structure captured by the $\langle ZZ \rangle$ correlators---which encode genuine multi-partite correlations arising from the Rydberg Van der Waals interaction and are inaccessible to single-qubit measurements alone---provides a richer geometric basis that the classical aggregation head can exploit more effectively than it can exploit either random projections or learned classical filters.
+
+Two caveats are worth stating clearly. First, the accuracy advantage of quantum features is modest and within the variance of classical alternatives; the consistent advantage is in AUC, which measures discriminative power across all decision thresholds and is more informative for the class-imbalanced BreastMNIST task. Second, this experiment evaluates a single fixed topology per kernel count; topology diversity (as in the TS-MoE pipeline) is expected to widen the gap further.
 
 \begin{table}[htbp]
     \centering
-    \caption{Final Results: Perfect Symmetry Feature Probing Ablation on BreastMNIST.}
+    \caption{Feature Probing Ablation Results on BreastMNIST (mean~$\pm$~std, $n{=}5$ seeds).
+             Bold marks the best value per column within each horizontal block.
+             Quantum features at the Pre-Dense level lead on AUC in all cases.}
     \resizebox{\textwidth}{!}{
     \begin{tabular}{l c c c c c}
         \toprule
         Feature Source & Dimensions & RF Acc & RF AUC & SVM Acc & SVM AUC \\
         \midrule
-        Raw Pixels & 784 & 0.7949 & 0.8393 & 0.7949 & 0.8716 \\
+        Raw Pixels & 784
+            & $0.8000 \pm 0.0075$
+            & $0.8421 \pm 0.0056$
+            & $0.7949 \pm 0.0000$
+            & $0.8714 \pm 0.0001$ \\
         \midrule
-        1-Kernel Classical Random (After Kernel) & 3645 & 0.7885 & 0.8586 & 0.8077 & 0.8912 \\
-        1-Kernel Classical Trainable (After Kernel) & 3645 & 0.8077 & 0.8260 & 0.8077 & 0.8970 \\
-        1-Kernel Quantum (Fixed) & 3645 & 0.8013 & 0.8390 & 0.8141 & 0.8906 \\
+        % ---- 1-Kernel, After Kernel ----
+        1-Kern Classical Random (After Kernel) & 3645
+            & $\bm{0.8128} \pm 0.0085$
+            & $0.8385 \pm 0.0105$
+            & $0.8000 \pm 0.0048$
+            & $0.8904 \pm 0.0035$ \\
+        1-Kern Quantum Fixed (After Kernel)    & 3645
+            & $0.7975 \pm 0.0096$
+            & $0.8390 \pm 0.0070$
+            & $0.8141 \pm 0.0000$
+            & $0.8906 \pm 0.0000$ \\
+        1-Kern Classical Trainable (After Kernel) & 3645
+            & $0.8064 \pm 0.0102$
+            & $\bm{0.8391} \pm 0.0037$
+            & $\bm{0.8205} \pm 0.0057$
+            & $\bm{0.8969} \pm 0.0019$ \\
         \midrule
-        1-Kernel Classical Random (Pre-Dense) & 576 & 0.8526 & 0.8909 & 0.8526 & 0.8642 \\
-        1-Kernel Classical Trainable (Pre-Dense) & 576 & 0.8590 & 0.8874 & 0.8590 & 0.8926 \\
-        \textbf{1-Kernel Quantum (Pre-Dense)} & \textbf{576} & \textbf{0.8654} & \textbf{0.9040} & \textbf{0.8654} & \textbf{0.9073} \\
+        % ---- 1-Kernel, Pre-Dense ----
+        1-Kern Classical Random (Pre-Dense) & 576
+            & $\bm{0.8654} \pm 0.0114$
+            & $0.8797 \pm 0.0073$
+            & $\bm{0.8654} \pm 0.0186$
+            & $0.8894 \pm 0.0086$ \\
+        \textbf{1-Kern Quantum Fixed (Pre-Dense)} & \textbf{576}
+            & $0.8628 \pm 0.0112$
+            & $\bm{0.9111} \pm 0.0066$
+            & $\bm{0.8654} \pm 0.0121$
+            & $\bm{0.9069} \pm 0.0086$ \\
+        1-Kern Classical Trainable (Pre-Dense) & 576
+            & $0.8616 \pm 0.0149$
+            & $0.8740 \pm 0.0057$
+            & $0.8603 \pm 0.0164$
+            & $0.8843 \pm 0.0163$ \\
         \midrule
-        4-Kernel Classical Random (After Kernel) & 14580 & 0.8013 & 0.8431 & 0.7949 & 0.8949 \\
-        4-Kernel Classical Trainable (After Kernel) & 14580 & 0.8013 & 0.8365 & 0.8269 & 0.8949 \\
-        \textbf{4-Kernel Quantum (Fixed)} & \textbf{14580} & \textbf{0.8077} & \textbf{0.8615} & 0.8013 & \textbf{0.8977} \\
+        % ---- 4-Kernel, After Kernel ----
+        4-Kern Classical Random (After Kernel) & 14580
+            & $\bm{0.8077} \pm 0.0070$
+            & $0.8347 \pm 0.0104$
+            & $0.8026 \pm 0.0026$
+            & $0.8934 \pm 0.0023$ \\
+        \textbf{4-Kern Quantum Fixed (After Kernel)} & \textbf{14580}
+            & $0.8051 \pm 0.0065$
+            & $\bm{0.8428} \pm 0.0113$
+            & $0.8013 \pm 0.0000$
+            & $\bm{0.8977} \pm 0.0000$ \\
+        4-Kern Classical Trainable (After Kernel) & 14580
+            & $0.7898 \pm 0.0048$
+            & $0.8360 \pm 0.0078$
+            & $\bm{0.8192} \pm 0.0048$
+            & $0.8949 \pm 0.0023$ \\
         \midrule
-        4-Kernel Classical Random (Pre-Dense) & 576 & 0.8718 & 0.8638 & 0.8590 & 0.8947 \\
-        4-Kernel Classical Trainable (Pre-Dense) & 576 & 0.8462 & 0.8500 & 0.8526 & 0.8596 \\
-        \textbf{4-Kernel Quantum (Pre-Dense)} & \textbf{576} & 0.8526 & \textbf{0.8780} & \textbf{0.8846} & 0.8640 \\
+        % ---- 4-Kernel, Pre-Dense ----
+        4-Kern Classical Random (Pre-Dense) & 576
+            & $\bm{0.8679} \pm 0.0170$
+            & $0.8840 \pm 0.0097$
+            & $0.8654 \pm 0.0070$
+            & $0.8879 \pm 0.0061$ \\
+        \textbf{4-Kern Quantum Fixed (Pre-Dense)} & \textbf{576}
+            & $0.8500 \pm 0.0096$
+            & $\bm{0.8904} \pm 0.0098$
+            & $\bm{0.8680} \pm 0.0112$
+            & $\bm{0.8973} \pm 0.0064$ \\
+        4-Kern Classical Trainable (Pre-Dense) & 576
+            & $0.8551 \pm 0.0221$
+            & $0.8744 \pm 0.0195$
+            & $0.8603 \pm 0.0075$
+            & $0.8812 \pm 0.0110$ \\
         \bottomrule
     \end{tabular}
     }
 \end{table}
-
-\section{Key Findings \& Observations}
-\begin{enumerate}
-    \item \textbf{The 1-Kernel Quantum Pre-Dense Triumph:} The most extraordinary result in this study is the performance of the \textbf{1-Kernel Quantum (Pre-Dense)} features. By combining the un-trained, physics-based extraction of the Rydberg kernel with the classical compression head, it achieved the highest overall metrics in its category (\textbf{RF AUC: 0.9040, SVM AUC: 0.9073}). It thoroughly defeated the fully end-to-end trained Classical Baseline (RF AUC: 0.8874, SVM AUC: 0.8926). This proves unequivocally that starting with quantum-extracted features yields a strictly superior final state than asking a classical network to extract and compress the features entirely from scratch.
-    \item \textbf{4-Kernel Decision Tree Superiority:} In the massive 14,580-dimensional space ("After Kernel"), the \textbf{4-Kernel Quantum (Fixed)} features heavily outperformed the explicitly trained classical convolutional layer for Random Forests (\textbf{RF AUC: 0.8615 vs 0.8365}). Because decision trees rely on orthogonal, highly interpretable splits, this demonstrates that the multi-partite entanglement dynamics ($ZZ$ correlators) naturally map the image into a more structured, orthogonal feature space than gradient descent.
-    \item \textbf{Beating the Random Projection Null Hypothesis:} A common critique of quantum kernels is that they act merely as high-dimensional random scatterers. By including the "Classical Random" rows, we decisively disprove this. In almost every metric, the structured physical topologies (e.g., Star, Kings) of the Quantum features outperformed equivalent Classical Random projections. The physics are extracting genuine diagnostic geometry, not just random noise.
-    \item \textbf{Quantum Advantage Demonstrated:} Across both 1-kernel and 4-kernel setups, feeding quantum features through a classical bottleneck (Pre-Dense) routinely matched or beat the fully classical equivalents. This confirms our core hypothesis: classical deep learning achieves higher diagnostic sensitivity when processing quantum interaction outputs than when processing raw pixels.
-\end{enumerate}
-
-\section{Resource Request Justification (AWS)}
-The current simulation results demonstrate that increasing kernel capacity and leveraging ZZ entanglement leads to superior diagnostic metrics. To scale these findings to colorectal cancer datasets, access to the \textbf{QuEra Aquila (256 qubits)} is required to perform spatial multiplexing and capture larger-scale morphological features.
 
 \end{document}
