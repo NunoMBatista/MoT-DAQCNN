@@ -229,6 +229,16 @@ def run_single_seed(cfg, seed, output_dir, verbose=True, set_seed_fn=None):
     if override_quantum_out_channels is not None:
         model_kwargs["override_quantum_out_channels"] = override_quantum_out_channels
 
+    # Optional noise model — only active when cache is not used (bypass_quantum stays False)
+    # When a noisy cache is loaded, bypass_quantum=True so the noise model is never called.
+    from src.physics.noise_model import noise_model_from_cfg
+    noise_model, noise_meta = noise_model_from_cfg(cfg)
+    if noise_model is not None:
+        model_kwargs["noise_model"] = noise_model
+        if verbose:
+            print(f"Noise model enabled: T1={noise_meta['T1_us']} μs, "
+                  f"T2={noise_meta['T2_us']} μs, p_gate={noise_meta['p_gate_1q']}")
+
     model = DAQCNN(**model_kwargs)
 
     if using_cache:

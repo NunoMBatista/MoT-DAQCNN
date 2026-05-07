@@ -1,0 +1,51 @@
+# BreastMNIST — Digital Encoding + ZZ Correlators + Rydberg Noise
+# Base config for hyperparameter search (use with digital_zz_single_kernel_search.yml).
+# The search will tune: topology, lr, weight_decay, grad_clip, patience,
+# scheduler, dropout, activation, batch_size.
+# Noise parameters are fixed (not searched) — they represent hardware reality.
+
+dataset:
+  name: breast_mnist
+  data_root: ./data
+  batch_size: 16
+  num_workers: 2
+  download: true
+  color_space: GRAYSCALE
+
+model:
+  num_classes: 2
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names:
+  - kings                 # placeholder — overridden by the search
+  encoding_mode: digital
+  include_correlators: true
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  dropout: 0.5
+  activation: relu
+  quantum_device: default.qubit   # overridden to default.mixed by noise model
+  quantum_device_kwargs: {}
+  classical_device: auto
+
+optim:
+  lr: 0.001
+  weight_decay: 1.0e-4
+  epochs: 100
+  grad_clip: 5.0
+  patience: 15
+  use_scheduler: true
+  scheduler_T_max: 100
+  scheduler_eta_min: 0.0
+
+misc:
+  seed: 0               # single seed during search for speed
+  log_every: 50
+
+noise:
+  enabled: true
+  T1_us: 200.0      # Rydberg-state T1 [μs]
+  T2_us: 100.0      # qubit T2 dephasing [μs]
+  p_gate_1q: 0.002  # per-gate depolarizing error (Evered et al. 2023)
+  omega_mhz: 1.0    # Rabi frequency — 1 sim-unit ≈ 160 ns

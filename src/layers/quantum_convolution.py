@@ -50,6 +50,7 @@ class QuantumConv2d(nn.Module):
         use_jit=False,
         include_correlators=False,
         encoding_mode="digital",
+        noise_model=None,
     ):
         super().__init__()
 
@@ -96,6 +97,7 @@ class QuantumConv2d(nn.Module):
             use_jit=use_jit,
             include_correlators=include_correlators,
             encoding_mode=encoding_mode,
+            noise_model=noise_model,
         )
 
         self.num_kernels = (

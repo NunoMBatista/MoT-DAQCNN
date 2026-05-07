@@ -41,3 +41,12 @@ misc:
   - 8
   - 9
   log_every: 50
+# Optional noise model (see docs/noise_model.md).
+# Set enabled: true to run with realistic Rydberg decoherence.
+# Only supported for kernel_size <= 3 (default.mixed cannot handle 4x4 kernels).
+noise:
+  enabled: false
+  T1_us: 200.0      # Rydberg-state T1 [μs]  — Rydberg lifetime n≈60, 87Rb
+  T2_us: 100.0      # Qubit T2 dephasing [μs] — conservative lab estimate
+  p_gate_1q: 0.002  # Per-gate depolarizing error (Evered et al. 2023, Nature)
+  omega_mhz: 1.0    # Rabi frequency [MHz] — sets 1 sim-unit ≈ 160 ns

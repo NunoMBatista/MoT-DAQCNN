@@ -53,6 +53,7 @@ class DAQCNN(nn.Module):
         override_quantum_out_channels: int = None,
         include_correlators: bool = False,
         head_hidden_channels: int = 64,
+        noise_model=None,
     ):
         super().__init__()
 
@@ -71,6 +72,7 @@ class DAQCNN(nn.Module):
             interface=interface,
             use_jit=use_jit,
             include_correlators=include_correlators,
+            noise_model=noise_model,
         )
         self.in_channels = in_channels
         # Backward compatibility alias

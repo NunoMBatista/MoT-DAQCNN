@@ -1,0 +1,28 @@
+# BreastMNIST — Digital Encoding + ZZ Correlators + Rydberg Noise
+# Generates a noisy feature cache (45 channels/topology) using default.mixed.
+# Runtime: ~100x slower than the clean version — use lightning.qubit is not
+# compatible with default.mixed, so device stays at default.qubit (overridden
+# internally to default.mixed when noise is enabled).
+
+dataset:
+  name: breast_mnist
+  color_space: GRAYSCALE
+  batch_size: 4          # smaller batch because default.mixed is slower
+
+model:
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["kings", "horizontal", "vertical", "cross", "ring", "chain", "star", "grid"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  encoding_mode: digital
+  include_correlators: true
+  quantum_device: default.qubit   # overridden to default.mixed by noise model
+
+noise:
+  enabled: true
+  T1_us: 200.0      # Rydberg-state T1 [μs]
+  T2_us: 100.0      # qubit T2 dephasing [μs]
+  p_gate_1q: 0.002  # per-gate depolarizing error (Evered et al. 2023)
+  omega_mhz: 1.0    # Rabi frequency — 1 sim-unit ≈ 160 ns

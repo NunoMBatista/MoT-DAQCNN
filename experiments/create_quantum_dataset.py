@@ -80,6 +80,17 @@ ENCODING_MODE = "digital"
 # Include ZZ correlator measurements (⟨Z_i Z_j⟩)
 INCLUDE_CORRELATORS = False
 
+# ---------------------------------------------------------------------------
+# Noise model parameters (see docs/noise_model.md and src/physics/noise_model.py)
+# When NOISE_ENABLED=True the device is forced to "default.mixed" (density-matrix
+# simulation).  This is only practical for kernel_size <= 3 (9 qubits).
+# ---------------------------------------------------------------------------
+NOISE_ENABLED  = False   # master switch
+NOISE_T1_US    = 200.0   # Rydberg-state T1 relaxation time [μs]
+NOISE_T2_US    = 100.0   # qubit T2 dephasing time [μs]
+NOISE_P_GATE   = 0.002   # per-gate single-qubit depolarizing error
+NOISE_OMEGA_MHZ = 1.0    # Rabi frequency [MHz] for time-unit conversion
+
 # PennyLane device ("default.qubit", "lightning.qubit", etc.)
 QUANTUM_DEVICE = "default.qubit"
 
@@ -118,7 +129,16 @@ def load_params_from_config(config_path):
     if "encoding_mode" in model_cfg: g["ENCODING_MODE"] = model_cfg["encoding_mode"]
     if "include_correlators" in model_cfg: g["INCLUDE_CORRELATORS"] = model_cfg["include_correlators"]
     if "quantum_device" in model_cfg: g["QUANTUM_DEVICE"] = model_cfg["quantum_device"]
-    
+
+    # Noise block (optional; omitting the section leaves noise disabled)
+    noise_cfg = cfg.get("noise", {})
+    if noise_cfg.get("enabled", False):
+        g["NOISE_ENABLED"]   = True
+        g["NOISE_T1_US"]     = noise_cfg.get("T1_us",      g["NOISE_T1_US"])
+        g["NOISE_T2_US"]     = noise_cfg.get("T2_us",      g["NOISE_T2_US"])
+        g["NOISE_P_GATE"]    = noise_cfg.get("p_gate_1q",  g["NOISE_P_GATE"])
+        g["NOISE_OMEGA_MHZ"] = noise_cfg.get("omega_mhz",  g["NOISE_OMEGA_MHZ"])
+
     print(f"Loaded parameters from {config_path}")
 
 # -----------------------------------------------------------------------------
@@ -216,6 +236,12 @@ def generate_output_filename(params):
     # Add encoding mode suffix
     if params.get("encoding_mode", "digital") == "analog":
         filename += "_analog"
+
+    # Add noise suffix with T1/T2 values so the regime is visible at a glance
+    if params.get("noise_enabled", False):
+        t1 = int(round(params.get("noise_T1_us", 200)))
+        t2 = int(round(params.get("noise_T2_us", 100)))
+        filename += f"_noisy-T1={t1}-T2={t2}"
 
     filename += ".npz"
     return filename
@@ -336,6 +362,15 @@ def main():
     print(f"  Quantum device:   {QUANTUM_DEVICE}")
     print(f"  Interface:        {INTERFACE}")
     print(f"  Batch size:       {BATCH_SIZE}")
+    if NOISE_ENABLED:
+        print(f"  Noise:            ENABLED")
+        print(f"    T1:             {NOISE_T1_US} μs")
+        print(f"    T2:             {NOISE_T2_US} μs")
+        print(f"    p_gate_1q:      {NOISE_P_GATE}")
+        print(f"    omega:          {NOISE_OMEGA_MHZ} MHz")
+        print(f"    device forced:  default.mixed")
+    else:
+        print(f"  Noise:            disabled")
     print()
 
     # Setup paths
@@ -365,9 +400,23 @@ def main():
         # For RGB or already grayscale, process all channels
         quantum_in_channels = in_channels
 
-    # Build the quantum convolution layer
-    # This is the fixed (non-trainable) feature extractor
+    # Build the quantum convolution layer (the fixed, non-trainable feature extractor).
+    # When NOISE_ENABLED=True a qml.NoiseModel is created and injected; the device
+    # is then forced to "default.mixed" inside DAQKLayer automatically.
     print("Initializing quantum convolution layer...")
+
+    noise_model = None
+    if NOISE_ENABLED:
+        from src.physics.noise_model import make_rydberg_noise_model
+        noise_model, noise_meta = make_rydberg_noise_model(
+            T1_us=NOISE_T1_US,
+            T2_us=NOISE_T2_US,
+            p_gate_1q=NOISE_P_GATE,
+            omega_mhz=NOISE_OMEGA_MHZ,
+        )
+        print(f"  Noise model built: T1_sim={noise_meta['T1_sim_units']:.1f}, "
+              f"T2_sim={noise_meta['T2_sim_units']:.1f} sim-units")
+
     q_conv = QuantumConv2d(
         in_channels=in_channels,
         kernel_size=KERNEL_SIZE,
@@ -380,6 +429,7 @@ def main():
         interface=INTERFACE,
         include_correlators=INCLUDE_CORRELATORS,
         encoding_mode=ENCODING_MODE,
+        noise_model=noise_model,
     )
 
 
@@ -466,6 +516,13 @@ def main():
         "quantum_out_channels": quantum_out_channels,
         "include_correlators": INCLUDE_CORRELATORS,
         "encoding_mode": ENCODING_MODE,
+        # Noise parameters — stored even when disabled so the cache matcher can
+        # unambiguously reject a noisy cache when a clean run is requested.
+        "noise_enabled": NOISE_ENABLED,
+        "noise_T1_us": NOISE_T1_US    if NOISE_ENABLED else None,
+        "noise_T2_us": NOISE_T2_US    if NOISE_ENABLED else None,
+        "noise_p_gate_1q": NOISE_P_GATE if NOISE_ENABLED else None,
+        "noise_omega_mhz": NOISE_OMEGA_MHZ if NOISE_ENABLED else None,
         "channel_kernel_map": channel_kernel_map,
         "created_at": datetime.now().isoformat(),
         "train_samples": len(results["train_labels"]),

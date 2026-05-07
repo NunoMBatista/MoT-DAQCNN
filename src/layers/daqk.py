@@ -36,7 +36,12 @@ class DAQKLayer(nn.Module):
         coordinates (list | None): Explicit coordinates for a single kernel.
         kernel_topology_names (list | None): Names of topologies to use; ignored if coordinates provided.
         quantum_device (str): Pennylane device name (e.g., "default.qubit", "lightning.gpu").
+                              Overridden to "default.mixed" when noise_model is provided.
         quantum_device_kwargs (dict | None): Extra kwargs for the device (e.g., {"batch_size": B}).
+        noise_model (qml.NoiseModel | None): Optional noise model from src.physics.noise_model.
+                                             When set, forces device to "default.mixed" and wraps
+                                             each QNode with qml.noise.add_noise.
+                                             Only feasible for kernel_size <= 3 (9 qubits).
     """
 
     def __init__(
@@ -54,6 +59,7 @@ class DAQKLayer(nn.Module):
         use_jit=False,
         include_correlators=False,
         encoding_mode="digital",
+        noise_model=None,
     ):
         super().__init__()
 
@@ -96,6 +102,7 @@ class DAQKLayer(nn.Module):
             use_jit,
             include_correlators,
             encoding_mode,
+            noise_model,
         )
 
     def _build_kernels(
@@ -109,6 +116,7 @@ class DAQKLayer(nn.Module):
         use_jit,
         include_correlators,
         encoding_mode,
+        noise_model=None,
     ):
         """Create one Hamiltonian/QNode per topology and cache them."""
         self.hamiltonians = []
@@ -170,9 +178,12 @@ class DAQKLayer(nn.Module):
                 use_local_detuning=(encoding_mode == "analog")
             )
 
-            dev = qml.device(
-                quantum_device, wires=self.n_qubits, **quantum_device_kwargs
-            )
+            # When a noise model is provided we need density-matrix simulation;
+            # default.mixed is the only PennyLane device that supports it.
+            # Note: default.mixed is ~100× slower and only feasible for ≤ 9 qubits
+            # (kernel_size ≤ 3).  For 4×4 kernels (16 qubits) use noise_model=None.
+            effective_device = "default.mixed" if noise_model is not None else quantum_device
+            dev = qml.device(effective_device, wires=self.n_qubits, **quantum_device_kwargs)
 
             circuit = make_circuit(
                 hamiltonian,
@@ -191,6 +202,10 @@ class DAQKLayer(nn.Module):
                 interface=interface,
                 diff_method=None,
             )
+
+            # Wrap with noise channels after each matching gate type
+            if noise_model is not None:
+                qnode = qml.noise.add_noise(qnode, noise_model)
 
             if interface == "jax" and JAX_AVAILABLE and use_jit:
                 import jax as jax_module

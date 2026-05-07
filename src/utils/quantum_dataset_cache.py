@@ -104,6 +104,24 @@ def _match_metadata(meta, cfg):
     if cached_enc != config_enc:
         return False
 
+    # Noise — backward compat: missing field means no noise (False)
+    # A clean cache must not be used for a noisy run, and vice-versa.
+    cached_noise = meta.get("noise_enabled", False)
+    config_noise  = cfg.get("noise", {}).get("enabled", False)
+    if cached_noise != config_noise:
+        return False
+    if config_noise:
+        # Both are noisy — also match the physical parameters
+        noise_cfg = cfg["noise"]
+        for meta_key, cfg_key in (
+            ("noise_T1_us",     "T1_us"),
+            ("noise_T2_us",     "T2_us"),
+            ("noise_p_gate_1q", "p_gate_1q"),
+            ("noise_omega_mhz", "omega_mhz"),
+        ):
+            if abs(float(meta.get(meta_key) or 0) - float(noise_cfg.get(cfg_key, 0))) > 1e-6:
+                return False
+
     return "exact" if exact_match else "subset"
 
 

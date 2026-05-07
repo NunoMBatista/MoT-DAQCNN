@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "semantic-scholar": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "git+https://github.com/FujishigeTemma/semantic-scholar-mcp",
+        "semantic-scholar-mcp",
+        "serve"
+      ],
+      "env": {}
+    }
+  }
+}
