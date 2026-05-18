@@ -13,7 +13,7 @@
 
 \begin{document}
 
-\title{Digital-Analog Quantum Convolutional Neural Networks for Medical Image Classification}
+\title{Analog-Encoded Rydberg Quantum Kernels for Medical Image Classification}
 
 \author{\IEEEauthorblockN{Anonymous Authors}}
 
@@ -29,21 +29,393 @@
 \section{Introduction}
 \label{sec:introduction}
 
+Quantum machine learning (QML) proposes using quantum circuits as feature maps,
+exploiting entanglement and superposition to access high-dimensional
+representations of classical data~\cite{biamonte2017quantum,havlicek2019supervised}.
+Near-term neutral-atom processors are particularly attractive in this context:
+programmable Rydberg atom arrays realise strongly-correlated many-body dynamics
+whose native interactions couple qubits through physical proximity, offering a
+path to quantum feature extraction without deep gate
+circuits~\cite{browaeys2020many}.
+
+Simen et al.~\cite{simen2024digital} formalised this opportunity as the
+Digital-Analog Quantum Convolutional Neural Network (DAQCNN): non-trainable
+neutral-atom quantum kernels, governed by native Ising interactions, slide
+over image patches, extracting features that a classical CNN head learns to
+classify.
+Applied to BreastMNIST and PneumoniaMNIST~\cite{yang2023medmnist}, their model
+matches or exceeds classical counterparts with a significantly reduced parameter
+count.
+
+Three design dimensions of this framework remain unexamined.
+First, data can be encoded \emph{digitally} (as single-qubit rotations applied
+before Hamiltonian evolution) or \emph{analogly} (where pixel values modulate
+per-atom detuning parameters, causing the data to drive the quantum dynamics
+directly rather than merely prepare the initial state); no systematic comparison
+of these modes exists.
+Second, pairwise ZZ correlators $\langle Z_i Z_j\rangle$, which capture
+inter-qubit correlations induced by the entangling evolution, have not been
+ablated against single-qubit expectations $\langle Z_i\rangle$ alone.
+Third, the representational quality of the frozen quantum features has not been
+assessed independently of the trained classification head.
+
+We address all three.
+Building on the DAQCNN framework and using a Rydberg Hamiltonian with van der
+Waals interactions ($V_{ij} = C_6/r_{ij}^6$), we: (i)~compare digital and
+analog encoding in a controlled setting; (ii)~isolate the contribution of ZZ
+correlators through ablation; and (iii)~assess feature quality via linear
+probing (linear SVM on frozen features) and Centred Kernel Alignment
+(CKA) across eight atom-array topologies.
+Experiments are conducted on BreastMNIST and
+PneumoniaMNIST~\cite{yang2023medmnist} with ten-seed multi-run evaluation.
+
 
 \section{Background}
 \label{sec:background}
+
+\subsection{Rydberg Hamiltonian}
+
+The Rydberg atom Hamiltonian governing our quantum feature extractor is
+
+\begin{equation}
+  H(t) = \frac{\Omega(t)}{2}\sum_i \sigma_i^x
+         - \Delta(t)\sum_i n_i
+         + \sum_{i<j} V_{ij}\, n_i n_j ,
+  \label{eq:rydberg}
+\end{equation}
+
+where $\sigma_i^x$ is the Pauli-$X$ operator on atom $i$,
+$n_i = (I - Z_i)/2$ is the Rydberg occupation number operator,
+$\Omega(t)$ and $\Delta(t)$ are the time-dependent global Rabi frequency and
+detuning, and $V_{ij} = C_6/r_{ij}^6$ is the van der Waals interaction between
+atoms $i$ and $j$ at separation $r_{ij}$~\cite{browaeys2020many}.
+Because $V_{ij}$ decays as the sixth power of distance, only nearby atoms are
+appreciably coupled; the interaction graph is therefore determined by the
+physical layout of the atom array.
+
+\paragraph{Digital encoding.}
+Pixel values are encoded into initial single-qubit states via a fixed rotation
+circuit applied to each qubit before Hamiltonian evolution.
+The data enters only through the initial state; the subsequent dynamics are
+pixel-independent.
+
+\paragraph{Analog encoding.}
+Each pixel $x_k$ contributes an additional per-atom detuning term $x_k n_k$
+to~\eqref{eq:rydberg}, so the effective local detuning for atom $k$ becomes
+$\Delta_{\mathrm{eff},k}(t) = \Delta(t) - x_k$.
+The data modulates the Hamiltonian dynamics directly, producing pixel-dependent
+quantum trajectories that differ qualitatively from the digital case.
+
+After evolution for time $T$, we measure single-qubit expectations
+$\langle Z_i\rangle$ for all $i$ and, when ZZ correlators are enabled,
+all pairwise $\langle Z_iZ_j\rangle$.
+For a $3\!\times\!3$ patch ($k^2=9$ qubits) this yields 9~or
+$9 + \binom{9}{2} = 45$ features per kernel.
+
+\subsection{Quantum Kernels for Classical Data}
+
+Using a fixed quantum circuit as a feature map, embedding classical inputs
+into measurement outcome vectors, is a general strategy for constructing
+structured, high-dimensional representations~\cite{havlicek2019supervised}.
+Whether such maps provide a practical advantage over classical alternatives
+depends on the data distribution and the geometry of the induced
+kernel~\cite{huang2021power}.
+
+In the DAQCNN framework~\cite{simen2024digital}, and in our work, quantum
+kernels are \emph{non-trainable}: Hamiltonian parameters are fixed before any
+data is seen and no gradients are computed through the quantum layer.
+Only the downstream classical head is trained by gradient descent.
+This sidesteps the training instabilities associated with deep parameterised
+quantum circuits and makes the quantum front-end fully reproducible across runs.
+
+\subsection{MedMNIST}
+
+MedMNIST v2~\cite{yang2023medmnist} is a standardised collection of
+$28\!\times\!28$ medical image benchmarks with fixed train/validation/test
+splits.
+We use two datasets: BreastMNIST (breast ultrasound, 2~classes) and
+PneumoniaMNIST (chest X-ray, 2~classes).
+All images are processed in grayscale.
 
 
 \section{Method}
 \label{sec:method}
 
+\subsection{Pipeline Overview}
+
+Our model is a two-stage pipeline. In the first stage, a frozen quantum
+convolutional layer extracts patch-level features from the input image; its
+parameters are fixed before training begins and no gradients pass through it.
+In the second stage, a lightweight classical CNN head is trained on these
+features by gradient descent.
+This separation keeps the quantum front-end fully reproducible across runs and
+avoids the trainability problems associated with deep parameterised quantum
+circuits.
+
+\subsection{Quantum Feature Extraction}
+
+\subsubsection{Patch preparation}
+
+Input images ($28\!\times\!28$, grayscale) are partitioned by a sliding window
+of size $k\!\times\!k$ with stride $s$, yielding
+$\lfloor(28-k)/s\rfloor^2$ patches, each containing $k^2$ pixel values.
+Each patch is independently normalised to $[0,\pi]$ via per-patch min--max
+scaling before encoding.
+
+\subsubsection{Encoding modes}
+
+We evaluate two strategies for embedding pixel values into the quantum system.
+
+\paragraph{Digital encoding.}
+Each pixel $x_i$ is mapped to qubit $i$ via an $R_Y(x_i)$ rotation followed by
+a Hadamard gate, preparing the product state
+$|\psi_0\rangle = \bigotimes_{i=1}^{k^2} H\,R_Y(x_i)|0\rangle$ before
+evolution.
+The data enters only through the initial state; the subsequent dynamics are
+data-independent.
+
+\paragraph{Analog encoding.}
+No state-preparation gates are applied.
+Instead, each pixel $x_i$ is supplied as the local detuning of atom $i$,
+modifying the Hamiltonian of Eq.~\eqref{eq:rydberg} to
+\begin{equation}
+  H_\mathrm{an}(t) = \frac{\Omega(t)}{2}\sum_i\sigma_i^x
+    - \sum_i\bigl[\Delta(t) - x_i\bigr]n_i
+    + \sum_{i<j}V_{ij}\,n_i n_j.
+  \label{eq:analog}
+\end{equation}
+The state begins in $|0\rangle^{\otimes k^2}$ and the pixels drive the
+quantum dynamics throughout the full evolution, producing
+data-dependent quantum trajectories rather than a data-dependent initial state.
+
+\subsubsection{Theoretical motivation for analog encoding}
+
+Schuld, Sweke and Meyer~\cite{schuld2021encoding} showed that any
+data-encoding quantum circuit can be written as a partial Fourier series in the
+input, with the accessible frequencies determined by the eigenvalue structure of
+the encoding generator.
+For digital encoding, the generator per qubit is $Y/2$, which has eigenvalues
+$\pm\tfrac{1}{2}$, giving each pixel access to a single pair of frequencies.
+For analog encoding, each pixel $x_i$ enters as the coefficient of $n_i$ in the
+full many-body Rydberg Hamiltonian; the encoding generator is the entire
+Hamiltonian, whose eigenvalue differences span a set of frequencies derived from
+the $2^{k^2}$-dimensional many-body energy spectrum.
+Under this framework, analog encoding provides a strictly richer function class
+than digital encoding in the sense of accessible Fourier frequencies.
+
+We emphasise that a wider frequency spectrum is a necessary, not sufficient,
+condition for improved classification: whether the additional nonlinearities
+align with the decision boundary of a given medical dataset is an empirical
+question that our experiments are designed to answer.
+
+\subsubsection{Hamiltonian evolution}
+
+The global Rabi frequency and detuning ramp linearly in time,
+$\Omega(t)=\Omega_0 t$ and $\Delta(t)=\Delta_0 t$,
+with $\Omega_0=\Delta_0=1$ and evolution time $T$ treated as a fixed
+hyperparameter.
+The unitary is approximated by a first-order Trotterisation with step size
+$\delta t=0.05$: the Hamiltonian is held constant over each interval
+$[m\,\delta t,\,(m{+}1)\delta t]$ and the product $e^{-iH(m\,\delta t)\,\delta t}$
+is applied sequentially via \texttt{qml.ApproxTimeEvolution}.
+
+\subsubsection{Measurements and feature dimensionality}
+
+After evolution we measure the expectation values $\langle Z_i\rangle$ for all
+$k^2$ qubits.
+When ZZ correlators are enabled, we additionally measure all pairwise
+$\langle Z_i Z_j\rangle$.
+In an entangled quantum state, the two-body observables
+$\langle Z_i Z_j\rangle$ carry information about inter-qubit correlations that
+is absent from the single-qubit marginals
+($\langle Z_i Z_j\rangle \neq \langle Z_i\rangle\langle Z_j\rangle$ whenever
+the state is entangled), extending the feature space from $k^2$ to
+$k^2 + \binom{k^2}{2}$ dimensions.
+For a $3\!\times\!3$ kernel this yields 9 (Z-only) or 45 (Z+ZZ) features per
+topology.
+We perform a controlled ablation of Z-only versus Z+ZZ to isolate the
+contribution of the entanglement-mediated correlators.
+
+\subsection{Atom-Array Topologies}
+\label{sec:topologies}
+
+The interaction graph is determined by the physical positions of atoms, which
+fix the pairwise distances $r_{ij}$ and hence the couplings
+$V_{ij}=C_6/r_{ij}^6$.
+We evaluate eight geometries for the $3\!\times\!3$ kernel:
+\emph{kings} (full $3\!\times\!3$ grid at unit spacing);
+\emph{horizontal} (three independent rows);
+\emph{vertical} (three independent columns);
+\emph{cross} (centre plus four cardinal neighbours, corners isolated);
+\emph{ring} (perimeter atoms, centre removed);
+\emph{chain} (nine atoms in a line);
+\emph{star} (central hub connected to eight spokes);
+and \emph{grid} (nearest-neighbour grid scaled to suppress diagonal couplings).
+Each topology defines a distinct entanglement structure and hence a distinct
+feature map.
+When $M$ topologies are used simultaneously, their feature vectors are
+concatenated, yielding $M \times f_k$ features per patch where $f_k$ is the
+per-topology feature count.
+We quantify the similarity between topologies using Centred Kernel
+Alignment~(CKA) on the resulting feature representations.
+
+\subsection{Linear Feature Probing}
+\label{sec:probing_method}
+
+To assess representational quality independently of the trained head, we probe
+frozen quantum feature maps with a linear classifier.
+For each configuration, the spatial feature tensor
+$(N,\,Mf_k,\,H_\mathrm{out},\,W_\mathrm{out})$ is flattened to
+$(N,\,Mf_k\cdot H_\mathrm{out}\cdot W_\mathrm{out})$, standardised using a
+\texttt{StandardScaler} fit on the training split only, and passed to a
+\texttt{LinearSVC} ($C\!=\!1$).
+AUC is computed from the raw decision-function scores (binary: standard AUROC;
+multiclass: macro one-vs-rest).
+Using a linear classifier is essential: a nonlinear probe would introduce its
+own kernel and conflate the probe's representational power with that of the
+quantum features.
+
+Two baselines accompany each quantum variant.
+\emph{Raw pixels}: the flattened image (784 values) with no feature extraction.
+\emph{Random filters}: $N$ Gaussian random $k\!\times\!k$ filters (same stride,
+$N$ matched to the quantum feature count per patch) applied to the raw image.
+The random-filter baseline isolates whether the quantum interaction structure
+contributes over unstructured projections of identical dimensionality.
+
+The primary comparison is Digital-ZZ versus Analog-ZZ at matched dimensionality
+(same topology, same measurement set), which isolates the encoding contribution.
+Comparisons involving Z-only features differ in dimensionality and are treated
+as indicative.
+
+\subsection{Classical Head}
+
+The quantum convolutional layer produces a spatial feature tensor of shape
+$(B,\,Mf_k,\,h_\mathrm{out},\,w_\mathrm{out})$.
+This is passed to a fixed-architecture head:
+Conv$(64,2\!\times\!2)$--BN--Act--MaxPool$(2\!\times\!2)$--Conv$(64,2\!\times\!2)$--Act--Dropout--Flatten--Linear$(C)$,
+where Act is ReLU or GELU (selected by HP search) and $C$ is the number of
+classes.
+Only the head parameters carry gradients; the quantum layer is executed with
+\texttt{diff\_method=None}, enforcing that no gradient is computed through
+the quantum circuit.
+Hyperparameters (learning rate, weight decay, dropout, batch size, and
+evolution time $T$) are tuned per dataset using Optuna~\cite{akiba2019optuna}
+with validation accuracy as the objective; the test set is not accessed
+during search.
+
 
 \section{Experimental Setup}
 \label{sec:experiments}
 
+\subsection{Datasets}
+
+We evaluate on two MedMNIST v2 benchmarks~\cite{yang2023medmnist}.
+BreastMNIST (breast ultrasound, 2 classes, 546/78/156 train/val/test images)
+and PneumoniaMNIST (chest X-ray, 2 classes, 4708/524/624) are both binary
+classification tasks.
+All images are processed in grayscale at $28\!\times\!28$.
+
+\subsection{Models}
+
+We evaluate six model families at single-kernel ($M\!=\!1$) and four-kernel
+($M\!=\!4$) scales.
+\emph{DAQCNN-Digital-Z}: digital encoding, $\langle Z\rangle$ only, following
+Simen et al.~\cite{simen2024digital}.
+\emph{DAQCNN-Digital-ZZ}: digital encoding with ZZ correlators.
+\emph{DAQCNN-Analog-ZZ}: analog encoding with ZZ correlators.
+\emph{Classical-Random}: fixed Gaussian random $3\!\times\!3$ filters, channel
+count matched to the corresponding quantum variant.
+\emph{Classical-Trainable}: same architecture with learned filters.
+\emph{Vanilla CNN}: a standard convolutional network with no quantum layer.
+All models share the same classification head architecture and are trained
+under identical conditions.
+
+\subsection{Hyperparameter Search and Evaluation}
+
+Hyperparameters are tuned independently for each model using
+Optuna~\cite{akiba2019optuna} (TPE sampler, 100 trials per search).
+The objective is validation accuracy; the test set is not accessed during
+search.
+For quantum models, atom-array topology is included in the search space
+alongside training hyperparameters, which means quantum models face a strictly
+harder search problem than classical models under the same trial budget.
+The top-1 configuration from each search is re-evaluated over ten random seeds;
+we report mean $\pm$ standard deviation of test accuracy and AUC.
+
+\subsection{Implementation}
+
+Quantum circuits are implemented in PennyLane~\cite{bergholm2018pennylane} with
+Trotterised time evolution ($\delta t\!=\!0.05$).
+Features are pre-computed and cached before training; only the classical head
+incurs per-epoch cost.
+All experiments run on a single GPU.
+
 
 \section{Results}
 \label{sec:results}
+
+% ---- Classification results (Table 1) will be added once HP searches complete ----
+
+\subsection{Linear Feature Probing (BreastMNIST)}
+
+Table~\ref{tab:probing} reports linear SVM AUC on frozen feature maps for
+BreastMNIST.
+Several findings are consistent with our theoretical expectations.
+
+\begin{table}[t]
+\centering
+\caption{Linear probing AUC on frozen features (BreastMNIST).
+LinearSVC ($C\!=\!1$), features standardised on training split.
+Primary comparison: Digital-ZZ vs.\ Analog-ZZ (matched dimensionality, same
+topology).}
+\label{tab:probing}
+\begin{tabular}{lrr}
+\toprule
+Feature source & Dim. & AUC \\
+\midrule
+Raw pixels                    &    784 & 0.789 \\
+\midrule
+Random $\times$45 filters     &  3{,}645 & 0.766 \\
+Digital-Z, 1-kern             &    729 & 0.775 \\
+Digital-ZZ, 1-kern (kings)    &  3{,}645 & 0.793 \\
+Analog-ZZ, 1-kern (kings)     &  3{,}645 & \textbf{0.810} \\
+\midrule
+Random $\times$180 filters    & 14{,}580 & 0.769 \\
+Digital-ZZ, 4-kern            & 14{,}580 & \textbf{0.830} \\
+Analog-ZZ, 4-kern             & 14{,}580 & 0.819 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Quantum features outperform random projections.}
+At matched dimensionality (3{,}645 features), Digital-ZZ achieves AUC 0.793
+versus 0.766 for random Gaussian filters.
+Analog-ZZ widens this gap to 0.810.
+Notably, random filters score \emph{below} raw pixels (0.766 vs.\ 0.789),
+confirming that unstructured random projections of $3\!\times\!3$ patches are
+not useful at this scale; the quantum interaction structure is a necessary
+condition for the observed gain.
+
+\paragraph{Analog encoding is more linearly separable than digital (1-kernel).}
+The primary controlled comparison — Digital-ZZ versus Analog-ZZ at identical
+dimensionality and topology (kings) — yields AUC 0.793 vs.\ 0.810 ($+$0.017).
+This is consistent with the Fourier expressibility argument: analog encoding
+drives the quantum dynamics through a richer frequency spectrum than a single
+$R_Y$ gate per qubit~\cite{schuld2021encoding}, producing feature vectors that
+are more discriminative under a linear classifier.
+
+\paragraph{Multi-kernel diversity narrows the analog advantage.}
+At four kernels (kings, horizontal, chain, grid), digital-ZZ achieves AUC 0.830
+while analog-ZZ achieves 0.819.
+The ordering reverses relative to the single-kernel case.
+We attribute this to the diversity of interaction graphs: four structurally
+distinct topologies collectively span a richer feature space even under digital
+encoding, partially compensating for its narrower per-kernel frequency spectrum.
+This effect should be interpreted cautiously as the topology sets differ between
+the single- and four-kernel configurations.
+
+\paragraph{Complete classification results (BreastMNIST, PneumoniaMNIST)
+will be reported once hyperparameter searches complete.}
 
 
 \section{Conclusion}
