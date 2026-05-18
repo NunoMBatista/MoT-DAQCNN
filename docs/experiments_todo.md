@@ -18,7 +18,7 @@ python experiments/hyperparameter_search.py \
     --wandb --wandb-project MoT-DAQCNN
 ```
 
-### 1b. DAQCNN — Digital + ZZ 
+### 1b. DAQCNN — Digital + ZZ
 
 ```bash
 python experiments/hyperparameter_search.py \
