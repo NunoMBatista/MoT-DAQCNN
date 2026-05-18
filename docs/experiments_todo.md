@@ -78,6 +78,46 @@ python experiments/hyperparameter_search.py \
     --wandb --wandb-project MoT-DAQCNN
 ```
 
+### 1h. DAQCNN — Digital + ZZ, 4-kernel
+
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist/original/4_kernels_3x3_digital_zz.yml \
+    --search-config configs/breast_mnist/hp_search/digital_zz_4kern_search.yml \
+    --n-trials 200 --validate-top-k 1 --validation-seeds 0 1 2 3 4 5 6 7 8 9 \
+    --wandb --wandb-project MoT-DAQCNN
+```
+
+### 1i. DAQCNN — Analog + ZZ, 4-kernel
+
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist/original/4_kernels_3x3_analog_zz.yml \
+    --search-config configs/breast_mnist/hp_search/analog_zz_4kern_search.yml \
+    --n-trials 200 --validate-top-k 1 --validation-seeds 0 1 2 3 4 5 6 7 8 9 \
+    --wandb --wandb-project MoT-DAQCNN
+```
+
+### 1j. Classical — Random filters, 4-kernel (180 filters)
+
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist/classical_baseline_base.yml \
+    --search-config configs/breast_mnist/hp_search/classical_random_4kern_search.yml \
+    --n-trials 200 --validate-top-k 1 --validation-seeds 0 1 2 3 4 5 6 7 8 9 \
+    --wandb --wandb-project MoT-DAQCNN
+```
+
+### 1k. Classical — Trainable filters, 4-kernel (180 filters)
+
+```bash
+python experiments/hyperparameter_search.py \
+    --config configs/breast_mnist/classical_baseline_base.yml \
+    --search-config configs/breast_mnist/hp_search/classical_trainable_4kern_search.yml \
+    --n-trials 200 --validate-top-k 1 --validation-seeds 0 1 2 3 4 5 6 7 8 9 \
+    --wandb --wandb-project MoT-DAQCNN
+```
+
 ---
 
 ## 2. PneumoniaMNIST
@@ -87,7 +127,7 @@ python experiments/hyperparameter_search.py \
 > `dataset.name: pneumonia_mnist`. The breast_mnist hp_search configs can
 > be reused as-is (search spaces are dataset-agnostic).
 
-### 2a–2g. Same 7 models as BreastMNIST
+### 2a–2k. Same 11 models as BreastMNIST (1g excluded — raw pixels is dataset-agnostic)
 
 Same commands as Section 1, replacing:
 

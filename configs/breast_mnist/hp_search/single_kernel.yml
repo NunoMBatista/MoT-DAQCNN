@@ -1,84 +1,65 @@
 # =============================================================================
-# Hyperparameter Search — Single-Kernel DAQCNN on BreastMNIST
+# Hyperparameter Search — Single-Kernel DAQCNN, Digital Z-only on BreastMNIST
 # =============================================================================
-#
-# Base config: configs/breast_mnist_single_kernel_*.yml
-#              (kings or horizontal, depending on which you're testing)
-#
-# This search tunes the classical training hyperparameters for a single-kernel
-# (single quantum topology) version of DAQCNN.  This is useful for:
-#   - Establishing baselines for MoE comparisons
-#   - Understanding which topology works best alone
-#   - Faster experimentation (no routing overhead)
-#
-# Usage:
-#   python experiments/hyperparameter_search.py \
-#       --config configs/breast_mnist_single_kernel_kings.yml \
-#       --search-config configs/hp_search/breast_mnist_single_kernel.yml \
-#       --n-trials 60
+# Matches the search space of digital_zz_single_kernel_search.yml exactly,
+# except topology choices and the absence of ZZ correlators (set in base config).
 
-# ----- Search settings -----
 settings:
-  metric: val_acc          # optimise for test accuracy
-  direction: maximize       # higher is better
-  study_name: null          # auto-generated from architecture + dataset
+  metric: val_acc
+  direction: maximize
+  study_name: "digital_z_single_kernel_fair"
 
-# ----- Search space -----
-# Each key is a dotted path into the base config.
-# Supported types: uniform, loguniform, int, categorical, fixed
 search_space:
+  # === Topology Selection (all 8 geometries, same as ZZ searches) ===
+  model.kernel_topology_names:
+    type: categorical
+    choices:
+      - ["kings"]
+      - ["horizontal"]
+      - ["vertical"]
+      - ["cross"]
+      - ["ring"]
+      - ["chain"]
+      - ["star"]
+      - ["grid"]
 
-  # === Optimizer ===
-
-  # Learning rate — most impactful HP.
+  # === Optimizer (exact match to other quantum searches) ===
   optim.lr:
     type: loguniform
-    low:  1.0e-5
+    low:  1.0e-8
     high: 5.0e-3
 
-  # Weight decay — regularisation strength.
-  # Single kernel has fewer features, so regularisation is more critical.
   optim.weight_decay:
     type: loguniform
     low:  1.0e-8
     high: 1.0e-3
 
-  # Gradient clipping — prevents exploding gradients.
   optim.grad_clip:
     type: uniform
-    low:  0.5
-    high: 5.0
+    low:  0.0
+    high: 10.0
 
-  # Early-stopping patience.
-  # Single kernel may need more patience.
   optim.patience:
     type: int
-    low:  5
-    high: 30
+    low:  1
+    high: 100
     step: 5
 
-  # Whether to use cosine annealing LR scheduler.
   optim.use_scheduler:
     type: categorical
     choices: [true, false]
 
-  # === Model (classical head) ===
-
-  # Dropout in the classification head.
-  # May need higher dropout with single kernel to prevent overfitting.
+  # === Model / Head ===
   model.dropout:
     type: uniform
-    low:  0.3
-    high: 0.8
+    low:  0.0
+    high: 0.7
 
-  # Activation function.
   model.activation:
     type: categorical
     choices: ["relu", "gelu"]
 
   # === Dataset ===
-
-  # Batch size — affects gradient noise.
   dataset.batch_size:
     type: categorical
     choices: [16, 32, 64]

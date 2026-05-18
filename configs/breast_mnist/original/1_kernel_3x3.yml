@@ -14,6 +14,8 @@ model:
   scaling_factor: 1.0
   evolution_time: 2.5
   mode: trotter
+  encoding_mode: "digital"
+  include_correlators: false
   dropout: 0.6
   activation: gelu # relu or gelu
   quantum_device: default.qubit

@@ -49,7 +49,7 @@ count.
 
 Three design dimensions of this framework remain unexamined.
 First, data can be encoded \emph{digitally} (as single-qubit rotations applied
-before Hamiltonian evolution) or \emph{analogly} (where pixel values modulate
+before Hamiltonian evolution) or \emph{in analog form} (where pixel values modulate
 per-atom detuning parameters, causing the data to drive the quantum dynamics
 directly rather than merely prepare the initial state); no systematic comparison
 of these modes exists.
@@ -306,7 +306,7 @@ as indicative.
 The quantum convolutional layer produces a spatial feature tensor of shape
 $(B,\,Mf_k,\,h_\mathrm{out},\,w_\mathrm{out})$.
 This is passed to a fixed-architecture head:
-Conv$(64,2\!\times\!2)$--BN--Act--MaxPool$(2\!\times\!2)$--Conv$(64,2\!\times\!2)$--Act--Dropout--Flatten--Linear$(C)$,
+Conv$(64,2\!\times\!2)$--BN--Act--MaxPool$(2\!\times\!2)$--Conv$(64,2\!\times\!2)$--Act--Dropout--Flatten--Dropout--Linear$(C)$,
 where Act is ReLU or GELU (selected by HP search) and $C$ is the number of
 classes.
 Only the head parameters carry gradients; the quantum layer is executed with
