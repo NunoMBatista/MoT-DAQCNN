@@ -4,7 +4,7 @@
 # Uses all 8 fixed kernels. Classical ranges match the 4-kernel search exactly.
 
 settings:
-  metric: test_acc
+  metric: val_acc
   direction: maximize
   study_name: "analog_zz_8kern_fair"
 

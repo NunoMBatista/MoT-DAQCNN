@@ -117,3 +117,7 @@ credentials
 *.fls
 *.nav
 *.snm
+
+
+.mcp.json
+CLAUDE.md

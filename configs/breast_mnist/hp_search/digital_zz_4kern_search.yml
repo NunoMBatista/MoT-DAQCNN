@@ -4,7 +4,7 @@
 # Matches the search space of the previous TS-MoE run exactly.
 
 settings:
-  metric: test_acc
+  metric: val_acc
   direction: maximize
   study_name: "digital_zz_fair_comparison"
 

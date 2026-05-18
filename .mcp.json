@@ -5,6 +5,8 @@
       "command": "uv",
       "args": [
         "run",
+        "--python",
+        "3.12",
         "--with",
         "git+https://github.com/FujishigeTemma/semantic-scholar-mcp",
         "semantic-scholar-mcp",

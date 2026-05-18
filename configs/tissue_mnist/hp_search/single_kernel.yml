@@ -32,7 +32,7 @@
 
 # ----- Search settings -----
 settings:
-  metric: test_acc          # optimise for test accuracy
+  metric: val_acc          # optimise for test accuracy
   direction: maximize       # higher is better
   study_name: null          # auto-generated from architecture + dataset
 

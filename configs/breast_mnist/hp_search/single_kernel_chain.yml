@@ -13,7 +13,7 @@
 #       --trial-seeds 0 1 2 3 4 5 6 7 8 9
 
 settings:
-  metric: test_acc
+  metric: val_acc
   direction: maximize
   study_name: hp_original_breastmnist_chain_3x3
 

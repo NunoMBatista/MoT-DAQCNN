@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DAQCNN (Digital-Analog Quantum Convolutional Neural Network) applies Rydberg atom Hamiltonians as fixed quantum kernels for feature extraction from medical image patches (MedMNIST datasets). Only the classical CNN head is trained; the quantum front-end is frozen. The central research question is whether ZZ correlators (entanglement-based features) give measurable classification advantage over classical filters.
 
+## Paper
+
+We are writing a conference paper for **IEEE QAI 2026** (IEEE International Conference on Quantum Artificial Intelligence). The paper is in `docs/paper/paper.tex` (IEEEtran conference format). The bibliography is `docs/paper/references.bib`.
+
+The paper describes and evaluates DAQCNN. Writing happens incrementally — the user will direct what to write section by section. Follow the scientific writing style in the global CLAUDE.md (funnel intro, stats-forward results, conservative hedging, active voice with "we"). Do not add content unless explicitly asked.
+
 ## Commands
 
 ### Running experiments

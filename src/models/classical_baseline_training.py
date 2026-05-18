@@ -196,6 +196,15 @@ def run_classical_baseline(cfg, seed, output_dir, verbose=True, set_seed_fn=None
         if verbose:
             print(f"Best model saved to: {best_model_path}")
 
+    # Restore best checkpoint before evaluation
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+
+    # Val evaluation with full metrics (used as HP search objective)
+    val_metrics = evaluate(
+        model, val_loader, device, split_name="Val", compute_full_metrics=True
+    )
+
     # Test evaluation with full metrics
     if verbose:
         print("\nEvaluating on test set...")
@@ -247,6 +256,9 @@ def run_classical_baseline(cfg, seed, output_dir, verbose=True, set_seed_fn=None
         "val_losses": val_losses,
         "train_accs": train_accs,
         "val_accs": val_accs,
+        "val_acc": val_metrics["accuracy"],
+        "val_auc": val_metrics["auc"],
+        "val_loss": val_metrics["loss"],
         "test_loss": test_metrics["loss"],
         "test_acc": test_metrics["accuracy"],
         "test_auc": test_metrics["auc"],

@@ -4,7 +4,7 @@
 # Tunes the best single topology among 8 choices + classical HPs.
 
 settings:
-  metric: test_acc
+  metric: val_acc
   direction: maximize
   study_name: "analog_zz_single_kernel_fair"
 

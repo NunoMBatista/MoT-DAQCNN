@@ -21,7 +21,7 @@
 #   - Each choice keeps a single topology by setting a one-element list.
 
 settings:
-    metric: test_acc
+    metric: val_acc
     direction: maximize
     study_name: hp_original_breastmnist_best_kernel_3x3
 

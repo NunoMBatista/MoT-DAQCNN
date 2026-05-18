@@ -16,7 +16,7 @@
 #       --n-trials 200
 
 settings:
-  metric: test_acc
+  metric: val_acc
   direction: maximize
   study_name: hp_original_breastmnist_best3_plus1_diverse
 

@@ -1,5 +1,5 @@
 settings:
-  metric: test_acc
+  metric: val_acc
   direction: maximize
   study_name: hp_vanilla_cnn_baseline
 

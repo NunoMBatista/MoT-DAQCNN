@@ -18,7 +18,7 @@
 #       --wandb-project MoT-DAQCNN-ZZ-Search
 
 settings:
-  metric: test_acc
+  metric: val_acc
   direction: maximize
   study_name: hp_digital_zz_breastmnist_best3_plus1_diverse_1500
 
