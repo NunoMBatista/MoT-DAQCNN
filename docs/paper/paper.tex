@@ -158,7 +158,7 @@ circuits.
 
 Input images ($28\!\times\!28$, grayscale) are partitioned by a sliding window
 of size $k\!\times\!k$ with stride $s$, yielding
-$\lfloor(28-k)/s\rfloor^2$ patches, each containing $k^2$ pixel values.
+$(\lfloor(28-k)/s\rfloor + 1)^2$ patches, each containing $k^2$ pixel values.
 Each patch is independently normalised to $[0,\pi]$ via per-patch min--max
 scaling before encoding.
 
@@ -190,23 +190,37 @@ data-dependent quantum trajectories rather than a data-dependent initial state.
 
 \subsubsection{Theoretical motivation for analog encoding}
 
-Schuld, Sweke and Meyer~\cite{schuld2021encoding} showed that any
-data-encoding quantum circuit can be written as a partial Fourier series in the
-input, with the accessible frequencies determined by the eigenvalue structure of
-the encoding generator.
-For digital encoding, the generator per qubit is $Y/2$, which has eigenvalues
-$\pm\tfrac{1}{2}$, giving each pixel access to a single pair of frequencies.
-For analog encoding, each pixel $x_i$ enters as the coefficient of $n_i$ in the
-full many-body Rydberg Hamiltonian; the encoding generator is the entire
-Hamiltonian, whose eigenvalue differences span a set of frequencies derived from
-the $2^{k^2}$-dimensional many-body energy spectrum.
-Under this framework, analog encoding provides a strictly richer function class
-than digital encoding in the sense of accessible Fourier frequencies.
+Schuld, Sweke and Meyer~\cite{schuld2021encoding} showed that a quantum circuit
+with a separable encoding block $S(\boldsymbol{x}) = e^{-ix_1 H_1}\!\otimes\!
+\cdots\!\otimes\! e^{-ix_N H_N}$ and \emph{fixed} generators $H_i$ implements a
+partial Fourier series,
+\begin{equation}
+  f(\boldsymbol{x}) = \sum_{\omega \in \mathcal{F}} c_\omega(\boldsymbol{\theta})\,
+                      e^{i\omega \cdot \boldsymbol{x}},
+  \label{eq:fourier}
+\end{equation}
+where $\mathcal{F} = \{\lambda_k - \lambda_j\}$ is determined solely by the
+eigenvalue differences of $\{H_i\}$, and the Fourier coefficients
+$c_\omega(\boldsymbol{\theta})$ are shaped by the trainable blocks.
+For digital encoding this applies directly: the generator $\sigma_y/2$ of
+$R_Y(x_i) = e^{-ix_i \sigma_y/2}$ has eigenvalues $\pm\tfrac{1}{2}$, restricting
+each pixel to the frequency set $\{-1,\,0,\,+1\}$, a degree-1 ceiling that
+training cannot raise.
 
-We emphasise that a wider frequency spectrum is a necessary, not sufficient,
-condition for improved classification: whether the additional nonlinearities
-align with the decision boundary of a given medical dataset is an empirical
-question that our experiments are designed to answer.
+Analog encoding falls outside this framework because $H(\boldsymbol{x}) =
+H_0 + \sum_i x_i n_i$ is data-dependent: the generator is no longer fixed.
+The competition between the Rabi drive $(\Omega/2)\sigma_i^x$ and the local
+detuning term $(\Delta - x_i)n_i$ produces an eigenvalue splitting
+${\propto}\sqrt{\Omega^2+(\Delta-x_i)^2}$ that depends nonlinearly on $x_i$,
+placing the model output outside any finite Fourier series in the data.
+In the many-qubit setting, van der Waals interactions shift the energies of
+multiply-excited states, introducing joint dependencies on pixel pairs
+$(x_i,\,x_j)$ that appear in the ZZ correlator outputs.
+The framework of~\cite{schuld2021encoding} thus establishes a concrete
+expressivity ceiling for digital encoding, while the nonlinear eigenvalue
+structure of analog encoding lies outside it.
+Whether this additional expressivity benefits classification on our specific
+datasets is the empirical question our linear-probing experiment addresses.
 
 \subsubsection{Hamiltonian evolution}
 
@@ -225,11 +239,11 @@ After evolution we measure the expectation values $\langle Z_i\rangle$ for all
 $k^2$ qubits.
 When ZZ correlators are enabled, we additionally measure all pairwise
 $\langle Z_i Z_j\rangle$.
-In an entangled quantum state, the two-body observables
-$\langle Z_i Z_j\rangle$ carry information about inter-qubit correlations that
-is absent from the single-qubit marginals
-($\langle Z_i Z_j\rangle \neq \langle Z_i\rangle\langle Z_j\rangle$ whenever
-the state is entangled), extending the feature space from $k^2$ to
+The two-body observables $\langle Z_i Z_j\rangle$ carry information about
+inter-qubit correlations that the single-qubit marginals do not capture:
+for a product state $\langle Z_i Z_j\rangle = \langle Z_i\rangle\langle Z_j\rangle$
+always holds, whereas entangling dynamics can break this equality.
+Including ZZ correlators extends the feature space from $k^2$ to
 $k^2 + \binom{k^2}{2}$ dimensions.
 For a $3\!\times\!3$ kernel this yields 9 (Z-only) or 45 (Z+ZZ) features per
 topology.
@@ -358,31 +372,31 @@ All experiments run on a single GPU.
 
 \subsection{Linear Feature Probing (BreastMNIST)}
 
-Table~\ref{tab:probing} reports linear SVM AUC on frozen feature maps for
-BreastMNIST.
+Table~\ref{tab:probing} reports linear SVM accuracy and AUC on frozen feature
+maps for BreastMNIST.
 Several findings are consistent with our theoretical expectations.
 
 \begin{table}[t]
 \centering
-\caption{Linear probing AUC on frozen features (BreastMNIST).
-LinearSVC ($C\!=\!1$), features standardised on training split.
+\caption{Linear probing accuracy and AUC on frozen features (BreastMNIST).
+LinearSVC ($C\!=\!1$), fitted on training split, evaluated on test split.
 Primary comparison: Digital-ZZ vs.\ Analog-ZZ (matched dimensionality, same
 topology).}
 \label{tab:probing}
-\begin{tabular}{lrr}
+\begin{tabular}{lrrr}
 \toprule
-Feature source & Dim. & AUC \\
+Feature source & Dim. & Acc & AUC \\
 \midrule
-Raw pixels                    &    784 & 0.789 \\
+Raw pixels                    &    784 & 0.776 & 0.789 \\
 \midrule
-Random $\times$45 filters     &  3{,}645 & 0.766 \\
-Digital-Z, 1-kern             &    729 & 0.775 \\
-Digital-ZZ, 1-kern (kings)    &  3{,}645 & 0.793 \\
-Analog-ZZ, 1-kern (kings)     &  3{,}645 & \textbf{0.810} \\
+Random $\times$45 filters     &  3{,}645 & 0.750 & 0.766 \\
+Digital-Z, 1-kern             &    729 & 0.744 & 0.775 \\
+Digital-ZZ, 1-kern (kings)    &  3{,}645 & \textbf{0.776} & 0.793 \\
+Analog-ZZ, 1-kern (kings)     &  3{,}645 & \textbf{0.776} & \textbf{0.810} \\
 \midrule
-Random $\times$180 filters    & 14{,}580 & 0.769 \\
-Digital-ZZ, 4-kern            & 14{,}580 & \textbf{0.830} \\
-Analog-ZZ, 4-kern             & 14{,}580 & 0.819 \\
+Random $\times$180 filters    & 14{,}580 & 0.724 & 0.769 \\
+Digital-ZZ, 4-kern            & 14{,}580 & \textbf{0.769} & \textbf{0.830} \\
+Analog-ZZ, 4-kern             & 14{,}580 & 0.756 & 0.819 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -392,27 +406,31 @@ At matched dimensionality (3{,}645 features), Digital-ZZ achieves AUC 0.793
 versus 0.766 for random Gaussian filters.
 Analog-ZZ widens this gap to 0.810.
 Notably, random filters score \emph{below} raw pixels (0.766 vs.\ 0.789),
-confirming that unstructured random projections of $3\!\times\!3$ patches are
-not useful at this scale; the quantum interaction structure is a necessary
-condition for the observed gain.
+showing that applying random $3\!\times\!3$ convolutions at this scale does not
+improve on the raw signal; the structured quantum interaction contributes
+something that unstructured projections of equal dimensionality do not.
 
 \paragraph{Analog encoding is more linearly separable than digital (1-kernel).}
-The primary controlled comparison — Digital-ZZ versus Analog-ZZ at identical
-dimensionality and topology (kings) — yields AUC 0.793 vs.\ 0.810 ($+$0.017).
-This is consistent with the Fourier expressibility argument: analog encoding
-drives the quantum dynamics through a richer frequency spectrum than a single
-$R_Y$ gate per qubit~\cite{schuld2021encoding}, producing feature vectors that
-are more discriminative under a linear classifier.
+The primary controlled comparison, Digital-ZZ versus Analog-ZZ at identical
+dimensionality and topology (kings), yields AUC 0.793 vs.\ 0.810 ($+$0.017).
+Accuracy is identical (0.776) for both, indicating that the advantage is in the
+ranking of scores rather than the hard classification threshold; AUC is therefore
+the more sensitive metric here.
+This is consistent with the theoretical argument: analog encoding drives the
+quantum dynamics through a nonlinear, data-dependent Hamiltonian rather than a
+fixed $R_Y$ gate per qubit~\cite{schuld2021encoding}, producing feature vectors
+that are more discriminative under a linear classifier.
 
 \paragraph{Multi-kernel diversity narrows the analog advantage.}
 At four kernels (kings, horizontal, chain, grid), digital-ZZ achieves AUC 0.830
 while analog-ZZ achieves 0.819.
 The ordering reverses relative to the single-kernel case.
-We attribute this to the diversity of interaction graphs: four structurally
-distinct topologies collectively span a richer feature space even under digital
-encoding, partially compensating for its narrower per-kernel frequency spectrum.
-This effect should be interpreted cautiously as the topology sets differ between
-the single- and four-kernel configurations.
+One possible explanation is topology diversity: four structurally distinct
+interaction graphs may collectively span a richer feature space even under
+digital encoding, partially offsetting the per-kernel expressivity advantage of
+analog mode.
+This interpretation is speculative, however, as the single- and four-kernel
+configurations use different topology sets, confounding the comparison.
 
 \paragraph{Complete classification results (BreastMNIST, PneumoniaMNIST)
 will be reported once hyperparameter searches complete.}

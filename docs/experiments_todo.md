@@ -8,7 +8,7 @@ flag runs the full 10-seed test evaluation inline after the search.
 
 ## 1. BreastMNIST
 
-### 1a. DAQCNN — Digital, no ZZ (original)
+### 1a. DAQCNN — Digital, no ZZ (original) - RTX
 
 ```bash
 python experiments/hyperparameter_search.py \
@@ -18,7 +18,7 @@ python experiments/hyperparameter_search.py \
     --wandb --wandb-project MoT-DAQCNN
 ```
 
-### 1b. DAQCNN — Digital + ZZ
+### 1b. DAQCNN — Digital + ZZ 
 
 ```bash
 python experiments/hyperparameter_search.py \
