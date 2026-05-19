@@ -1,11 +1,11 @@
-# BreastMNIST DAQCNN — Analog encoding + ZZ correlators (1-kernel)
-# Best config from HP search 1c (study: analog_zz_single_kernel_fair)
-# Test (10-seed): acc=0.844 ± 0.009, AUC=0.889 ± 0.010
+# BreastMNIST DAQCNN — Analog encoding + ZZ correlators (4-kernel)
+# Best config from HP search 1i (study: analog_zz_fair_comparison)
+# Test (10-seed): acc=0.847 ± 0.018, AUC=0.893 ± 0.010
 
 dataset:
   name: breast_mnist
   data_root: ./data
-  batch_size: 32
+  batch_size: 16
   num_workers: 2
   download: true
   color_space: GRAYSCALE
@@ -15,26 +15,24 @@ model:
   num_classes: 2
   kernel_size: 3
   stride: 3
-  kernel_topology_names: ["star"]
+  kernel_topology_names: ["grid", "chain", "horizontal", "kings"]
   scaling_factor: 1.0
   evolution_time: 2.5
   mode: trotter
   encoding_mode: "analog"
   include_correlators: true
-  dropout: 0.225
+  dropout: 0.501
   activation: gelu
   quantum_device: default.qubit
   classical_device: auto
 
 optim:
-  lr: 1.82e-4
-  weight_decay: 1.95e-7
+  lr: 5.88e-5
+  weight_decay: 8.62e-8
   epochs: 100
-  grad_clip: 8.61
-  patience: 56
-  use_scheduler: true
-  scheduler_T_max: 100
-  scheduler_eta_min: 0.0
+  grad_clip: 6.83
+  patience: 76
+  use_scheduler: false
 
 misc:
   seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]

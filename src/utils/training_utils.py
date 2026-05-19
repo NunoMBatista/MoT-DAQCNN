@@ -61,3 +61,54 @@ def build_classification_head(in_channels, num_classes, dropout=0.1, activation=
     )
 
 
+# ---------------------------------------------------------------------------
+# Capacity-sweep head variants
+# All input tensors are 4D (B, C, H, W); the initial Flatten handles that.
+# LazyLinear infers the input dim on the first forward pass, so these heads
+# work for any feature-source dimensionality without changes.
+# ---------------------------------------------------------------------------
+
+def _activation(name: str) -> nn.Module:
+    return nn.GELU() if name.lower() == "gelu" else nn.ReLU()
+
+
+def build_linear_head(num_classes: int, **_ignored) -> nn.Sequential:
+    """Pure linear classifier on flattened features.
+
+    The Adam-trained analogue of the LinearSVC probe. Accepts and ignores
+    dropout/activation kwargs so it shares a uniform call signature with
+    the other head builders.
+    """
+    return nn.Sequential(
+        nn.Flatten(),
+        nn.LazyLinear(num_classes),
+    )
+
+
+def build_mlp1_head(num_classes: int, hidden: int = 32, dropout: float = 0.5,
+                    activation: str = "gelu") -> nn.Sequential:
+    """Single hidden layer MLP head."""
+    return nn.Sequential(
+        nn.Flatten(),
+        nn.LazyLinear(hidden),
+        _activation(activation),
+        nn.Dropout(dropout),
+        nn.Linear(hidden, num_classes),
+    )
+
+
+def build_mlp2_head(num_classes: int, h1: int = 64, h2: int = 32,
+                    dropout: float = 0.5, activation: str = "gelu") -> nn.Sequential:
+    """Two hidden layer MLP head."""
+    return nn.Sequential(
+        nn.Flatten(),
+        nn.LazyLinear(h1),
+        _activation(activation),
+        nn.Dropout(dropout),
+        nn.Linear(h1, h2),
+        _activation(activation),
+        nn.Dropout(dropout),
+        nn.Linear(h2, num_classes),
+    )
+
+

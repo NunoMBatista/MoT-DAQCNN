@@ -1,45 +1,41 @@
+# BreastMNIST DAQCNN — Digital encoding + ZZ correlators (1-kernel)
+# Best config from HP search 1b (study: digital_zz_single_kernel_fair)
+# Test (10-seed): acc=0.855 ± 0.015, AUC=0.883 ± 0.012
+
 dataset:
   name: breast_mnist
   data_root: ./data
-  batch_size: 32
+  batch_size: 64
   num_workers: 2
   download: true
   color_space: GRAYSCALE
+
 model:
-  architecture: original
+  architecture: "original"
   num_classes: 2
   kernel_size: 3
   stride: 3
-  kernel_topology_names:
-  - vertical
+  kernel_topology_names: ["cross"]
   scaling_factor: 1.0
   evolution_time: 2.5
   mode: trotter
-  encoding_mode: digital
+  encoding_mode: "digital"
   include_correlators: true
-  dropout: 0.5663561524251373
+  dropout: 0.180
   activation: relu
   quantum_device: default.qubit
   classical_device: auto
+
 optim:
-  lr: 0.0012800666165098302
-  weight_decay: 0.0001018708824762185
+  lr: 1.72e-4
+  weight_decay: 1.73e-8
   epochs: 100
-  grad_clip: 7.831182940640814
-  patience: 71
+  grad_clip: 1.70
+  patience: 91
   use_scheduler: true
   scheduler_T_max: 100
   scheduler_eta_min: 0.0
+
 misc:
-  seed:
-  - 11
-  - 12
-  - 13
-  - 14
-  - 15
-  - 16
-  - 17
-  - 18
-  - 19
-  - 20
+  seed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
   log_every: 50

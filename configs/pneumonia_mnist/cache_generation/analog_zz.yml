@@ -1,0 +1,26 @@
+# PneumoniaMNIST with Analog Encoding (Local Detuning) + ZZ Correlators
+# Purpose: Generate a cache where data is mapped directly to Hamiltonian parameters.
+
+dataset:
+  name: pneumonia_mnist
+  color_space: GRAYSCALE
+  batch_size: 8
+
+model:
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["kings", "horizontal", "vertical", "cross", "ring", "chain", "star", "grid"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  encoding_mode: analog
+  include_correlators: true
+  quantum_device: default.qubit
+# Optional noise model (see docs/noise_model.md).
+# Set enabled: true to generate a noisy feature cache.
+noise:
+  enabled: false
+  T1_us: 200.0
+  T2_us: 100.0
+  p_gate_1q: 0.002
+  omega_mhz: 1.0

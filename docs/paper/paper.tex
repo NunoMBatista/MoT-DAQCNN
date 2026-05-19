@@ -62,12 +62,11 @@ assessed independently of the trained classification head.
 We address all three.
 Building on the DAQCNN framework and using a Rydberg Hamiltonian with van der
 Waals interactions ($V_{ij} = C_6/r_{ij}^6$), we: (i)~compare digital and
-analog encoding in a controlled setting; (ii)~isolate the contribution of ZZ
-correlators through ablation; and (iii)~assess feature quality via linear
-probing (linear SVM on frozen features) and Centred Kernel Alignment
-(CKA) across eight atom-array topologies.
-Experiments are conducted on BreastMNIST and
-PneumoniaMNIST~\cite{yang2023medmnist} with ten-seed multi-run evaluation.
+analog encoding at matched topology and dimensionality; (ii)~isolate the
+contribution of ZZ correlators through ablation; and (iii)~assess feature
+quality via linear probing across eight atom-array topologies.
+Experiments are conducted on BreastMNIST~\cite{yang2023medmnist} with
+ten-seed multi-run evaluation.
 
 
 \section{Background}
@@ -133,9 +132,8 @@ quantum circuits and makes the quantum front-end fully reproducible across runs.
 MedMNIST v2~\cite{yang2023medmnist} is a standardised collection of
 $28\!\times\!28$ medical image benchmarks with fixed train/validation/test
 splits.
-We use two datasets: BreastMNIST (breast ultrasound, 2~classes) and
-PneumoniaMNIST (chest X-ray, 2~classes).
-All images are processed in grayscale.
+We focus on BreastMNIST (breast ultrasound, 2~classes); all images are
+processed in grayscale.
 
 
 \section{Method}
@@ -156,11 +154,12 @@ circuits.
 
 \subsubsection{Patch preparation}
 
-Input images ($28\!\times\!28$, grayscale) are partitioned by a sliding window
-of size $k\!\times\!k$ with stride $s$, yielding
-$(\lfloor(28-k)/s\rfloor + 1)^2$ patches, each containing $k^2$ pixel values.
-Each patch is independently normalised to $[0,\pi]$ via per-patch min--max
-scaling before encoding.
+Input images ($28\!\times\!28$, grayscale) are first rescaled to
+$[0,\pi]$ via per-image min--max normalisation, then partitioned by a
+sliding window of size $k\!\times\!k$ with stride $s$, yielding
+$(\lfloor(28-k)/s\rfloor + 1)^2$ patches of $k^2$ pixel values each.
+Patch values inherit the per-image normalisation; we do not rescale
+again within a patch.
 
 \subsubsection{Encoding modes}
 
@@ -190,48 +189,46 @@ data-dependent quantum trajectories rather than a data-dependent initial state.
 
 \subsubsection{Theoretical motivation for analog encoding}
 
-Schuld, Sweke and Meyer~\cite{schuld2021encoding} showed that a quantum circuit
-with a separable encoding block $S(\boldsymbol{x}) = e^{-ix_1 H_1}\!\otimes\!
-\cdots\!\otimes\! e^{-ix_N H_N}$ and \emph{fixed} generators $H_i$ implements a
-partial Fourier series,
+Schuld, Sweke and Meyer~\cite{schuld2021encoding} characterise quantum
+circuits with separable encoding blocks of \emph{fixed} generators
+$\{H_i\}$ as partial Fourier series,
 \begin{equation}
   f(\boldsymbol{x}) = \sum_{\omega \in \mathcal{F}} c_\omega(\boldsymbol{\theta})\,
                       e^{i\omega \cdot \boldsymbol{x}},
   \label{eq:fourier}
 \end{equation}
-where $\mathcal{F} = \{\lambda_k - \lambda_j\}$ is determined solely by the
-eigenvalue differences of $\{H_i\}$, and the Fourier coefficients
-$c_\omega(\boldsymbol{\theta})$ are shaped by the trainable blocks.
-For digital encoding this applies directly: the generator $\sigma_y/2$ of
-$R_Y(x_i) = e^{-ix_i \sigma_y/2}$ has eigenvalues $\pm\tfrac{1}{2}$, restricting
-each pixel to the frequency set $\{-1,\,0,\,+1\}$, a degree-1 ceiling that
-training cannot raise.
-
-Analog encoding falls outside this framework because $H(\boldsymbol{x}) =
-H_0 + \sum_i x_i n_i$ is data-dependent: the generator is no longer fixed.
-The competition between the Rabi drive $(\Omega/2)\sigma_i^x$ and the local
-detuning term $(\Delta - x_i)n_i$ produces an eigenvalue splitting
-${\propto}\sqrt{\Omega^2+(\Delta-x_i)^2}$ that depends nonlinearly on $x_i$,
-placing the model output outside any finite Fourier series in the data.
-In the many-qubit setting, van der Waals interactions shift the energies of
-multiply-excited states, introducing joint dependencies on pixel pairs
-$(x_i,\,x_j)$ that appear in the ZZ correlator outputs.
-The framework of~\cite{schuld2021encoding} thus establishes a concrete
-expressivity ceiling for digital encoding, while the nonlinear eigenvalue
-structure of analog encoding lies outside it.
-Whether this additional expressivity benefits classification on our specific
-datasets is the empirical question our linear-probing experiment addresses.
+with frequency set $\mathcal{F}$ fixed by the eigenvalue differences of
+$\{H_i\}$ and Fourier coefficients $c_\omega(\boldsymbol{\theta})$
+shaped by the trainable blocks.
+Digital encoding fits this form: $R_Y(x_i) = e^{-ix_i\sigma_y/2}$ has
+eigenvalues $\pm\tfrac{1}{2}$, restricting each pixel to the frequency
+set $\{-1, 0, +1\}$ — a degree-1 ceiling that training cannot raise.
+Analog encoding falls outside this characterisation because its
+generator $H(\boldsymbol{x}) = H_0 + \sum_i x_i n_i$ is itself
+data-dependent.
+The competition between the Rabi drive and the local detuning produces
+an eigenvalue splitting
+${\propto}\sqrt{\Omega^2+(\Delta-x_i)^2}$ that depends nonlinearly on
+$x_i$, placing the model output outside any finite Fourier series in
+$\boldsymbol{x}$.
+Many-qubit van der Waals interactions further introduce joint pixel-pair
+dependencies that appear in the ZZ correlator outputs.
+The two encodings therefore access qualitatively different function
+classes; whether this distinction translates into a measurable
+classification advantage on our datasets is an empirical question we
+report on in Section~\ref{sec:results}.
 
 \subsubsection{Hamiltonian evolution}
 
 The global Rabi frequency and detuning ramp linearly in time,
 $\Omega(t)=\Omega_0 t$ and $\Delta(t)=\Delta_0 t$,
-with $\Omega_0=\Delta_0=1$ and evolution time $T$ treated as a fixed
-hyperparameter.
+with $\Omega_0=\Delta_0=1$ in our chosen units and evolution time fixed
+at $T=2.5$.
 The unitary is approximated by a first-order Trotterisation with step size
-$\delta t=0.05$: the Hamiltonian is held constant over each interval
-$[m\,\delta t,\,(m{+}1)\delta t]$ and the product $e^{-iH(m\,\delta t)\,\delta t}$
-is applied sequentially via \texttt{qml.ApproxTimeEvolution}.
+$\delta t=0.05$ ($50$ Trotter steps for $T=2.5$): the Hamiltonian is held
+constant over each interval $[m\,\delta t,\,(m{+}1)\delta t]$ and the
+product $e^{-iH(m\,\delta t)\,\delta t}$ is applied sequentially via
+\texttt{qml.ApproxTimeEvolution}.
 
 \subsubsection{Measurements and feature dimensionality}
 
@@ -264,14 +261,14 @@ We evaluate eight geometries for the $3\!\times\!3$ kernel:
 \emph{ring} (perimeter atoms, centre removed);
 \emph{chain} (nine atoms in a line);
 \emph{star} (central hub connected to eight spokes);
-and \emph{grid} (nearest-neighbour grid scaled to suppress diagonal couplings).
+and \emph{grid} ($3\!\times\!3$ grid at $1.5\times$ the unit spacing,
+weakening all couplings and making nearest-neighbour interactions
+dominate over diagonals in absolute terms).
 Each topology defines a distinct entanglement structure and hence a distinct
 feature map.
 When $M$ topologies are used simultaneously, their feature vectors are
 concatenated, yielding $M \times f_k$ features per patch where $f_k$ is the
 per-topology feature count.
-We quantify the similarity between topologies using Centred Kernel
-Alignment~(CKA) on the resulting feature representations.
 
 \subsection{Linear Feature Probing}
 \label{sec:probing_method}
@@ -296,10 +293,15 @@ $N$ matched to the quantum feature count per patch) applied to the raw image.
 The random-filter baseline isolates whether the quantum interaction structure
 contributes over unstructured projections of identical dimensionality.
 
-The primary comparison is Digital-ZZ versus Analog-ZZ at matched dimensionality
-(same topology, same measurement set), which isolates the encoding contribution.
-Comparisons involving Z-only features differ in dimensionality and are treated
-as indicative.
+The primary comparison is Digital-ZZ versus Analog-ZZ at matched
+dimensionality, the same measurement set, and the same topology, which
+isolates the encoding contribution from topology effects.
+Because the per-topology encoding effect can change sign across
+topologies, we sweep all eight $3\!\times\!3$ topologies and report the
+encoding effect across them rather than relying on a single representative
+choice.
+Comparisons involving Z-only features differ in dimensionality and are
+treated as indicative.
 
 \subsection{Classical Head}
 
@@ -312,10 +314,15 @@ classes.
 Only the head parameters carry gradients; the quantum layer is executed with
 \texttt{diff\_method=None}, enforcing that no gradient is computed through
 the quantum circuit.
-Hyperparameters (learning rate, weight decay, dropout, batch size, and
-evolution time $T$) are tuned per dataset using Optuna~\cite{akiba2019optuna}
+Hyperparameters (learning rate, weight decay, gradient clipping, dropout,
+activation, batch size, early-stopping patience, and cosine learning-rate
+scheduler toggle) are tuned per model using Optuna~\cite{akiba2019optuna}
 with validation accuracy as the objective; the test set is not accessed
 during search.
+For quantum models, the atom-array topology (the per-kernel choice from
+the eight $3\!\times\!3$ geometries, or a four-topology subset at the
+multi-kernel scale) is included in the Optuna search space alongside the
+training hyperparameters.
 
 
 \section{Experimental Setup}
@@ -323,16 +330,15 @@ during search.
 
 \subsection{Datasets}
 
-We evaluate on two MedMNIST v2 benchmarks~\cite{yang2023medmnist}.
-BreastMNIST (breast ultrasound, 2 classes, 546/78/156 train/val/test images)
-and PneumoniaMNIST (chest X-ray, 2 classes, 4708/524/624) are both binary
-classification tasks.
-All images are processed in grayscale at $28\!\times\!28$.
+We evaluate on BreastMNIST from MedMNIST v2~\cite{yang2023medmnist}:
+breast-ultrasound images, 2 classes, 546/78/156 train/val/test split, all
+in grayscale at $28\!\times\!28$.
 
 \subsection{Models}
 
-We evaluate six model families at single-kernel ($M\!=\!1$) and four-kernel
-($M\!=\!4$) scales.
+We evaluate seven model families.
+The three DAQCNN variants are run at single-kernel ($M\!=\!1$) and, where
+indicated, four-kernel ($M\!=\!4$) scales.
 \emph{DAQCNN-Digital-Z}: digital encoding, $\langle Z\rangle$ only, following
 Simen et al.~\cite{simen2024digital}.
 \emph{DAQCNN-Digital-ZZ}: digital encoding with ZZ correlators.
@@ -341,13 +347,15 @@ Simen et al.~\cite{simen2024digital}.
 count matched to the corresponding quantum variant.
 \emph{Classical-Trainable}: same architecture with learned filters.
 \emph{Vanilla CNN}: a standard convolutional network with no quantum layer.
+\emph{Raw-pixel baseline}: the classification head applied to flattened
+raw pixel values, with no front-end feature extraction.
 All models share the same classification head architecture and are trained
 under identical conditions.
 
 \subsection{Hyperparameter Search and Evaluation}
 
 Hyperparameters are tuned independently for each model using
-Optuna~\cite{akiba2019optuna} (TPE sampler, 100 trials per search).
+Optuna~\cite{akiba2019optuna} (TPE sampler, 200 trials per search).
 The objective is validation accuracy; the test set is not accessed during
 search.
 For quantum models, atom-array topology is included in the search space
@@ -362,82 +370,77 @@ Quantum circuits are implemented in PennyLane~\cite{bergholm2018pennylane} with
 Trotterised time evolution ($\delta t\!=\!0.05$).
 Features are pre-computed and cached before training; only the classical head
 incurs per-epoch cost.
-All experiments run on a single GPU.
+Experiments run on a single workstation CPU; cached features make full
+training and hyperparameter search tractable without dedicated GPU
+hardware.
 
 
 \section{Results}
 \label{sec:results}
 
-% ---- Classification results (Table 1) will be added once HP searches complete ----
+% =============================================================================
+% NOTE (placeholder): this section has been intentionally scrubbed of all
+% earlier numerical results. Specific accuracy/AUC values, the linear-probing
+% table, the analog-vs-digital comparison paragraphs, and the multi-kernel
+% interpretation paragraphs were removed because they relied on either
+% (i) hyperparameter selections performed against the test set rather than
+% the validation set, or (ii) topology choices that do not correspond to the
+% final, methodologically clean configurations.
+%
+% Concrete numbers will be reinstated only after the following experiments
+% complete:
+%   - Corrected per-model HP searches with val_acc as the search objective
+%     (10-seed test evaluation of each top-1 configuration). [done]
+%   - Linear probing re-run at the corrected best topologies, with all-8
+%     topology coverage to permit a fair encoding-mode comparison. [pending]
+%   - Head-capacity sweep (linear / MLP-1 / MLP-2 / CNN-small / CNN-large)
+%     across all matched-dimension feature sources. [pending]
+%
+% Until then this section deliberately states only what we can defend.
+% See docs/experiments_todo.md and docs/plans/capacity_sweep.md.
+% =============================================================================
 
-\subsection{Linear Feature Probing (BreastMNIST)}
-
-Table~\ref{tab:probing} reports linear SVM accuracy and AUC on frozen feature
-maps for BreastMNIST.
-Several findings are consistent with our theoretical expectations.
-
-\begin{table}[t]
-\centering
-\caption{Linear probing accuracy and AUC on frozen features (BreastMNIST).
-LinearSVC ($C\!=\!1$), fitted on training split, evaluated on test split.
-Primary comparison: Digital-ZZ vs.\ Analog-ZZ (matched dimensionality, same
-topology).}
-\label{tab:probing}
-\begin{tabular}{lrrr}
-\toprule
-Feature source & Dim. & Acc & AUC \\
-\midrule
-Raw pixels                    &    784 & 0.776 & 0.789 \\
-\midrule
-Random $\times$45 filters     &  3{,}645 & 0.750 & 0.766 \\
-Digital-Z, 1-kern             &    729 & 0.744 & 0.775 \\
-Digital-ZZ, 1-kern (kings)    &  3{,}645 & \textbf{0.776} & 0.793 \\
-Analog-ZZ, 1-kern (kings)     &  3{,}645 & \textbf{0.776} & \textbf{0.810} \\
-\midrule
-Random $\times$180 filters    & 14{,}580 & 0.724 & 0.769 \\
-Digital-ZZ, 4-kern            & 14{,}580 & \textbf{0.769} & \textbf{0.830} \\
-Analog-ZZ, 4-kern             & 14{,}580 & 0.756 & 0.819 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\paragraph{Quantum features outperform random projections.}
-At matched dimensionality (3{,}645 features), Digital-ZZ achieves AUC 0.793
-versus 0.766 for random Gaussian filters.
-Analog-ZZ widens this gap to 0.810.
-Notably, random filters score \emph{below} raw pixels (0.766 vs.\ 0.789),
-showing that applying random $3\!\times\!3$ convolutions at this scale does not
-improve on the raw signal; the structured quantum interaction contributes
-something that unstructured projections of equal dimensionality do not.
-
-\paragraph{Analog encoding is more linearly separable than digital (1-kernel).}
-The primary controlled comparison, Digital-ZZ versus Analog-ZZ at identical
-dimensionality and topology (kings), yields AUC 0.793 vs.\ 0.810 ($+$0.017).
-Accuracy is identical (0.776) for both, indicating that the advantage is in the
-ranking of scores rather than the hard classification threshold; AUC is therefore
-the more sensitive metric here.
-This is consistent with the theoretical argument: analog encoding drives the
-quantum dynamics through a nonlinear, data-dependent Hamiltonian rather than a
-fixed $R_Y$ gate per qubit~\cite{schuld2021encoding}, producing feature vectors
-that are more discriminative under a linear classifier.
-
-\paragraph{Multi-kernel diversity narrows the analog advantage.}
-At four kernels (kings, horizontal, chain, grid), digital-ZZ achieves AUC 0.830
-while analog-ZZ achieves 0.819.
-The ordering reverses relative to the single-kernel case.
-One possible explanation is topology diversity: four structurally distinct
-interaction graphs may collectively span a richer feature space even under
-digital encoding, partially offsetting the per-kernel expressivity advantage of
-analog mode.
-This interpretation is speculative, however, as the single- and four-kernel
-configurations use different topology sets, confounding the comparison.
-
-\paragraph{Complete classification results (BreastMNIST, PneumoniaMNIST)
-will be reported once hyperparameter searches complete.}
+Results will be reported in the camera-ready version once the corrected
+hyperparameter searches, the matched-topology linear-probing sweep, and the
+head-capacity ablation are complete.
+The experimental program is structured around three questions: (i)~whether
+quantum kernels yield more linearly separable features than dimensionality-
+matched classical random projections; (ii)~whether ZZ correlators contribute
+measurable signal beyond single-qubit $\langle Z\rangle$ marginals; and
+(iii)~whether the size of any quantum-versus-classical gap depends on the
+capacity of the downstream classifier.
 
 
 \section{Conclusion}
 \label{sec:conclusion}
+
+% =============================================================================
+% DRAFT [TBD]: scope-and-future-work paragraph on analog encoding.
+% Keep this until the final Results numbers and Discussion section are
+% written; revisit wording then. Goal of this paragraph: state honestly
+% that the analog advantage did not appear empirically on this task, and
+% frame this as a scope limitation pointing at tasks where the analog
+% advantage might manifest. Note: do not use em-dashes.
+% =============================================================================
+
+\textbf{[Draft, still to be determined]}
+Our results indicate that the qualitatively broader function class
+accessed by analog encoding does not translate into a measurable
+classification advantage on the small medical-imaging benchmarks we
+evaluate.
+We interpret this as a scope limitation rather than a refutation of
+the framework.
+Image classification at this resolution and dataset size is not
+bottlenecked by the Fourier ceiling of digital encoding: the target
+function is dominated by spatial texture and shape structure, both of
+which a degree-one Fourier basis on pixel intensities, combined with
+entangling Hamiltonian dynamics, can already express.
+Tasks whose target function depends on input values through
+high-frequency or irrational-frequency components, such as
+signal-processing problems, tabular regression with oscillatory
+dependencies, or symbolic regression, may be more natural settings in
+which the analog advantage manifests.
+We leave such evaluation to future work.
 
 
 \section*{Acknowledgment}
