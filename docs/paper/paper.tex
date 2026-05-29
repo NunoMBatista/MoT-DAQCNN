@@ -71,23 +71,35 @@ Three design dimensions of this framework remain unexamined.
 First, data can be encoded \emph{digitally} (as single-qubit rotations applied
 before Hamiltonian evolution) or \emph{in analog form} (where pixel values modulate
 per-atom detuning parameters, causing the data to drive the quantum dynamics
-directly rather than merely prepare the initial state); no systematic comparison
-of these modes exists.
+directly rather than merely prepare the initial state).
+While local detuning has recently been shown to enhance the expressiveness of
+neutral-atom Rydberg kernels on graph-structured data~\cite{djellabi2025attributed},
+no systematic comparison of the two encoding modes at matched topology and
+dimensionality on image data exists.
 Second, pairwise ZZ correlators $\langle Z_i Z_j\rangle$, which capture
 inter-qubit correlations induced by the entangling evolution, have not been
 ablated against single-qubit expectations $\langle Z_i\rangle$ alone.
 Third, the representational quality of the frozen quantum features has not been
 assessed independently of the trained classification head.
 
-We address all three, and add a fourth question of our own.
-Building on the DAQCNN framework and using a Rydberg Hamiltonian with van der
-Waals interactions ($V_{ij} = C_6/r_{ij}^6$), we: (i)~compare digital and
-analog encoding at matched topology and dimensionality; (ii)~isolate the
-contribution of ZZ correlators through ablation; (iii)~assess feature
-quality via linear probing across eight atom-array topologies; and
-(iv)~quantify how any quantum-versus-classical advantage evolves with the
-capacity of the downstream classifier, using a five-tier head-capacity
-sweep that ranges from a linear probe to a trained convolutional head.
+We address all three questions and, as our central contribution, reframe them
+around a fourth.
+Using the DAQCNN framework with a van der Waals Rydberg Hamiltonian
+($V_{ij} = C_6/r_{ij}^6$), we show that the DAQCNN quantum-kernel advantage is
+conditional on the capacity of the downstream classifier: at matched
+dimensionality it is sizable under a linear probe and shrinks as head capacity
+grows, vanishing and slightly reversing under a trained convolutional head.
+We establish this with a controlled five-tier head-capacity sweep, from a
+linear probe to a trained convolutional head, applied to identical frozen
+quantum features, and support it with two ablations.
+First, linear probing identifies the pairwise ZZ correlators as the
+load-bearing ingredient of the feature map, adding $+0.025$ to $+0.040$ AUC
+over single-qubit $\langle Z\rangle$ marginals depending on scale, whereas
+digital and analog encoding produce features of comparable linear separability
+on this task.
+Second, against dimension-matched random-projection baselines, no quantum
+variant outperforms the classical baseline by more than one standard deviation
+once an expressive trained head is added.
 Experiments are conducted on BreastMNIST~\cite{yang2023medmnist} with
 ten-seed multi-run evaluation.
 
@@ -142,6 +154,10 @@ structured, high-dimensional representations~\cite{havlicek2019supervised}.
 Whether such maps provide a practical advantage over classical alternatives
 depends on the data distribution and the geometry of the induced
 kernel~\cite{huang2021power}.
+On neutral-atom platforms specifically, the quantum evolution kernel encodes
+the input directly in the Rydberg Hamiltonian and reads out observables after
+time evolution~\cite{henry2021quantum}, a construction closely related to the
+analog encoding we study.
 
 In the DAQCNN framework~\cite{simen2024digital}, and in our work, quantum
 kernels are \emph{non-trainable}: Hamiltonian parameters are fixed before any
@@ -225,7 +241,7 @@ $\{H_i\}$ and Fourier coefficients $c_\omega(\boldsymbol{\theta})$
 shaped by the trainable blocks.
 Digital encoding fits this form: $R_Y(x_i) = e^{-ix_i\sigma_y/2}$ has
 eigenvalues $\pm\tfrac{1}{2}$, restricting each pixel to the frequency
-set $\{-1, 0, +1\}$ — a degree-1 ceiling that training cannot raise.
+set $\{-1, 0, +1\}$, a degree-1 ceiling that training cannot raise.
 Analog encoding falls outside this characterisation because its
 generator $H(\boldsymbol{x}) = H_0 + \sum_i x_i n_i$ is itself
 data-dependent.
@@ -236,6 +252,9 @@ $x_i$, placing the model output outside any finite Fourier series in
 $\boldsymbol{x}$.
 Many-qubit van der Waals interactions further introduce joint pixel-pair
 dependencies that appear in the ZZ correlator outputs.
+Consistent with this picture, local detuning has been shown both analytically
+and empirically to increase the expressiveness of neutral-atom Rydberg kernels
+on graph data~\cite{djellabi2025attributed}.
 The two encodings therefore access qualitatively different function
 classes; whether this distinction translates into a measurable
 classification advantage on our datasets is an empirical question we
@@ -383,6 +402,11 @@ matched in dimensionality ($3{,}645$ features per patch) against a
 classical Random$\times 45$ baseline; at $M=4$ we use the
 four-topology set found by Optuna for each encoding, matched at
 $14{,}580$ features per patch against Random$\times 180$.
+Because each cell tunes only learning rate, weight decay, and dropout at
+a fixed topology, the absolute AUCs in this sweep are not directly
+comparable to the full-search operating points of
+Table~\ref{tab:endtoend}; the sweep is designed to expose the trend
+across head capacity rather than to reproduce those values.
 
 
 \section{Experimental Setup}
@@ -474,7 +498,7 @@ the Random$\times 45$ baseline.
 Digital-Z, which omits the ZZ correlator outputs, reaches a mean of
 $0.772$, essentially matching the random-filter baseline: single-qubit
 $\langle Z_i\rangle$ marginals on their own carry little separability
-beyond what unstructured random projections of comparable size
+beyond what unstructured random projections
 already span.
 
 \paragraph{ZZ correlators.}
@@ -581,40 +605,44 @@ expressivity.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{figures/capacity_sweep_gap.pdf}
-\caption{Quantum-vs-classical-random AUC gap as a function of head
-capacity, on BreastMNIST.
-Heads are ordered by architectural expressivity from Linear to CNN-$64$.
-Quantum and classical-random feature sources are matched at $3{,}645$
-features (left) and $14{,}580$ features (right).
-The horizontal line at $\Delta\mathrm{AUC}=0$ separates regimes where
-the quantum substrate wins (above) and where the classical random
-substrate wins (below).
-Each cell is a $10$-seed mean.}
-\label{fig:capacity_gap}
+\includegraphics[width=\columnwidth]{figures/capacity_sweep.pdf}
+\caption{Test AUC on BreastMNIST as a function of head capacity for
+four feature sources at two matched dimensionalities.
+Top: single-kernel scale, quantum and classical-random sources matched
+at $3{,}645$ features.
+Bottom: four-kernel scale, matched at $14{,}580$ features.
+Raw pixels (no feature extraction, $784$ inputs) are included as an
+absolute floor.
+Heads are ordered by architectural expressivity from Linear to
+CNN-$64$.
+Each cell is a $10$-seed mean with shaded $\pm 1$ standard-deviation
+bands.}
+\label{fig:capacity_sweep}
 \end{figure}
 
-\paragraph{Single-kernel scale (Fig.~\ref{fig:capacity_gap}, left).}
-At matched dimensionality of $3{,}645$ features, the
-quantum-vs-classical-random AUC gap shrinks monotonically from
-$+0.025$ at the Linear head to $-0.008$ at the CNN-$64$ head for
-Digital-ZZ; the analogous Analog-ZZ trajectory is $+0.023$ to
-$-0.005$.
-The gap crosses zero between the CNN-$16$ and CNN-$64$ head
-configurations.
-The absolute AUCs at the CNN-$64$ head, in rank order, are:
+\paragraph{Single-kernel scale (Fig.~\ref{fig:capacity_sweep}, top).}
+At matched dimensionality of $3{,}645$ features, Digital-ZZ and
+Analog-ZZ sit clearly above Random$\times 45$ at low-capacity heads:
+the Linear-head AUCs are $0.845$ and $0.843$ versus $0.820$, and the
+MLP-$1$ AUCs are $0.858$ and $0.844$ versus $0.828$.
+The three feature substrates converge as head capacity grows, and the
+ranking flips at the CNN-$64$ head:
 Random$\times 45$ at $0.906 \pm 0.005$,
 Analog-ZZ 1k at $0.900 \pm 0.008$,
-Digital-ZZ 1k at $0.897 \pm 0.010$.
-Random$\times 45$ with a trained CNN head marginally outperforms every
-quantum variant at this scale, with all differences inside one
+Digital-ZZ 1k at $0.897 \pm 0.010$, with all differences inside one
 standard deviation.
+Raw pixels remain the lowest curve at every head, roughly $0.03$ AUC
+below the quantum feature sources across the sweep and up to $0.04$
+below Random$\times 45$ at CNN-$64$.
 
-\paragraph{Four-kernel scale (Fig.~\ref{fig:capacity_gap}, right).}
-At matched dimensionality of $14{,}580$ features, the gap remains
-close to zero at every head capacity (range $-0.003$ to $+0.015$); no
-monotonic trend is visible.
-We attribute this to two factors: at $14{,}580$ dimensions a
+\paragraph{Four-kernel scale (Fig.~\ref{fig:capacity_sweep}, bottom).}
+At matched dimensionality of $14{,}580$ features, the three
+feature-based curves bunch tightly across the entire head sweep and no
+source consistently leads any other beyond one standard deviation.
+The maximum quantum-versus-random AUC gap at any head is $+0.015$
+(Analog-ZZ vs Random$\times 180$, MLP-$2$); the minimum is
+approximately $-0.002$ (Digital-ZZ vs Random$\times 180$).
+We attribute this collapse to two factors: at $14{,}580$ dimensions a
 random-projection feature space already covers much of the relevant
 linear function space (an entropic argument), leaving a smaller
 intrinsic gap to close; and the $30$-trial Optuna search per cell may
@@ -634,10 +662,12 @@ trained head closes most of the gap.
 At low classifier capacity, the linear-separability advantage of
 quantum kernels with ZZ correlators translates into a measurable AUC
 gain over dimension-matched random projections.
-As the classifier grows in capacity, the trained head extracts
+As the classifier grows in capacity, the four curves in
+Fig.~\ref{fig:capacity_sweep} converge: the trained CNN head extracts
 additional class-relevant signal from the classical random substrate
-more aggressively than from the quantum substrate, eventually closing
-and reversing the gap at the single-kernel scale.
+almost as effectively as from the quantum substrate, closing the gap
+and, at the single-kernel scale, reversing it by a margin smaller
+than one standard deviation.
 The DAQCNN quantum advantage in this regime is therefore conditional
 on the expressive capacity of the downstream classifier: features
 matter most when the classifier matters least, on small datasets like
@@ -656,7 +686,8 @@ Three findings emerge.
 \paragraph{ZZ correlators are the load-bearing quantum ingredient.}
 Single-qubit $\langle Z_i\rangle$ measurements alone (Digital-Z)
 produce features whose linear separability is no better than that of
-dimension-matched random projections.
+unstructured random projections (mean AUC $0.772$, versus $0.766$ for
+the higher-dimensional Random$\times 45$ baseline).
 Including the pairwise $\langle Z_iZ_j\rangle$ correlators raises mean
 probing AUC by $+0.025$ at single-kernel scale and by $+0.040$ at
 four-kernel scale; the same effect persists, at smaller magnitude, at
@@ -678,6 +709,10 @@ on this dataset.
 The qualitatively broader function class accessed by analog encoding
 does not translate into a measurable classification advantage on
 BreastMNIST.
+Although local detuning increases Rydberg-kernel expressiveness on
+graph-structured data~\cite{djellabi2025attributed}, on image classification
+at this resolution and dataset size that broader function class does not
+improve linear separability.
 We interpret this as a scope limitation rather than a refutation of
 the framework: image classification at this resolution and dataset
 size is not bottlenecked by the Fourier ceiling of digital encoding,
