@@ -329,6 +329,18 @@ def process_dataset_through_quantum(
 def main():
     parser = argparse.ArgumentParser(description="QUANTUM DATASET GENERATOR")
     parser.add_argument("--config", type=str, default=None, help="Path to YAML config file")
+    # Chunk mode: process a contiguous index range of ONE split and write a
+    # partial ".chunk.npz" file. Used to parallelise a large cache across a job
+    # array; merge_quantum_chunks.py reassembles the chunks into a normal cache.
+    # Omitting --split keeps the original monolithic behaviour unchanged.
+    parser.add_argument("--split", type=str, default=None,
+                        help="Chunk mode: process only this split (train/val/test)")
+    parser.add_argument("--start", type=int, default=None,
+                        help="Chunk mode: first image index (default 0)")
+    parser.add_argument("--end", type=int, default=None,
+                        help="Chunk mode: one-past-last image index (default = split size)")
+    parser.add_argument("--chunk-dir", type=str, default=None,
+                        help="Chunk mode: directory to write the chunk file into")
     args = parser.parse_args()
 
     if args.config:
@@ -477,31 +489,10 @@ def main():
     print(f"Channel-kernel mapping: {len(channel_kernel_map)} entries")
     print()
 
-    # Process each split
-    results = {}
-
-    for split in SPLITS:
-        print(f"--- Processing {split} split ---")
-
-        # Load the classical dataset
-        ds = load_medmnist_dataset(
-            DATASET_NAME, split, data_root, image_size=resolved_image_size
-        )
-        print(f"Loaded {len(ds)} images")
-
-        # Process through quantum layer
-        features, labels = process_dataset_through_quantum(
-            ds, q_conv, BATCH_SIZE, color_space=COLOR_SPACE, desc=f"  {split}"
-        )
-
-        results[f"{split}_features"] = features
-        results[f"{split}_labels"] = labels
-
-        print(f"  Output shape: {features.shape}")
-        print()
-
-    # Build metadata dict (will be saved as JSON string in the npz)
-    metadata = {
+    # Base metadata — everything that defines the cache identity, shared by the
+    # monolithic and chunk paths. Per-split sample counts and created_at are
+    # added later (monolithic) or by the merge script (chunk mode).
+    base_metadata = {
         "dataset_name": DATASET_NAME,
         "image_size": resolved_image_size,
         "in_channels": in_channels,
@@ -524,6 +515,78 @@ def main():
         "noise_p_gate_1q": NOISE_P_GATE if NOISE_ENABLED else None,
         "noise_omega_mhz": NOISE_OMEGA_MHZ if NOISE_ENABLED else None,
         "channel_kernel_map": channel_kernel_map,
+    }
+
+    # -------------------------------------------------------------------------
+    # CHUNK MODE: process one contiguous slice of one split, write a partial file.
+    # -------------------------------------------------------------------------
+    if args.split is not None:
+        split = args.split
+        ds = load_medmnist_dataset(
+            DATASET_NAME, split, data_root, image_size=resolved_image_size
+        )
+        split_total = len(ds)
+        start = 0 if args.start is None else args.start
+        end = split_total if args.end is None else args.end
+        assert 0 <= start < end <= split_total, (
+            f"Bad range [{start}, {end}) for split '{split}' of size {split_total}"
+        )
+
+        from torch.utils.data import Subset
+        sub = Subset(ds, range(start, end))
+        print(f"--- CHUNK: {split}[{start}:{end}] of {split_total} ---")
+        features, labels = process_dataset_through_quantum(
+            sub, q_conv, BATCH_SIZE, color_space=COLOR_SPACE,
+            desc=f"  {split}[{start}:{end}]",
+        )
+        # Sanity: produced exactly (end - start) rows, in order.
+        assert features.shape[0] == end - start == labels.shape[0]
+
+        chunk_meta = {
+            **base_metadata,
+            "split": split,
+            "start": start,
+            "end": end,
+            "split_total": split_total,
+            "created_at": datetime.now().isoformat(),
+        }
+
+        chunk_dir = Path(args.chunk_dir) if args.chunk_dir else output_dir
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+        cache_base = generate_output_filename(base_metadata)[:-len(".npz")]
+        chunk_name = f"{cache_base}__{split}_{start:06d}-{end:06d}.chunk.npz"
+        chunk_path = chunk_dir / chunk_name
+
+        np.savez_compressed(
+            chunk_path,
+            features=features,
+            labels=labels,
+            chunk_meta=json.dumps(chunk_meta),
+        )
+        print(f"Saved chunk to: {chunk_path}")
+        print(f"  shape {features.shape}, covers {split}[{start}:{end}] / {split_total}")
+        return
+
+    # -------------------------------------------------------------------------
+    # MONOLITHIC MODE: process all splits and write one full cache (original).
+    # -------------------------------------------------------------------------
+    results = {}
+    for split in SPLITS:
+        print(f"--- Processing {split} split ---")
+        ds = load_medmnist_dataset(
+            DATASET_NAME, split, data_root, image_size=resolved_image_size
+        )
+        print(f"Loaded {len(ds)} images")
+        features, labels = process_dataset_through_quantum(
+            ds, q_conv, BATCH_SIZE, color_space=COLOR_SPACE, desc=f"  {split}"
+        )
+        results[f"{split}_features"] = features
+        results[f"{split}_labels"] = labels
+        print(f"  Output shape: {features.shape}")
+        print()
+
+    metadata = {
+        **base_metadata,
         "created_at": datetime.now().isoformat(),
         "train_samples": len(results["train_labels"]),
         "val_samples": len(results["val_labels"]),
