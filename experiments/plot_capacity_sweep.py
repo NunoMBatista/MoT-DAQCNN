@@ -145,12 +145,17 @@ def main():
     data = load_summary(args.csv)
     os.makedirs(args.out_dir, exist_ok=True)
 
+    # Dataset label from the csv path (e.g. .../pneumonia_mnist/summary.csv)
+    ds_label = ("PneumoniaMNIST" if "pneumonia" in args.csv.lower()
+                else "BreastMNIST" if "breast" in args.csv.lower()
+                else os.path.basename(os.path.dirname(os.path.dirname(args.csv))))
+
     # === Two-panel figure: 1-kern and 4-kern scales ===
     fig, axes = plt.subplots(2, 1, figsize=(8.5, 8))
     plot_panel(axes[0], data, SOURCES_1K,
-               "1-kernel scale: AUC vs. head capacity (BreastMNIST)")
+               f"1-kernel scale: AUC vs. head capacity ({ds_label})")
     plot_panel(axes[1], data, SOURCES_4K,
-               "4-kernel scale: AUC vs. head capacity (BreastMNIST)")
+               f"4-kernel scale: AUC vs. head capacity ({ds_label})")
     fig.tight_layout()
     out_pdf = os.path.join(args.out_dir, "capacity_sweep.pdf")
     fig.savefig(out_pdf, bbox_inches="tight")

@@ -85,16 +85,34 @@ HEAD_NAMES = ["linear", "mlp1", "mlp2", "cnn_small", "cnn_large"]
 # Feature sources
 # ---------------------------------------------------------------------------
 
-FEATURE_SOURCES = {
-    "raw":            {"kind": "raw"},
-    "random_45":      {"kind": "random", "n_filters": 45,  "kernel_size": 3, "stride": 3},
-    "random_180":     {"kind": "random", "n_filters": 180, "kernel_size": 3, "stride": 3},
-    "digital_z_1k":   {"kind": "quantum", "config": "configs/breast_mnist/digital_z_best.yml"},
-    "digital_zz_1k":  {"kind": "quantum", "config": "configs/breast_mnist/digital_zz_best.yml"},
-    "analog_zz_1k":   {"kind": "quantum", "config": "configs/breast_mnist/analog_zz_best.yml"},
-    "digital_zz_4k":  {"kind": "quantum", "config": "configs/breast_mnist/digital_zz_4k_best.yml"},
-    "analog_zz_4k":   {"kind": "quantum", "config": "configs/breast_mnist/analog_zz_4k_best.yml"},
-}
+# All possible source names (static, for argparse choices). The actual specs
+# (quantum config paths) are built per-dataset by build_feature_sources().
+SOURCE_NAMES = [
+    "raw", "random_9", "random_45", "random_180",
+    "digital_z_1k", "digital_zz_1k", "analog_z_1k", "analog_zz_1k",
+    "digital_zz_4k", "analog_zz_4k",
+]
+
+
+def build_feature_sources(dataset):
+    """Feature-source specs for a dataset (quantum configs follow configs/<dataset>/)."""
+    c = f"configs/{dataset}"
+    return {
+        "raw":           {"kind": "raw"},
+        "random_9":      {"kind": "random", "n_filters": 9,   "kernel_size": 3, "stride": 3},
+        "random_45":     {"kind": "random", "n_filters": 45,  "kernel_size": 3, "stride": 3},
+        "random_180":    {"kind": "random", "n_filters": 180, "kernel_size": 3, "stride": 3},
+        "digital_z_1k":  {"kind": "quantum", "config": f"{c}/digital_z_best.yml"},
+        "digital_zz_1k": {"kind": "quantum", "config": f"{c}/digital_zz_best.yml"},
+        "analog_z_1k":   {"kind": "quantum", "config": f"{c}/analog_z_best.yml"},
+        "analog_zz_1k":  {"kind": "quantum", "config": f"{c}/analog_zz_best.yml"},
+        "digital_zz_4k": {"kind": "quantum", "config": f"{c}/digital_zz_4k_best.yml"},
+        "analog_zz_4k":  {"kind": "quantum", "config": f"{c}/analog_zz_4k_best.yml"},
+    }
+
+
+# Populated in main() from --dataset; module-level default keeps imports working.
+FEATURE_SOURCES = build_feature_sources(DATASET)
 
 
 def _stack(loader):
@@ -334,9 +352,9 @@ def _param_count(builder, num_classes, in_channels, dummy_input):
 
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument("--dataset", type=str, default="breast_mnist")
     p.add_argument("--heads", nargs="+", default=HEAD_NAMES, choices=HEAD_NAMES)
-    p.add_argument("--sources", nargs="+", default=list(FEATURE_SOURCES.keys()),
-                   choices=list(FEATURE_SOURCES.keys()))
+    p.add_argument("--sources", nargs="+", default=SOURCE_NAMES, choices=SOURCE_NAMES)
     p.add_argument("--n-trials", type=int, default=30)
     p.add_argument("--seeds", type=int, nargs="+", default=list(range(10)))
     p.add_argument("--output-dir", type=str,
@@ -344,6 +362,11 @@ def main():
     p.add_argument("--device", type=str, default="auto",
                    help="'auto' | 'cuda' | 'cpu'")
     args = p.parse_args()
+
+    # Dataset-aware: set the module globals used by load_features and build the
+    # feature-source specs (quantum config paths) for the chosen dataset.
+    globals()["DATASET"] = args.dataset
+    globals()["FEATURE_SOURCES"] = build_feature_sources(args.dataset)
 
     if args.device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"

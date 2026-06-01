@@ -46,6 +46,7 @@ TOPOLOGIES_1K = ["kings", "horizontal", "vertical", "cross",
 ENCODINGS = [
     {"name": "Digital-Z",  "encoding_mode": "digital", "include_correlators": False},
     {"name": "Digital-ZZ", "encoding_mode": "digital", "include_correlators": True},
+    {"name": "Analog-Z",   "encoding_mode": "analog",  "include_correlators": False},
     {"name": "Analog-ZZ",  "encoding_mode": "analog",  "include_correlators": True},
 ]
 

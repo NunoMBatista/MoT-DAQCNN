@@ -1,0 +1,15 @@
+# TissueMNIST digital encoding + ZZ correlators, lightning.qubit.
+dataset:
+  name: tissue_mnist
+  color_space: GRAYSCALE
+  batch_size: 8
+model:
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["kings", "horizontal", "vertical", "cross", "ring", "chain", "star", "grid"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  encoding_mode: digital
+  include_correlators: true
+  quantum_device: lightning.qubit

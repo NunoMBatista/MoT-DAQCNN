@@ -22,22 +22,26 @@
 \begin{abstract}
 Recent work has applied digital-analog quantum convolutional neural networks
 (DAQCNN) with neutral-atom Rydberg kernels to medical image classification.
-We disentangle three design dimensions of the framework on BreastMNIST: the
-encoding mode (digital versus analog), the role of ZZ-correlator
-measurements, and the capacity of the downstream trained classifier.
+We disentangle the design dimensions of the framework on two MedMNIST
+datasets, BreastMNIST and PneumoniaMNIST: the encoding mode (digital versus
+analog), the role of ZZ-correlator measurements, and the capacity of the
+downstream trained classifier.
 Across a five-tier head-capacity sweep at matched dimensionality, the
-quantum-versus-classical-random AUC gap shrinks monotonically from $+0.025$
-at a linear probe to $-0.008$ at a trained CNN, indicating that the DAQCNN
-quantum advantage in this regime is conditional on classifier capacity.
-ZZ correlators contribute consistently across capacities, adding $+0.025$ to
-$+0.040$ AUC over single-qubit $\langle Z\rangle$ marginals depending on
-scale.
+quantum-versus-classical-random AUC gap shrinks monotonically from
+approximately $+0.025$ at a linear probe to about $-0.008$ at a trained CNN on
+both datasets, indicating that the DAQCNN quantum advantage in this regime is
+conditional on classifier capacity.
+The value of the ZZ correlators is in turn conditional on task structure: they
+add $+0.025$ to $+0.040$ AUC over single-qubit $\langle Z\rangle$ marginals on
+BreastMNIST, whose single-qubit features are only weakly separable, but are
+negligible or mildly harmful on PneumoniaMNIST, which is already near-linearly
+separable from $\langle Z\rangle$ alone.
 Analog and digital encodings produce features of comparable linear
-separability on this task, with mean encoding effect within one standard
+separability on both tasks, with mean encoding effects within one standard
 deviation of zero across topologies.
-We position image classification at this scale as falling outside the regime
-where the qualitatively broader function class accessed by analog encoding
-manifests empirically.
+At the trained-head operating point the best quantum and best
+dimension-matched classical models reach parity on both datasets (AUC gaps of
+$+0.006$, within one standard deviation).
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -91,17 +95,21 @@ dimensionality it is sizable under a linear probe and shrinks as head capacity
 grows, vanishing and slightly reversing under a trained convolutional head.
 We establish this with a controlled five-tier head-capacity sweep, from a
 linear probe to a trained convolutional head, applied to identical frozen
-quantum features, and support it with two ablations.
+quantum features, and replicate it on two MedMNIST datasets.
+We support it with two ablations.
 First, linear probing identifies the pairwise ZZ correlators as the
-load-bearing ingredient of the feature map, adding $+0.025$ to $+0.040$ AUC
-over single-qubit $\langle Z\rangle$ marginals depending on scale, whereas
-digital and analog encoding produce features of comparable linear separability
-on this task.
+load-bearing ingredient of the feature map on BreastMNIST, adding $+0.025$ to
+$+0.040$ AUC over single-qubit $\langle Z\rangle$ marginals; their value is
+itself conditional on task structure, however, falling to negligible or
+negative on PneumoniaMNIST, whose images are already near-linearly separable
+from single-qubit marginals alone.
+Digital and analog encodings produce features of comparable linear separability
+on both tasks.
 Second, against dimension-matched random-projection baselines, no quantum
 variant outperforms the classical baseline by more than one standard deviation
-once an expressive trained head is added.
-Experiments are conducted on BreastMNIST~\cite{yang2023medmnist} with
-ten-seed multi-run evaluation.
+once an expressive trained head is added, on either dataset.
+Experiments are conducted on BreastMNIST and
+PneumoniaMNIST~\cite{yang2023medmnist} with ten-seed multi-run evaluation.
 
 
 \section{Background}
@@ -171,8 +179,9 @@ quantum circuits and makes the quantum front-end fully reproducible across runs.
 MedMNIST v2~\cite{yang2023medmnist} is a standardised collection of
 $28\!\times\!28$ medical image benchmarks with fixed train/validation/test
 splits.
-We focus on BreastMNIST (breast ultrasound, 2~classes); all images are
-processed in grayscale.
+We evaluate on two binary benchmarks: BreastMNIST (breast ultrasound) and
+PneumoniaMNIST (paediatric chest X-ray); all images are processed in
+grayscale.
 
 
 \section{Method}
@@ -414,13 +423,17 @@ across head capacity rather than to reproduce those values.
 
 \subsection{Datasets}
 
-We evaluate on BreastMNIST from MedMNIST v2~\cite{yang2023medmnist}:
-breast-ultrasound images, 2 classes, 546/78/156 train/val/test split, all
-in grayscale at $28\!\times\!28$.
+We evaluate on two binary MedMNIST v2~\cite{yang2023medmnist} datasets, both
+$2$-class and processed in grayscale at $28\!\times\!28$.
+\emph{BreastMNIST}: breast-ultrasound images, $546/78/156$ train/val/test
+split.
+\emph{PneumoniaMNIST}: paediatric chest-X-ray images, $4708/524/624$ split.
+The two differ markedly in size and in how separable they are from simple
+features, which is central to the task-structure effect we report.
 
 \subsection{Models}
 
-We evaluate seven model families.
+We evaluate six model families.
 The three DAQCNN variants are run at single-kernel ($M\!=\!1$) and, where
 indicated, four-kernel ($M\!=\!4$) scales.
 \emph{DAQCNN-Digital-Z}: digital encoding, $\langle Z\rangle$ only, following
@@ -430,7 +443,6 @@ Simen et al.~\cite{simen2024digital}.
 \emph{Classical-Random}: fixed Gaussian random $3\!\times\!3$ filters, channel
 count matched to the corresponding quantum variant.
 \emph{Classical-Trainable}: same architecture with learned filters.
-\emph{Vanilla CNN}: a standard convolutional network with no quantum layer.
 \emph{Raw-pixel baseline}: the classification head applied to flattened
 raw pixel values, with no front-end feature extraction.
 All models share the same classification head architecture and are trained
@@ -489,9 +501,9 @@ projection baseline.}
 \label{fig:topology_probing}
 \end{figure}
 
-At matched dimensionality ($3{,}645$ features), quantum kernels with
-ZZ correlators outperform classical random projections on every
-topology tested.
+On BreastMNIST, at matched dimensionality ($3{,}645$ features), quantum
+kernels with ZZ correlators outperform classical random projections on
+every topology tested.
 The mean probing AUC across the eight $3\!\times\!3$ topologies is
 $0.797$ for Digital-ZZ and $0.804$ for Analog-ZZ, against $0.766$ for
 the Random$\times 45$ baseline.
@@ -522,8 +534,26 @@ wins five of eight topologies), and the same statistic at the
 four-kernel scale is $-0.009$ AUC (digital wins all five sets).
 Both means are within one standard deviation of zero across topologies.
 The two encodings access qualitatively different function classes
-(Section~\ref{sec:method}), but on this dataset they produce features
+(Section~\ref{sec:method}), but on BreastMNIST they produce features
 of comparable linear separability.
+
+\paragraph{Task-structure dependence (PneumoniaMNIST).}
+The picture changes on PneumoniaMNIST, whose images are already
+highly separable from single-qubit features.
+The mean Digital-Z probing AUC across the eight $3\!\times\!3$ topologies
+is $0.923$ (best $0.934$, \emph{vertical}), against $0.772$ on BreastMNIST.
+With little separability headroom left, the ZZ correlators add almost
+nothing: the Digital-ZZ$-$Digital-Z effect is only $+0.003$ at single-kernel
+scale (positive in six of eight topologies) and turns \emph{negative} at
+four-kernel scale ($-0.013$ digital, $-0.021$ analog), where the additional
+correlator dimensions act as noise rather than signal.
+The encoding effect is again small (mean
+$(\mathrm{Analog\text{-}ZZ})-(\mathrm{Digital\text{-}ZZ})$ of $-0.012$ at
+single-kernel scale).
+The load-bearing role of the ZZ correlators is therefore specific to tasks,
+like BreastMNIST, whose single-qubit representation leaves separability
+headroom; on a task already near-linearly separable from $\langle Z\rangle$
+alone, the correlators are redundant.
 
 \subsection{End-to-End Classification}
 \label{sec:results_endtoend}
@@ -555,8 +585,7 @@ Trainable $\times 45$ & $\mathbf{0.862 \pm 0.013}$ & $0.889 \pm 0.015$ \\
 Random $\times 180$   & $0.858 \pm 0.014$ & $0.893 \pm 0.009$ \\
 Trainable $\times 180$ & $0.835 \pm 0.029$ & $0.863 \pm 0.016$ \\
 \midrule
-\multicolumn{3}{l}{\emph{Baselines}} \\
-Vanilla CNN & $0.828 \pm 0.013$ & $0.860 \pm 0.014$ \\
+\multicolumn{3}{l}{\emph{Baseline}} \\
 Raw pixels  & $0.824 \pm 0.010$ & $0.843 \pm 0.004$ \\
 \bottomrule
 \end{tabular}
@@ -591,6 +620,53 @@ $0.893 \pm 0.010$ ($+0.008$ for digital).
 The end-to-end encoding-effect direction therefore flips with
 dimensionality, mirroring the same pattern seen in the topology
 probing (Section~\ref{sec:results_probing}).
+
+\begin{table}[t]
+\centering
+\caption{End-to-end test classification on PneumoniaMNIST.
+Mean $\pm$ standard deviation over $10$ random seeds, same protocol as
+Table~\ref{tab:endtoend}.
+For quantum models the winning topology is in parentheses; both
+four-kernel sets are \emph{grid}, \emph{chain}, \emph{horizontal}, and
+\emph{kings} ($+$\emph{kings}).}
+\label{tab:endtoend_pneumonia}
+\begin{tabular}{lcc}
+\toprule
+Model & Acc & AUC \\
+\midrule
+\multicolumn{3}{l}{\emph{Quantum (DAQCNN)}} \\
+Digital-Z 1k (\emph{cross}) & $0.865 \pm 0.007$ & $0.953 \pm 0.002$ \\
+Digital-ZZ 1k (\emph{vertical}) & $0.858 \pm 0.006$ & $0.948 \pm 0.005$ \\
+Analog-ZZ 1k (\emph{ring}) & $0.858 \pm 0.007$ & $0.943 \pm 0.004$ \\
+Digital-ZZ 4k ($+$\emph{kings}) & $\mathbf{0.869 \pm 0.020}$ & $0.955 \pm 0.002$ \\
+Analog-ZZ 4k ($+$\emph{kings}) & $0.859 \pm 0.008$ & $\mathbf{0.959 \pm 0.002}$ \\
+\midrule
+\multicolumn{3}{l}{\emph{Classical}} \\
+Random $\times 45$    & $0.849 \pm 0.007$ & $0.952 \pm 0.003$ \\
+Trainable $\times 45$ & $0.857 \pm 0.005$ & $0.950 \pm 0.002$ \\
+Random $\times 180$   & $0.845 \pm 0.006$ & $0.953 \pm 0.003$ \\
+Trainable $\times 180$ & $0.857 \pm 0.011$ & $0.945 \pm 0.004$ \\
+\midrule
+\multicolumn{3}{l}{\emph{Baseline}} \\
+Raw pixels  & $0.855 \pm 0.005$ & $0.951 \pm 0.002$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Parity on PneumoniaMNIST.}
+Table~\ref{tab:endtoend_pneumonia} repeats the evaluation on PneumoniaMNIST.
+The highest AUC ($0.959 \pm 0.002$, Analog-ZZ at four-kernel scale) exceeds the
+best dimension-matched classical model (Random$\times 180$, $0.953 \pm 0.003$)
+by $+0.006$, within one standard deviation, the same parity margin found on
+BreastMNIST.
+Consistent with the probing analysis, ZZ correlators give no end-to-end
+benefit here: at single-kernel scale Digital-Z ($0.953$) slightly exceeds
+Digital-ZZ ($0.948$), and the strongest single-kernel model is the
+correlator-free Analog-Z ($0.954$).
+The dataset that gains from correlators at the probe (BreastMNIST) is also the
+one where they survive to the operating point; the dataset that does not
+(PneumoniaMNIST) shows no end-to-end ZZ benefit, reinforcing the
+task-structure dependence of Section~\ref{sec:results_probing}.
 
 \subsection{Head-Capacity Sweep}
 \label{sec:results_capacity}
@@ -658,64 +734,100 @@ ZZ correlators carry information that even the trained CNN head does
 not fully recover from the no-ZZ feature substrate, although the
 trained head closes most of the gap.
 
-\paragraph{Interpretation.}
-At low classifier capacity, the linear-separability advantage of
-quantum kernels with ZZ correlators translates into a measurable AUC
-gain over dimension-matched random projections.
-As the classifier grows in capacity, the four curves in
-Fig.~\ref{fig:capacity_sweep} converge: the trained CNN head extracts
-additional class-relevant signal from the classical random substrate
-almost as effectively as from the quantum substrate, closing the gap
-and, at the single-kernel scale, reversing it by a margin smaller
-than one standard deviation.
-The DAQCNN quantum advantage in this regime is therefore conditional
-on the expressive capacity of the downstream classifier: features
-matter most when the classifier matters least, on small datasets like
-BreastMNIST.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/capacity_sweep_pneumonia.pdf}
+\caption{The same head-capacity sweep on PneumoniaMNIST, with identical
+axes and feature sources to Fig.~\ref{fig:capacity_sweep}.
+The capacity-conditioning pattern reproduces: quantum sources lead at
+low-capacity heads and the ranking inverts under the trained CNN, where
+Random$\times 45$ overtakes both ZZ variants.}
+\label{fig:capacity_pneumonia}
+\end{figure}
+
+\paragraph{Replication on PneumoniaMNIST
+(Fig.~\ref{fig:capacity_pneumonia}).}
+The capacity-conditioning pattern reproduces on PneumoniaMNIST.
+At single-kernel scale the averaged quantum-ZZ advantage over
+Random$\times 45$ runs $+0.015$ at the Linear head, $+0.018$ at MLP-$1$,
+$+0.010$ at MLP-$2$, $-0.001$ at CNN-$16$, and $-0.009$ at CNN-$64$:
+positive at low capacity, eroding monotonically, and reversing under the
+trained CNN, where Random$\times 45$ ($0.958$) overtakes both
+Digital-ZZ and Analog-ZZ ($0.949$).
+The ZZ-versus-Z gap is small throughout
+($+0.009,\,+0.006,\,+0.010,\,-0.001,\,-0.004$ across the five heads),
+consistent with the probe-level finding that correlators add little on
+this near-separable task.
+The four-kernel scale shows the same convergence.
+
+\paragraph{Interpretation: two conditioning variables.}
+The sweep isolates a single mechanism modulated by two factors.
+The first is classifier capacity: on both datasets the
+quantum-versus-random gap is largest at low capacity and shrinks
+monotonically, reversing within one standard deviation under the trained
+CNN head, as the head extracts class-relevant signal from the random
+substrate almost as effectively as from the quantum one.
+The second is task structure, visible in the ZZ ablation: the
+correlators carry a large low-capacity benefit on BreastMNIST (whose
+single-qubit features are only weakly separable, probe AUC $0.77$) and
+almost none on PneumoniaMNIST (already separable from $\langle Z\rangle$
+alone, probe AUC $0.92$).
+A measurable quantum or ZZ advantage thus appears only when the head is
+weak and the task is not already easy from simple features; relax either
+condition and it vanishes.
+Features matter most when the classifier matters least, and when the
+task is hard enough to need them.
 
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-We evaluated DAQCNN-style Rydberg quantum kernels on BreastMNIST with
-methodologically clean per-model hyperparameter searches, ten-seed
-validation, dimensionality-matched classical baselines, and a
-controlled head-capacity sweep.
+We evaluated DAQCNN-style Rydberg quantum kernels on BreastMNIST and
+PneumoniaMNIST with methodologically clean per-model hyperparameter
+searches, ten-seed validation, dimensionality-matched classical
+baselines, and a controlled head-capacity sweep.
 Three findings emerge.
 
-\paragraph{ZZ correlators are the load-bearing quantum ingredient.}
-Single-qubit $\langle Z_i\rangle$ measurements alone (Digital-Z)
-produce features whose linear separability is no better than that of
-unstructured random projections (mean AUC $0.772$, versus $0.766$ for
-the higher-dimensional Random$\times 45$ baseline).
-Including the pairwise $\langle Z_iZ_j\rangle$ correlators raises mean
-probing AUC by $+0.025$ at single-kernel scale and by $+0.040$ at
-four-kernel scale; the same effect persists, at smaller magnitude, at
-every classifier capacity we test.
+\paragraph{The ZZ correlators are load-bearing, but only when the task
+needs them.}
+On BreastMNIST, single-qubit $\langle Z_i\rangle$ measurements alone
+(Digital-Z) produce features whose linear separability is no better than
+that of unstructured random projections (mean AUC $0.772$, versus
+$0.766$ for the higher-dimensional Random$\times 45$ baseline), and
+adding the pairwise $\langle Z_iZ_j\rangle$ correlators raises mean
+probing AUC by $+0.025$ at single-kernel scale and $+0.040$ at
+four-kernel scale.
+On PneumoniaMNIST the single-qubit features are already highly separable
+(Digital-Z probe AUC $0.923$), and the correlators add essentially
+nothing ($+0.003$ at single-kernel scale, negative at four-kernel
+scale).
+The entanglement-mediated correlators help only when the single-qubit
+representation leaves separability headroom.
 
 \paragraph{The quantum-versus-classical advantage is conditional on
 classifier capacity.}
 At the linear-probe level, quantum kernels with ZZ correlators
 outperform dimension-matched random projections by approximately
-$+0.025$ AUC at single-kernel scale.
-This advantage shrinks monotonically as classifier capacity grows and
-reverses sign at the highest capacity tested, where Random$\times 45$
-with a trained CNN head marginally outperforms every quantum variant.
+$+0.025$ AUC on BreastMNIST and $+0.015$ on PneumoniaMNIST, both at
+single-kernel scale.
+On both datasets this advantage shrinks monotonically as classifier
+capacity grows and reverses sign at the highest capacity tested, where
+Random$\times 45$ with a trained CNN head marginally outperforms every
+quantum variant.
 The DAQCNN advantage in this regime therefore lives at the feature
-substrate, and is absorbed by a sufficiently expressive trained head
-on this dataset.
+substrate, and is absorbed by a sufficiently expressive trained head.
 
-\paragraph{Encoding mode is empirically neutral on this task.}
+\paragraph{Encoding mode is empirically neutral on these tasks.}
 The qualitatively broader function class accessed by analog encoding
-does not translate into a measurable classification advantage on
-BreastMNIST.
+does not translate into a measurable classification advantage on either
+dataset.
 Although local detuning increases Rydberg-kernel expressiveness on
 graph-structured data~\cite{djellabi2025attributed}, on image classification
 at this resolution and dataset size that broader function class does not
 improve linear separability.
 We interpret this as a scope limitation rather than a refutation of
-the framework: image classification at this resolution and dataset
-size is not bottlenecked by the Fourier ceiling of digital encoding,
+the framework: image classification at this resolution is not
+bottlenecked by the Fourier ceiling of digital encoding,
 since the target function is dominated by spatial texture and shape
 structure that a degree-one Fourier basis on pixel intensities,
 combined with entangling Hamiltonian dynamics, can already express.
@@ -725,8 +837,9 @@ signal-processing problems, tabular regression with oscillatory
 dependencies, or symbolic regression, may be more natural settings in
 which the analog advantage manifests, and we leave such evaluation to
 future work.
-A replication on PneumoniaMNIST and on multi-class MedMNIST
-benchmarks is a natural next robustness check.
+Extending this analysis to multi-class and higher-resolution MedMNIST
+benchmarks, where single-qubit separability is lower and the capacity
+and task-structure axes can be probed jointly, is a natural next step.
 
 
 \section*{Acknowledgment}
