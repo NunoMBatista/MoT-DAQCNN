@@ -1,8 +1,8 @@
 """Small-multiples capacity-sweep figure: one mini-panel per source family, so
 all ~12 sources are visible without a 12-line tangle. Shared y-axis; raw pixels
 drawn faintly in every panel as a common cross-panel anchor. Within a panel,
-line style encodes scale (dotted = Z-only/9-dim, solid = single-kernel/45-dim,
-dashed = four-kernel/180-dim).
+scale is encoded by both line style and marker (dotted+triangle = smallest,
+solid+circle = single-kernel/45-dim, long-dash+square = four-kernel/180-dim).
 
 Usage: python experiments/plot_capacity_facets.py --csv <summary.csv> --out <png>
 """
@@ -15,24 +15,33 @@ import matplotlib.pyplot as plt
 HEADS = ["linear", "mlp1", "mlp2", "cnn_small", "cnn_large"]
 HLAB = ["Linear", "MLP-1", "MLP-2", "CNN-16", "CNN-64"]
 
-# (source, linestyle, label) per family panel; color is per-family
+# scale key -> (linestyle, marker). Each scale gets BOTH a distinct dash pattern
+# and a distinct marker shape, so the three same-colour lines in a panel stay
+# unambiguous even in a short legend handle (solid vs dashed alone reads poorly).
+SCALE_STYLE = {
+    "z":  ((0, (1, 1.4)), "v"),   # smallest scale  : dotted     + down-triangle
+    "1k": ("solid",       "o"),   # single-kernel/45: solid      + circle
+    "4k": ((0, (5, 2)),   "s"),   # four-kernel/180 : long-dashed + square
+}
+
+# (source, scale_key, label) per family panel; color is per-family
 PANELS = [
     ("Quantum: digital", "#08306b", [
-        ("digital_z_1k", ":", r"Digital-Z"),
-        ("digital_zz_1k", "-", r"Digital-ZZ 1k"),
-        ("digital_zz_4k", "--", r"Digital-ZZ 4k")]),
+        ("digital_z_1k",  "z",  r"Digital-Z"),
+        ("digital_zz_1k", "1k", r"Digital-ZZ 1k"),
+        ("digital_zz_4k", "4k", r"Digital-ZZ 4k")]),
     ("Quantum: analog", "#c0392b", [
-        ("analog_z_1k", ":", r"Analog-Z"),
-        ("analog_zz_1k", "-", r"Analog-ZZ 1k"),
-        ("analog_zz_4k", "--", r"Analog-ZZ 4k")]),
+        ("analog_z_1k",  "z",  r"Analog-Z"),
+        ("analog_zz_1k", "1k", r"Analog-ZZ 1k"),
+        ("analog_zz_4k", "4k", r"Analog-ZZ 4k")]),
     ("Random projection", "#bcbd22", [
-        ("random_9", ":", r"Random$\times$9"),
-        ("random_45", "-", r"Random$\times$45"),
-        ("random_180", "--", r"Random$\times$180")]),
+        ("random_9",   "z",  r"Random$\times$9"),
+        ("random_45",  "1k", r"Random$\times$45"),
+        ("random_180", "4k", r"Random$\times$180")]),
     ("Classical nonlinear", "#e67e22", [
-        ("poly2_45", ":", r"poly-2 (45)"),
-        ("rff_45", "-", r"RFF 45"),
-        ("rff_180", "--", r"RFF 180")]),
+        ("poly2_45", "z",  r"poly-2 (45)"),
+        ("rff_45",   "1k", r"RFF 45"),
+        ("rff_180",  "4k", r"RFF 180")]),
 ]
 
 
@@ -66,13 +75,16 @@ def main():
         # common anchor: raw pixels, faint gray
         ax.plot(x, raw, color="#999999", ls=(0, (1, 1)), lw=1.2, alpha=0.7,
                 marker="x", markersize=4, label="Raw pixels", zorder=1)
-        for src, style, lab in lines:
-            ax.plot(x, series(d, src), color=color, ls=style, lw=1.9,
-                    marker="o", markersize=4, label=lab, zorder=3)
+        for src, scale, lab in lines:
+            ls, mk = SCALE_STYLE[scale]
+            ax.plot(x, series(d, src), color=color, ls=ls, lw=1.9,
+                    marker=mk, markersize=4.5, label=lab, zorder=3)
         ax.set_title(title, fontsize=10)
         ax.set_ylim(ylo, yhi)
         ax.grid(alpha=0.3)
-        ax.legend(fontsize=7.5, loc="lower right", framealpha=0.9)
+        # longer handle so the dash patterns are visible, not just the marker
+        ax.legend(fontsize=7.5, loc="lower right", framealpha=0.9,
+                  handlelength=3.0, handletextpad=0.5)
     for ax in axes[1]:
         ax.set_xticks(x); ax.set_xticklabels(HLAB, fontsize=8)
     for ax in axes[:, 0]:

@@ -722,11 +722,13 @@ by feature family (quantum-digital, quantum-analog, random projection,
 and classical nonlinear maps).
 All panels share the $y$-axis, and raw pixels are drawn faintly in each
 as a common cross-panel reference.
-Within a panel, line style encodes scale: dotted is the single-qubit
-$\langle Z\rangle$-only source ($9$ features per patch), solid is the
-single-kernel $\langle ZZ\rangle$ source ($45$), and dashed is the
-four-kernel source ($180$); for the random family dotted/solid/dashed
-are $9$/$45$/$180$ projections.
+Within a panel, scale is encoded by both marker and line style: a
+down-triangle on a dotted line is the single-qubit $\langle Z\rangle$-only
+source ($9$ features per patch), a circle on a solid line is the
+single-kernel $\langle ZZ\rangle$ source ($45$), and a square on a dashed
+line is the four-kernel source ($180$). The random and classical-nonlinear
+families reuse the same three styles for their $9$/$45$/$180$ and
+$45$/$45$/$180$ variants, respectively.
 Heads are ordered by expressivity from Linear to CNN-$64$; each point is
 a $10$-seed mean over per-feature standardized inputs.
 Every quantum and classical source converges to the same band as head
