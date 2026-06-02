@@ -112,6 +112,14 @@ def get_3x3_kernel_set() -> Dict[str, np.ndarray]:
     coords_grid *= 1.5
     kernels["grid"] = coords_grid
 
+    # Synthetic placeholder topologies for the classical-nonlinear feature caches
+    # (poly-2 / RFF). These are never simulated: the cache is always present so
+    # bypass_quantum=True and the quantum layer is skipped. They exist only so the
+    # DAQCNN model constructs without error when its config names the cache's
+    # synthetic topology. Geometry is irrelevant (a copy of the kings layout).
+    for synthetic in ("poly2", "rff45", "rff180"):
+        kernels[synthetic] = base.copy()
+
     return kernels
 
 

@@ -1,0 +1,20 @@
+# tissue_mnist capacity-sweep best-config (topology = default, NOT probe-optimised)
+dataset:
+  name: tissue_mnist
+  data_root: ./data
+  batch_size: 64
+  num_workers: 2
+  download: true
+  color_space: GRAYSCALE
+model:
+  num_classes: 8
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["star"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  encoding_mode: "digital"
+  include_correlators: false
+  quantum_device: default.qubit
+  classical_device: auto

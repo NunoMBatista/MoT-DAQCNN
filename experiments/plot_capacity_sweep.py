@@ -130,6 +130,58 @@ def plot_panel(ax, data, sources, title):
     ax.legend(loc="lower right", fontsize=8, framealpha=0.9)
 
 
+# Merged single-panel: both scales on one axis. Color encodes the source family,
+# linestyle encodes the scale (solid = single kernel / 45-dim, dashed = four
+# kernels / 180-dim, dotted = raw pixels). Two-section legend keeps it readable.
+MERGED_SOURCES = ["raw", "random_45", "random_180", "rff_45", "rff_180",
+                  "digital_zz_1k", "digital_zz_4k"]
+
+SCALE_STYLE = {  # linestyle by scale, independent of family colour
+    "raw": ":", "random_45": "-", "random_180": "--",
+    "rff_45": "-", "rff_180": "--",
+    "digital_zz_1k": "-", "digital_zz_4k": "--",
+}
+
+# extra colours/markers for the nonlinear-control family
+SRC_COLOR["rff_45"] = "#e67e22"   # orange
+SRC_COLOR["rff_180"] = "#e67e22"
+SRC_MARKER["rff_45"] = "^"
+SRC_MARKER["rff_180"] = "^"
+
+FAMILY_LEGEND = [("Raw pixels", "#7f7f7f"), ("Random proj.", "#bcbd22"),
+                 ("RFF (nonlinear)", "#e67e22"), ("Digital-ZZ (best quantum)", "#08306b")]
+
+
+def plot_merged(ax, data, title):
+    from matplotlib.lines import Line2D
+    x = np.arange(len(HEAD_ORDER))
+    for src in MERGED_SOURCES:
+        means = np.array([(data.get((h, src)) or {}).get("auc_mean", np.nan)
+                          for h in HEAD_ORDER])
+        stds = np.array([(data.get((h, src)) or {}).get("auc_std", np.nan)
+                         for h in HEAD_ORDER])
+        ax.plot(x, means, color=SRC_COLOR[src], linestyle=SCALE_STYLE[src],
+                marker=SRC_MARKER[src], markersize=5, linewidth=1.8, alpha=0.95)
+    ax.set_xticks(x)
+    ax.set_xticklabels([HEAD_LABELS[h] for h in HEAD_ORDER])
+    ax.set_ylabel("Test AUC")
+    ax.set_title(title)
+    ax.grid(alpha=0.3)
+    # two-section legend: family (colour) + scale (linestyle)
+    fam_handles = [Line2D([0], [0], color=c, lw=2, marker="o", label=n)
+                   for n, c in FAMILY_LEGEND]
+    scale_handles = [
+        Line2D([0], [0], color="black", lw=2, ls="-", label="Single kernel (45-dim)"),
+        Line2D([0], [0], color="black", lw=2, ls="--", label="Four kernels (180-dim)"),
+        Line2D([0], [0], color="#7f7f7f", lw=2, ls=":", label="Raw pixels (784-dim)"),
+    ]
+    leg1 = ax.legend(handles=fam_handles, loc="upper left", fontsize=8,
+                     title="Source", framealpha=0.9)
+    ax.add_artist(leg1)
+    ax.legend(handles=scale_handles, loc="lower right", fontsize=8,
+              title="Scale", framealpha=0.9)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv",
@@ -150,12 +202,9 @@ def main():
                 else "BreastMNIST" if "breast" in args.csv.lower()
                 else os.path.basename(os.path.dirname(os.path.dirname(args.csv))))
 
-    # === Two-panel figure: 1-kern and 4-kern scales ===
-    fig, axes = plt.subplots(2, 1, figsize=(8.5, 8))
-    plot_panel(axes[0], data, SOURCES_1K,
-               f"1-kernel scale: AUC vs. head capacity ({ds_label})")
-    plot_panel(axes[1], data, SOURCES_4K,
-               f"4-kernel scale: AUC vs. head capacity ({ds_label})")
+    # === Merged single-panel figure: both scales on one axis ===
+    fig, ax = plt.subplots(1, 1, figsize=(7.5, 5))
+    plot_merged(ax, data, f"AUC vs. head capacity ({ds_label})")
     fig.tight_layout()
     out_pdf = os.path.join(args.out_dir, "capacity_sweep.pdf")
     fig.savefig(out_pdf, bbox_inches="tight")

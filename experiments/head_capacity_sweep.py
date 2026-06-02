@@ -42,6 +42,7 @@ from src.utils.training_utils import (
     build_mlp1_head,
     build_mlp2_head,
 )
+from src.utils.classical_nonlinear_features import poly2_features, rff_features
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +92,7 @@ SOURCE_NAMES = [
     "raw", "random_9", "random_45", "random_180",
     "digital_z_1k", "digital_zz_1k", "analog_z_1k", "analog_zz_1k",
     "digital_zz_4k", "analog_zz_4k",
+    "poly2_45", "rff_45", "rff_180",          # classical nonlinear controls
 ]
 
 
@@ -108,11 +110,32 @@ def build_feature_sources(dataset):
         "analog_zz_1k":  {"kind": "quantum", "config": f"{c}/analog_zz_best.yml"},
         "digital_zz_4k": {"kind": "quantum", "config": f"{c}/digital_zz_4k_best.yml"},
         "analog_zz_4k":  {"kind": "quantum", "config": f"{c}/analog_zz_4k_best.yml"},
+        "poly2_45":      {"kind": "poly2"},
+        "rff_45":        {"kind": "rff", "n_output": 45},
+        "rff_180":       {"kind": "rff", "n_output": 180},
     }
 
 
 # Populated in main() from --dataset; module-level default keeps imports working.
 FEATURE_SOURCES = build_feature_sources(DATASET)
+
+
+def standardize_features(train, val, test):
+    """Per-feature z-scoring (mean 0, unit variance), fit on train only and
+    applied to all splits, matching the LinearSVC probe's StandardScaler. Removes
+    the feature-scale confound so the capacity comparison is about information,
+    not magnitude. Operates on the flattened (C*H*W) feature vector and reshapes
+    back, so spatial structure is preserved for the CNN heads.
+    """
+    (Xtr, ytr), (Xv, yv), (Xt, yt) = train, val, test
+    mean = Xtr.reshape(Xtr.shape[0], -1).mean(0, keepdim=True)
+    std = Xtr.reshape(Xtr.shape[0], -1).std(0, keepdim=True) + 1e-6
+
+    def z(X):
+        s = X.shape
+        return ((X.reshape(s[0], -1) - mean) / std).reshape(s)
+
+    return (z(Xtr), ytr), (z(Xv), yv), (z(Xt), yt)
 
 
 def _stack(loader):
@@ -157,7 +180,7 @@ def load_features(source_name, source_spec):
         return (Xtr, ytr), (Xv, yv), (Xt, yt), Xtr.shape[1]
 
     if source_spec["kind"] == "random":
-        rng = np.random.default_rng(RANDOM_FILTER_SEED)
+        rng = np.random.default_rng(source_spec.get("seed", RANDOM_FILTER_SEED))
         N = source_spec["n_filters"]
         ks = source_spec["kernel_size"]
         st = source_spec["stride"]
@@ -179,6 +202,28 @@ def load_features(source_name, source_spec):
         (Xt,  yt)  = apply_filters(test_loader)
         return (Xtr, ytr), (Xv, yv), (Xt, yt), Xtr.shape[1]
 
+    if source_spec["kind"] in ("poly2", "rff"):
+        # Classical nonlinear controls: per-patch degree-2 / RFF maps on the
+        # raw [0,1] image, same patches the random-conv baseline sees.
+        if source_spec["kind"] == "poly2":
+            fmap = lambda x: poly2_features(x)
+        else:
+            D = source_spec["n_output"]
+            seed = source_spec.get("seed", RANDOM_FILTER_SEED)
+            fmap = lambda x: rff_features(x, D, seed=seed)
+
+        def apply_map(loader):
+            xs, ys = [], []
+            for x, y in loader:
+                xs.append(fmap(x.float()))
+                ys.append(y.long().squeeze())
+            return torch.cat(xs), torch.cat(ys)
+
+        (Xtr, ytr) = apply_map(train_loader)
+        (Xv,  yv)  = apply_map(val_loader)
+        (Xt,  yt)  = apply_map(test_loader)
+        return (Xtr, ytr), (Xv, yv), (Xt, yt), Xtr.shape[1]
+
     raise ValueError(f"Unknown source kind: {source_spec['kind']}")
 
 
@@ -187,11 +232,15 @@ def load_features(source_name, source_spec):
 # ---------------------------------------------------------------------------
 
 def train_head(head, train, val, test, lr, weight_decay, use_scheduler,
-               epochs=EPOCHS, patience=PATIENCE, batch_size=BATCH_SIZE,
+               epochs=None, patience=None, batch_size=None,
                grad_clip=GRAD_CLIP, device="cpu", seed=0):
     """Train one head with given HPs. Returns dict of val/test metrics from
     the lowest-val-loss checkpoint.
     """
+    # Read module globals at call time so --epochs/--batch-size overrides apply.
+    if epochs is None: epochs = EPOCHS
+    if patience is None: patience = PATIENCE
+    if batch_size is None: batch_size = BATCH_SIZE
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -361,7 +410,17 @@ def main():
                    default="outputs/paper_results/capacity_sweep/breast_mnist")
     p.add_argument("--device", type=str, default="auto",
                    help="'auto' | 'cuda' | 'cpu'")
+    p.add_argument("--standardize", action=argparse.BooleanOptionalAction,
+                   default=True, help="per-feature z-score each source (fit on train)")
+    p.add_argument("--num-classes", type=int, default=2,
+                   help="2 for binary MedMNIST; 8 for TissueMNIST (sets multiclass AUC)")
+    p.add_argument("--batch-size", type=int, default=None,
+                   help="override batch size (default 32; use larger for big datasets)")
+    p.add_argument("--epochs", type=int, default=None, help="override max epochs")
     args = p.parse_args()
+    globals()["NUM_CLASSES"] = args.num_classes
+    if args.batch_size is not None: globals()["BATCH_SIZE"] = args.batch_size
+    if args.epochs is not None: globals()["EPOCHS"] = args.epochs
 
     # Dataset-aware: set the module globals used by load_features and build the
     # feature-source specs (quantum config paths) for the chosen dataset.
@@ -386,6 +445,8 @@ def main():
         spec = FEATURE_SOURCES[src]
         t0 = time.time()
         (train, val, test, in_ch) = load_features(src, spec)
+        if args.standardize:
+            train, val, test = standardize_features(train, val, test)
         features[src] = (train, val, test, in_ch)
         dim = int(np.prod(train[0].shape[1:]))
         print(f"  {src:<16s}  shape={tuple(train[0].shape[1:])}  dim={dim}  "

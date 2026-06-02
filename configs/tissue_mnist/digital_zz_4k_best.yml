@@ -1,0 +1,20 @@
+# tissue_mnist 4-kernel capacity-sweep config (default topology set)
+dataset:
+  name: tissue_mnist
+  data_root: ./data
+  batch_size: 64
+  num_workers: 2
+  download: true
+  color_space: GRAYSCALE
+model:
+  num_classes: 8
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["grid", "chain", "horizontal", "kings"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  encoding_mode: "digital"
+  include_correlators: true
+  quantum_device: default.qubit
+  classical_device: auto
