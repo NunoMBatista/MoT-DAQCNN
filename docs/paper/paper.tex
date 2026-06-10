@@ -19,6 +19,16 @@
 
 \maketitle
 
+% compact vertical spacing (whitespace only, no content change)
+\setlength{\textfloatsep}{6pt plus 2pt minus 2pt}
+\setlength{\dbltextfloatsep}{7pt plus 2pt minus 2pt}
+\setlength{\floatsep}{6pt plus 2pt minus 2pt}
+\setlength{\intextsep}{6pt plus 2pt minus 2pt}
+\setlength{\abovedisplayskip}{3pt plus 1pt minus 1pt}
+\setlength{\belowdisplayskip}{3pt plus 1pt minus 1pt}
+\setlength{\abovedisplayshortskip}{1pt plus 1pt}
+\setlength{\belowdisplayshortskip}{2pt plus 1pt minus 1pt}
+
 \begin{abstract}
 Recent work has applied digital-analog quantum convolutional neural networks
 (DAQCNN) with neutral-atom Rydberg kernels to medical image classification.
@@ -111,9 +121,9 @@ We establish this with a controlled five-tier head-capacity sweep, from a
 linear probe to a trained convolutional head, applied to identical frozen
 quantum features, and replicate it across three MedMNIST datasets spanning
 two binary tasks and one larger eight-class task.
-We support it with two ablations.
-First, linear probing identifies the pairwise ZZ correlators as the
-dominant ingredient of the feature map on BreastMNIST, adding $+0.025$ to
+We support it with two compact linear-probing ablations.
+First, the probe identifies the pairwise ZZ correlators as the
+dominant ingredient on BreastMNIST, adding $+0.025$ to
 $+0.040$ AUC over single-qubit $\langle Z\rangle$ marginals; their value is
 itself conditional on task structure, however, falling to negligible or
 negative on PneumoniaMNIST, whose images are already near-linearly separable
@@ -256,13 +266,8 @@ data-independent.
 \paragraph{Analog encoding.}
 No state-preparation gates are applied.
 Instead, each pixel $x_i$ is supplied as the local detuning of atom $i$,
-modifying the Hamiltonian of Eq.~\eqref{eq:rydberg} to
-\begin{equation}
-  H_\mathrm{an}(t) = \frac{\Omega(t)}{2}\sum_i\sigma_i^x
-    - \sum_i\bigl[\Delta(t) - x_i\bigr]n_i
-    + \sum_{i<j}V_{ij}\,n_i n_j.
-  \label{eq:analog}
-\end{equation}
+modifying the Hamiltonian of Eq.~\eqref{eq:rydberg} by replacing the detuning
+term $-\Delta(t)\sum_i n_i$ with $-\sum_i[\Delta(t)-x_i]\,n_i$.
 The state begins in $|0\rangle^{\otimes k^2}$ and the pixels drive the
 quantum dynamics throughout the full evolution, producing
 data-dependent quantum trajectories rather than a data-dependent initial state.
@@ -421,29 +426,20 @@ training hyperparameters.
 To test whether the quantum-versus-classical advantage depends on the
 expressivity of the trained classifier, we vary the head architecture
 while keeping the frozen feature substrate fixed.
-We evaluate five head capacities of increasing expressivity, ordered by
-architectural expressivity:
-\begin{itemize}
-\item \emph{Linear}: \texttt{Flatten} + \texttt{Linear}$(C)$.
-\item \emph{MLP-1}: \texttt{Flatten} + \texttt{Linear}$(H)$ + Act + Dropout
-        + \texttt{Linear}$(C)$, with $H=32$.
-\item \emph{MLP-2}: \texttt{Flatten} + \texttt{Linear}$(H_1)$ + Act + Dropout
-        + \texttt{Linear}$(H_2)$ + Act + Dropout + \texttt{Linear}$(C)$,
-        with $H_1=64,\,H_2=32$.
-\item \emph{CNN-16}: the classification head of
-        Section~\ref{sec:classical_head} with $16$ channels in the
-        convolutional stack.
-\item \emph{CNN-64}: the same head with $64$ channels (the default used
-        elsewhere in this work).
-\end{itemize}
+We evaluate five head capacities of increasing expressivity:
+\emph{Linear}, a single \texttt{Linear}$(C)$ on the flattened features;
+\emph{MLP-1}, one hidden layer ($H=32$) with activation and dropout;
+\emph{MLP-2}, two hidden layers ($H_1=64,\,H_2=32$), each with activation and
+dropout; and \emph{CNN-16}\,/\,\emph{CNN-64}, the convolutional head of
+Section~\ref{sec:classical_head} with $16$ and $64$ channels respectively.
 
 For each (head, feature source) cell, a 30-trial Optuna search over
 learning rate, weight decay, and dropout selects the best configuration
 on validation accuracy; the top-$1$ configuration is then validated over
 $10$ random seeds.
-All remaining training settings are held fixed across cells
-(Table~\ref{tab:hpsearch}, right column), with the batch size raised for
-the larger multi-class dataset.
+All remaining training settings are held fixed across cells (Adam, cosine
+schedule, gradient-clip norm $1$, batch size $32$ raised for the larger
+multi-class dataset, up to $100$ epochs).
 Feature sources span both scales: at $M=1$ we use the best-performing
 topology of each encoding mode from Section~\ref{sec:probing_method},
 matched in dimensionality ($3{,}645$ features per patch) against a
@@ -469,9 +465,8 @@ Table~\ref{tab:endtoend}; the sweep is designed to expose the trend
 across head capacity rather than to reproduce those values.
 Each source uses a single per-encoding topology fixed from our
 configuration search rather than re-selected per head, and this topology
-is not in general the one that maximizes the test-set probe AUC of
-Fig.~\ref{fig:topology_probing}; the linear rung here therefore need not
-reproduce that figure's per-encoding best cell.
+is not in general the one that maximizes the test-set probe AUC, so the
+linear rung here need not reproduce the probe's per-encoding best cell.
 
 
 \section{Experimental Setup}
@@ -520,50 +515,22 @@ Optuna~\cite{akiba2019optuna} (TPE sampler, 200 trials per search on the
 binary datasets; 25 on the larger TissueMNIST).
 The objective is validation accuracy; the test set is not accessed during
 search.
-The search space, summarised in Table~\ref{tab:hpsearch}, is identical
-across all model families.
+The search space is identical across all model families: learning rate
+LogU$[10^{-8}, 5\!\times\!10^{-3}]$, weight decay LogU$[10^{-8}, 10^{-3}]$,
+dropout U$[0, 0.7]$, gradient-clip norm U$[0, 10]$, ReLU or GELU activation,
+batch size $16/32/64$, and an optional cosine schedule, optimised by Adam for
+up to $100$ epochs.
 For quantum models the atom-array topology is an additional categorical
 dimension (one of the eight $3\!\times\!3$ geometries at single-kernel
 scale, or one of five four-topology sets at the multi-kernel scale), so
 quantum models face a strictly harder search problem than classical models
 under the same trial budget.
+The head-capacity sweep instead tunes only learning rate
+(LogU$[10^{-5}, 5\!\times\!10^{-3}]$), weight decay, and dropout per cell at a
+fixed topology, holding the rest at the values above.
 The top-1 configuration from each search is re-evaluated over ten random seeds
 (five for TissueMNIST); we report mean $\pm$ standard deviation of test
 accuracy and AUC.
-
-\begin{table}[t]
-\centering
-\caption{Hyperparameter search spaces. The end-to-end search
-(Table~\ref{tab:endtoend}) tunes every listed dimension per model with
-Optuna; the head-capacity sweep (Fig.~\ref{fig:capacity_sweep}) tunes only
-the optimiser triple per cell and holds the rest fixed. ``LogU'' and ``U''
-denote log-uniform and uniform search distributions; single values are
-held fixed. The topology dimension applies to quantum models only:
-one of eight single-kernel geometries or five four-kernel sets.}
-\label{tab:hpsearch}
-\footnotesize
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcc}
-\toprule
-Hyperparameter & End-to-end & Capacity sweep \\
-\midrule
-Learning rate      & LogU$[10^{-8}, 5\!\times\!10^{-3}]$ & LogU$[10^{-5}, 5\!\times\!10^{-3}]$ \\
-Weight decay       & LogU$[10^{-8}, 10^{-3}]$ & LogU$[10^{-8}, 10^{-3}]$ \\
-Dropout            & U$[0, 0.7]$ & U$[0, 0.7]$ \\
-Grad-clip norm     & U$[0, 10]$ & $1.0$ \\
-Patience           & $\le 100$ & $30$ \\
-Activation         & ReLU\,/\,GELU & GELU \\
-Batch size         & $16/32/64$ & $32$ \\
-LR scheduler       & cosine\,/\,off & cosine \\
-Topology (quantum) & $8$\,/\,$5$ sets & fixed \\
-\midrule
-Optimiser          & Adam & Adam \\
-Max epochs         & $100$ & $100$ \\
-Optuna trials      & $200$ & $30$ \\
-Validation seeds   & $10$ & $10$ \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \subsection{Implementation}
 
@@ -587,98 +554,40 @@ hardware.
 \subsection{Linear Feature Probing}
 \label{sec:results_probing}
 
-Figure~\ref{fig:topology_probing} reports the linear-SVM probing AUC
-for all eight $3\!\times\!3$ topologies of each encoding mode at the
-single-kernel scale, and for five four-topology sets at the four-kernel
-scale.
+We probe the frozen features with a linear SVM at matched dimensionality,
+averaging across the eight $3\!\times\!3$ topologies of each encoding (and the
+five four-topology sets at the four-kernel scale) rather than reporting a
+single test-selected best cell, which is optimistically biased.
+This sweep is a representational measure that also supplies the topologies used
+downstream; it is not the operating point for any advantage claim, a role that
+belongs to the head-capacity sweep (Fig.~\ref{fig:capacity_sweep}), whose
+linear rung trains a regularization-tuned head on the same features.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{figures/topology_sweep_heatmap.pdf}
-\caption{Linear-SVM probing AUC on BreastMNIST.
-\emph{Top}: eight $3\!\times\!3$ topologies $\times$ three encoding
-modes at single-kernel scale ($3{,}645$-dim, except Digital-Z at
-$729$).
-\emph{Bottom}: five four-topology sets $\times$ three encodings at
-four-kernel scale ($14{,}580$-dim, except Digital-Z at $2{,}916$).
-The red line on each colourbar marks the dimension-matched random
-projection baseline.}
-\label{fig:topology_probing}
-\end{figure}
+On BreastMNIST the mean probing AUC is $0.797$ for Digital-ZZ and $0.804$ for
+Analog-ZZ, against a seed-averaged $0.784$ for the Random$\times 45$ baseline,
+while Digital-Z (no correlators) reaches only $0.772$, at or below random:
+single-qubit $\langle Z_i\rangle$ marginals carry little separability beyond
+unstructured projections.
+Enabling ZZ correlators raises probing AUC by a mean of $+0.025$ at
+single-kernel and $+0.040$ at four-kernel scale, supplying the bulk of the
+feature map's value, whereas the encoding effect is null: the
+Analog-ZZ$-$Digital-ZZ mean is $+0.007$ at single-kernel and $-0.009$ at
+four-kernel scale, both within one standard deviation of zero across
+topologies, so the two encodings yield comparably separable features despite
+accessing different function classes (Section~\ref{sec:method}).
+One caveat guides the comparisons below: the fixed-margin SVM understates
+high-dimensional classical maps, and once their regularization is tuned the
+classical nonlinear baselines match the quantum kernels at the linear rung
+(Section~\ref{sec:results_capacity}).
 
-On BreastMNIST, at matched dimensionality ($3{,}645$ features), quantum
-kernels with ZZ correlators outperform unstructured random projections of
-the same dimensionality on most topologies.
-The mean probing AUC across the eight $3\!\times\!3$ topologies is
-$0.797$ for Digital-ZZ and $0.804$ for Analog-ZZ, against a seed-averaged
-$0.784$ for the Random$\times 45$ baseline (margins of $+0.013$ and
-$+0.020$).
-Digital-Z, which omits the ZZ correlator outputs, reaches a mean of
-$0.772$, at or below the random-filter baseline: single-qubit
-$\langle Z_i\rangle$ marginals on their own carry little separability
-beyond what unstructured random projections
-already span.
-
-\paragraph{Reading the probe.}
-This sweep is a representational and ablation measure: it identifies which
-geometry, encoding, and measurement set yield the most linearly separable
-features, and supplies the topologies used downstream.
-It is not the operating point for any quantum-versus-classical advantage
-claim; that role belongs to the head-capacity sweep
-(Fig.~\ref{fig:capacity_sweep}), whose linear rung trains a
-regularization-tuned head on the same features.
-Two cautions follow.
-First, the per-encoding best cell in Fig.~\ref{fig:topology_probing} is
-selected on test AUC and is therefore an optimistic point estimate; under
-validation-based topology selection the best-case figures are lower (for
-Analog-ZZ the best topology falls from $0.849$ to $\approx 0.79$), which is
-why we compare topology means rather than maxima.
-Second, the fixed-margin linear SVM used here understates high-dimensional
-classical maps; once their regularization is tuned, the classical nonlinear
-baselines match the quantum kernels at the linear rung
-(Sec.~\ref{sec:results}).
-
-\paragraph{ZZ correlators.}
-At matched topology and digital encoding, enabling ZZ correlators
-raises probing AUC by a mean of $+0.025$ across the eight $3\!\times\!3$
-topologies (range $-0.018$ to $+0.058$), with positive sign in six of
-eight topologies.
-The same ablation at the four-kernel scale yields a larger mean effect
-of $+0.040$ (range $+0.022$ to $+0.054$), positive across all five
-topology sets tested.
-ZZ correlators carry information that the single-qubit marginals do
-not, consistent with their interpretation as observables of
-inter-qubit correlations induced by entangling dynamics.
-
-\paragraph{Encoding mode.}
-At matched topology and matched measurement set, the encoding effect
-is small and topology-dependent.
-The mean of $(\mathrm{Analog\text{-}ZZ}) - (\mathrm{Digital\text{-}ZZ})$
-across the eight $3\!\times\!3$ topologies is $+0.007$ AUC (analog
-wins five of eight topologies), and the same statistic at the
-four-kernel scale is $-0.009$ AUC (digital wins all five sets).
-Both means are within one standard deviation of zero across topologies.
-The two encodings access qualitatively different function classes
-(Section~\ref{sec:method}), but on BreastMNIST they produce features
-of comparable linear separability.
-
-\paragraph{Task-structure dependence (PneumoniaMNIST).}
-The picture changes on PneumoniaMNIST, whose images are already
-highly separable from single-qubit features.
-The mean Digital-Z probing AUC across the eight $3\!\times\!3$ topologies
-is $0.923$ (best $0.934$, \emph{vertical}), against $0.772$ on BreastMNIST.
-With little separability headroom left, the ZZ correlators add almost
-nothing: the Digital-ZZ$-$Digital-Z effect is only $+0.003$ at single-kernel
-scale (positive in six of eight topologies) and turns \emph{negative} at
-four-kernel scale ($-0.013$ digital, $-0.021$ analog), where the additional
-correlator dimensions act as noise rather than signal.
-The encoding effect is again small (mean
-$(\mathrm{Analog\text{-}ZZ})-(\mathrm{Digital\text{-}ZZ})$ of $-0.012$ at
-single-kernel scale).
-The contribution of the ZZ correlators is therefore specific to tasks,
-like BreastMNIST, whose single-qubit representation leaves separability
-headroom; on a task already near-linearly separable from $\langle Z\rangle$
-alone, the correlators are redundant.
+The picture changes on PneumoniaMNIST, already highly separable from
+single-qubit features (mean Digital-Z probing AUC $0.923$ versus $0.772$ on
+BreastMNIST).
+With little headroom left, ZZ correlators add almost nothing ($+0.003$ at
+single-kernel scale, negative at four-kernel), and the encoding effect is again
+small.
+The contribution of the correlators is therefore specific to tasks whose
+single-qubit representation leaves separability headroom.
 
 \subsection{End-to-End Classification}
 \label{sec:results_endtoend}
@@ -736,58 +645,38 @@ families after $10$-seed validation of each Optuna top-$1$
 configuration.
 
 \paragraph{No family dominates.}
-The highest AUC ($0.901 \pm 0.005$) is achieved by Digital-ZZ at the
-four-kernel scale; the highest accuracy ($0.862$) is shared by
-Classical-Random and Classical-Trainable at the single-kernel scale.
-The best-quantum-vs-best-classical AUC gap is $+0.006$ in favour of
-the quantum model; the corresponding accuracy gap is $+0.010$ in
-favour of the classical model.
-Both differences fall within one standard deviation.
+The highest AUC ($0.901$) is Digital-ZZ at four-kernel scale, and the
+highest accuracy is shared by the classical single-kernel baselines.
+The best-quantum-vs-best-classical gap is $+0.006$ AUC (favouring quantum)
+and $+0.010$ accuracy (favouring classical), both within one standard
+deviation.
 
-\paragraph{ZZ ablation at end-to-end.}
-At the single-kernel scale, Digital-Z reaches AUC $0.868 \pm 0.007$
-and Digital-ZZ reaches $0.883 \pm 0.012$; including ZZ correlators
-adds $+0.015$ AUC at the trained-head level, consistent in direction
-with the probe-level finding although smaller in magnitude.
-
-\paragraph{Encoding ablation at end-to-end.}
-The single- and four-kernel scales disagree on which encoding wins,
-both by under one standard deviation.
-At $M=1$, Analog-ZZ achieves AUC $0.889 \pm 0.010$ versus Digital-ZZ's
-$0.883 \pm 0.012$ ($+0.006$ for analog).
-At $M=4$, Digital-ZZ achieves $0.901 \pm 0.005$ versus Analog-ZZ's
-$0.893 \pm 0.010$ ($+0.008$ for digital).
-The end-to-end encoding-effect direction therefore flips with
-dimensionality, mirroring the same pattern seen in the topology
-probing (Section~\ref{sec:results_probing}).
+\paragraph{ZZ and encoding ablations at end-to-end.}
+Adding ZZ correlators raises single-kernel AUC by $+0.015$ ($0.868\to0.883$),
+consistent in direction with the probe finding but smaller.
+The encoding effect flips sign with scale and stays under one standard
+deviation: analog leads by $+0.006$ AUC at $M=1$ and digital by $+0.008$ at
+$M=4$, mirroring the topology probing (Section~\ref{sec:results_probing}).
 
 \paragraph{Parity on PneumoniaMNIST.}
-The PneumoniaMNIST columns of Table~\ref{tab:endtoend} show a different
-pattern.
-Here the single highest AUC ($0.962 \pm 0.001$) belongs to a classical model,
-the random-Fourier-feature map at $45$ dimensions, narrowly exceeding the best
-quantum model (Analog-ZZ at four-kernel scale, $0.959 \pm 0.002$) by $0.003$;
-the best quantum and best classical AUCs again agree to within roughly one
-standard deviation, but on this dataset the nonlinear classical map is
+On PneumoniaMNIST the single highest AUC ($0.962$) is a classical model, the
+RFF$\times 45$ map, narrowly ahead of the best quantum model ($0.959$) by
+$0.003$ within one standard deviation, but with the nonlinear classical map
 marginally ahead rather than behind.
-Consistent with the probing analysis, ZZ correlators give no end-to-end
-benefit here: at single-kernel scale Digital-Z ($0.953$) slightly exceeds
-Digital-ZZ ($0.948$).
-The dataset that gains from correlators at the probe (BreastMNIST) is also the
-one where they survive to the operating point; the dataset that does not
-(PneumoniaMNIST) shows no end-to-end ZZ benefit, reinforcing the
-task-structure dependence of Section~\ref{sec:results_probing}.
+ZZ correlators give no end-to-end benefit here (Digital-Z $0.953$ slightly
+exceeds Digital-ZZ $0.948$): the dataset that gains from correlators at the
+probe (BreastMNIST) is the one where they survive to the operating point,
+while PneumoniaMNIST shows none, reinforcing the task-structure dependence of
+Section~\ref{sec:results_probing}.
 
 \paragraph{Reversal on TissueMNIST.}
 The eight-class TissueMNIST columns show the clearest separation between the
 camps.
 The best classical model, the poly-2 nonlinear map, reaches macro one-vs-rest
-AUC $0.896 \pm 0.001$, exceeding the best quantum model (single-kernel scale,
-$0.880$, with the digital and analog encodings agreeing to within $0.001$) by
-$0.016$; even raw pixels ($0.886 \pm 0.000$) outperform every quantum model.
-The digital-versus-analog encoding difference is again negligible
-($+0.001$ at single-kernel, $-0.002$ at four-kernel scale), matching the null
-seen on the two binary datasets.
+AUC $0.896$, exceeding the best quantum model ($0.880$, digital and analog tied
+to within $0.001$) by $0.016$; even raw pixels ($0.886$) outperform every
+quantum model, and the encoding difference is again negligible, matching the
+binary-dataset null.
 This is the one dataset where the quantum kernel leads matched classical
 nonlinearity at low classifier capacity (Section~\ref{sec:results_capacity}),
 so the operating-point reversal is the cleanest demonstration of the
@@ -841,48 +730,35 @@ point (Table~\ref{tab:endtoend}).}
 \end{figure*}
 
 \paragraph{Quantum versus classical nonlinearity.}
-With features standardized, the strongest quantum source and the
-strongest dimension-matched classical source track each other across
-the entire ladder.
-The best-quantum minus best-classical AUC difference stays within
-$\pm 0.008$ at every head on both datasets (BreastMNIST: $-0.006$,
-$+0.007$, $+0.005$, $+0.004$, $+0.008$ across the five heads;
-PneumoniaMNIST: $-0.003$, $+0.006$, $+0.003$, $+0.003$, $-0.001$), all
-inside one standard deviation.
+With features standardized, the strongest quantum and strongest
+dimension-matched classical sources track each other across the ladder: the
+best-quantum minus best-classical AUC stays within $\pm 0.008$ at every head
+on both datasets, inside one standard deviation.
 The decisive control is the nonlinear map.
-Digital-ZZ never exceeds RFF by more than one standard deviation at any
-head on either dataset, and on PneumoniaMNIST RFF significantly
-outperforms Digital-ZZ at the linear probe ($-0.030$) and at CNN-$16$
-($-0.010$).
-A classical degree-two polynomial and an RBF random-feature map of the
-same dimensionality thus reproduce whatever the quantum kernel provides.
+Digital-ZZ never exceeds RFF by more than one standard deviation at any head,
+and on PneumoniaMNIST RFF outperforms it at the linear probe ($-0.030$) and at
+CNN-$16$ ($-0.010$).
+A degree-two polynomial and an RBF random-feature map of the same
+dimensionality thus reproduce whatever the quantum kernel provides.
 
 \paragraph{Quantum versus random projection, and capacity conditioning.}
-Against the \emph{linear} random projection the quantum sources do lead
-at intermediate capacity: the Digital-ZZ minus Random$\times 45$ gap is
-$+0.020$ and $+0.040$ on BreastMNIST at MLP-$1$ and MLP-$2$, and
-$+0.008$ and $+0.010$ on PneumoniaMNIST, each exceeding one standard
-deviation.
-But poly-2 and RFF achieve the same margin over the random projection,
-so this lead reflects nonlinear feature expansion rather than quantum
-structure, and it converges to within noise at the CNN heads.
-The low-capacity behaviour is also dataset dependent.
-On the near-linearly-separable PneumoniaMNIST the quantum sources are
-the \emph{weakest} at the linear probe (Digital-ZZ $0.901$ at
-single-kernel and $0.877$ at four-kernel scale, versus raw pixels
-$0.932$, Random$\times 45$ $0.925$, and RFF $0.931$), as the entangling
-transform disrupts structure that is already linearly accessible; only
-on BreastMNIST, whose raw separability is lower, do the quantum sources
-lead at the probe.
+Against the \emph{linear} random projection the quantum sources do lead at
+intermediate capacity ($+0.020$ and $+0.040$ on BreastMNIST at MLP-$1$ and
+MLP-$2$, $+0.008$ and $+0.010$ on PneumoniaMNIST, each above one standard
+deviation), but poly-2 and RFF achieve the same margin, so this lead reflects
+nonlinear feature expansion rather than quantum structure, and it converges to
+noise at the CNN heads.
+The effect is dataset dependent: on the near-separable PneumoniaMNIST the
+quantum sources are the \emph{weakest} at the linear probe, below raw pixels
+and random projections, as the entangling transform disrupts already-accessible
+structure; only on the lower-separability BreastMNIST do they lead at the
+probe.
 
 \paragraph{ZZ ablation across capacities.}
-The benefit of the correlators is itself task dependent.
-On BreastMNIST the Digital-ZZ minus Digital-Z gap is large and
-significant at low capacity ($+0.026$, $+0.054$, $+0.067$ across Linear,
-MLP-$1$, and MLP-$2$) and remains positive but within noise at the two
-CNN heads ($+0.015$, $+0.012$).
-On PneumoniaMNIST the same gap is negative at the probe ($-0.029$) and
-small thereafter ($+0.009$, $+0.007$, $-0.004$, $+0.002$), consistent
+The correlator benefit is task dependent.
+On BreastMNIST the Digital-ZZ minus Digital-Z gap is large at low capacity
+(up to $+0.067$ at MLP-$2$) and positive but within noise at the CNN heads;
+on PneumoniaMNIST it is negative at the probe and small thereafter, consistent
 with that task being already separable from $\langle Z\rangle$ alone.
 The correlators add separable structure only when the single-qubit
 representation leaves headroom.
@@ -913,15 +789,11 @@ RFF at $45$ dimensions, $+0.010$ over RFF$\times 180$).
 It is nonetheless capacity-limited in the same way as the binary datasets:
 an expressive trained head closes and then reverses it, with the best
 classical source leading by approximately $0.010$ AUC at the CNN-$64$ head.
-The end-to-end operating point (Table~\ref{tab:endtoend}) confirms this
-reversal: with a fully tuned trained head the best classical model, the
-poly-2 map, reaches AUC $0.896 \pm 0.001$, the best quantum model
-(Digital-ZZ 1k) reaches $0.880 \pm 0.002$, and even raw pixels
-($0.886 \pm 0.000$) exceed every quantum model, a $+0.016$ AUC margin for
-classical nonlinearity over quantum at the operating point.
-The two scales agree in both camps: four-kernel features add nothing over a
-single kernel ($0.878$ versus $0.880$ quantum; $0.890$ versus $0.892$
-random).
+The end-to-end operating point (Table~\ref{tab:endtoend},
+Section~\ref{sec:results_endtoend}) confirms the reversal: poly-2 leads the
+best quantum model by $+0.016$ AUC and even raw pixels exceed every quantum
+model, with four-kernel features adding nothing over a single kernel in either
+camp.
 TissueMNIST therefore sharpens rather than overturns the central finding:
 only on the hardest, highest-dimensional task does the quantum kernel beat
 \emph{tuned} classical nonlinearity, and only while the head is weak.
@@ -960,108 +832,82 @@ Three findings emerge.
 
 \paragraph{The ZZ correlators contribute, but only when the task
 needs them.}
-On BreastMNIST, single-qubit $\langle Z_i\rangle$ measurements alone
-(Digital-Z) produce features whose linear separability is no better than
-that of unstructured random projections (mean AUC $0.772$, versus a
-seed-averaged $0.784$ for the higher-dimensional Random$\times 45$
-baseline), and
-adding the pairwise $\langle Z_iZ_j\rangle$ correlators raises mean
-probing AUC by $+0.025$ at single-kernel scale and $+0.040$ at
-four-kernel scale.
-On PneumoniaMNIST the single-qubit features are already highly separable
-(Digital-Z probe AUC $0.923$), and the correlators add essentially
-nothing ($+0.003$ at single-kernel scale, negative at four-kernel
-scale).
+On BreastMNIST, single-qubit $\langle Z_i\rangle$ features alone are no
+more separable than unstructured random projections, and the pairwise
+$\langle Z_iZ_j\rangle$ correlators supply the bulk of the feature map's
+value ($+0.025$ to $+0.040$ mean probing AUC).
+On PneumoniaMNIST, whose single-qubit features are already highly separable,
+the same correlators add essentially nothing.
 The entanglement-mediated correlators help only when the single-qubit
 representation leaves separability headroom.
 
 \paragraph{The quantum-versus-classical advantage is conditional on
 classifier capacity and is not specifically quantum.}
-The quantum kernels lead a dimension-matched \emph{linear} random
-projection at intermediate capacity, by up to $+0.040$ AUC on
-BreastMNIST, but classical nonlinear feature maps of the same
-dimensionality, a per-patch degree-two polynomial and random Fourier
-features, reproduce that lead.
-The strongest quantum source ties the strongest classical source at
-every head on both datasets (best-quantum minus best-classical within
-$\pm 0.008$, inside one standard deviation), and on the near-separable
-PneumoniaMNIST the quantum sources are in fact the weakest at the linear
-probe.
-As classifier capacity grows the gap over the random projection shrinks
-to a statistical tie under a trained CNN.
+The quantum kernels lead a dimension-matched \emph{linear} random projection
+at intermediate capacity, but classical nonlinear feature maps of the same
+dimensionality (a per-patch degree-two polynomial and random Fourier features)
+reproduce that lead, and it shrinks to a statistical tie as capacity grows to a
+trained CNN; on the near-separable PneumoniaMNIST the quantum sources are in
+fact the weakest at the linear probe.
 The DAQCNN advantage in this regime therefore lives at the feature
 substrate, is reproduced by classical nonlinearity, and is absorbed by a
 sufficiently expressive trained head.
-This pattern is consistent with independent large-scale evidence on
-neutral-atom hardware, where an analog quantum-reservoir advantage over
-classical learners is observed only on synthetic datasets constructed to
-exhibit a quantum-classical kernel separation, and not on natural
-data~\cite{kornjaca2024largescale}.
+This pattern matches independent large-scale neutral-atom evidence, where an
+analog quantum-reservoir advantage over classical learners appears only on
+synthetic datasets built to exhibit a quantum-classical kernel separation, not
+on natural data~\cite{kornjaca2024largescale}.
 
 \paragraph{Implications for mature quantum hardware.}
-The only advantage we observe is over a \emph{linear} random projection,
-and a classical randomized nonlinear map of equal dimensionality (random
-Fourier features) erases it.
-The value of a Rydberg kernel therefore cannot rest on the mere fact that
-it is nonlinear, since cheap classical methods already compute nonlinear
-kernels.
-The narrower defensible case is that the dynamics define a specific family
-of feature maps that, at large enough atom counts, becomes classically
-intractable to evaluate; an advantage then requires both that hardness and
-a task whose structure aligns with that family.
-At the nine-qubit scale tested here neither condition holds: the features
-are precomputed on a CPU, and they match cheap classical nonlinearity.
-Inexpensive, fault-tolerant, ubiquitous QPUs would not by themselves make
-such kernels useful for tasks like these; they would only reduce the cost
-of accessing a kernel family whose usefulness over classical nonlinear
-maps remains, on natural data, unestablished.
+Since a classical randomized nonlinear map of equal dimensionality (random
+Fourier features) erases the only advantage we observe, the value of a Rydberg
+kernel cannot rest on nonlinearity alone, which cheap classical methods already
+provide.
+The narrower defensible case is that the dynamics define a specific feature-map
+family that, at large enough atom counts, becomes classically intractable to
+evaluate; an advantage then requires both that hardness and a task aligned with
+that family.
+Neither holds at the nine-qubit scale tested here: the features are precomputed
+on a CPU and match cheap classical nonlinearity.
+Inexpensive, ubiquitous QPUs would not by themselves make such kernels useful
+here; they would only lower the cost of accessing a kernel family whose
+usefulness over classical nonlinear maps remains, on natural data,
+unestablished.
 
 \paragraph{Encoding mode is empirically neutral on these tasks.}
-The qualitatively broader function class accessed by analog encoding
-does not translate into a measurable classification advantage on any of the
-three datasets.
+The qualitatively broader function class accessed by analog encoding does not
+translate into a measurable classification advantage on any of the three
+datasets.
 Although local detuning increases Rydberg-kernel expressiveness on
-graph-structured data~\cite{djellabi2025attributed}, on image classification
-at this resolution and dataset size that broader function class does not
-improve linear separability.
-We interpret this as a scope limitation rather than a refutation of
-the framework: image classification at this resolution is not
-bottlenecked by the Fourier ceiling of digital encoding,
-since the target function is dominated by spatial texture and shape
-structure that a degree-one Fourier basis on pixel intensities,
-combined with entangling Hamiltonian dynamics, can already express.
-Tasks whose target function depends on input values through
-high-frequency or irrational-frequency components, such as
-signal-processing problems, tabular regression with oscillatory
-dependencies, or symbolic regression, may be more natural settings in
-which the analog advantage manifests, and we leave such evaluation to
+graph-structured data~\cite{djellabi2025attributed}, image classification at
+this resolution is not bottlenecked by the Fourier ceiling of digital
+encoding: the target is dominated by spatial texture and shape that a
+degree-one Fourier basis, combined with entangling dynamics, already expresses.
+Tasks whose target depends on high-frequency or irrational-frequency
+components, and higher-resolution benchmarks with lower single-qubit
+separability, are more natural settings for an analog advantage and are left to
 future work.
-Extending this analysis to higher-resolution benchmarks, where single-qubit
-separability is lower than in the $28\!\times\!28$ tasks studied here, is a
-natural next step.
 
 \paragraph{Tuning the quantum kernel.}
 Our kernels are frozen at a single evolution time ($T = 2.5$) and fixed
-atom geometries, so these results bound only the untuned configuration.
-A natural next step is a joint sweep of evolution time and array
-geometry under both encodings, paired with a direct measure of the
-generated entanglement (bipartite von Neumann entropy) and of
-kernel-target alignment, to test whether the usefulness of the feature
-substrate is sensitive to these physical controls or saturates
-regardless of them.
-Such a sweep is a coarse, gradient-free form of kernel tuning, and a
-prerequisite for the more ambitious direction of trainable Rydberg
-kernels in which the detuning schedule or geometry is optimized end to
-end.
-We regard the latter as promising but contingent: it must contend with
-the exponential-concentration barrier that limits the trainability of
-generic quantum kernels, and our capacity-conditioning result suggests
-that on tasks where classical nonlinear feature maps already saturate
-performance, optimizing the kernel may yield little beyond a costlier
-route to the same ceiling.
-The strongest case for trainable kernels is therefore on data with an
-intrinsic quantum-classical kernel separation rather than on natural
-images at this scale.
+geometries, so these results bound only the untuned configuration.
+A natural next step is a joint sweep of evolution time and array geometry under
+both encodings, paired with measures of generated entanglement and
+kernel-target alignment, to test whether the substrate's usefulness is
+sensitive to these physical controls.
+This is a prerequisite for trainable Rydberg kernels, which we regard as
+promising but contingent: they must contend with the exponential-concentration
+barrier, and where classical nonlinear maps already saturate performance,
+optimizing the kernel may be a costlier route to the same ceiling.
+
+\paragraph{Attention-based classifier heads.}
+Our capacity ladder spans linear, MLP, and convolutional heads, which impose
+either a dense or a locality-and-translation prior on the patch grid.
+Global self-attention is a categorically different inductive bias: it mixes
+information across all patches without a built-in locality prior, integrating
+the per-patch quantum features in a way the local kernels cannot, at the cost
+of a stronger dependence on training-set size.
+Whether the capacity-conditioning verdict persists under this inductive bias
+is left to future work.
 
 
 \section*{Acknowledgment}
