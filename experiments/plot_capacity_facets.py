@@ -48,12 +48,16 @@ PANELS = [
 def load(csv_path):
     d = {}
     for r in csv.DictReader(open(csv_path)):
-        d[(r["head"], r["source"])] = float(r["test_auc_mean"])
+        d[(r["head"], r["source"])] = (float(r["test_auc_mean"]),
+                                       float(r["test_auc_std"]))
     return d
 
 
 def series(d, src):
-    return np.array([d.get((h, src), np.nan) for h in HEADS])
+    """Return (means, stds) over the head ladder for a source."""
+    m = np.array([d.get((h, src), (np.nan, np.nan))[0] for h in HEADS])
+    s = np.array([d.get((h, src), (np.nan, np.nan))[1] for h in HEADS])
+    return m, s
 
 
 def main():
@@ -63,21 +67,25 @@ def main():
     ap.add_argument("--title", default="")
     args = ap.parse_args()
     d = load(args.csv)
-    raw = series(d, "raw")
+    raw_m, _ = series(d, "raw")
 
-    # shared y-range from all plotted sources
-    allv = [v for k, v in d.items() if not np.isnan(v)]
-    ylo, yhi = min(allv) - 0.005, max(allv) + 0.005
+    # shared y-range from all plotted means (+/- a hair of headroom for the bands)
+    allv = [m for (m, s) in d.values() if not np.isnan(m)]
+    ylo, yhi = min(allv) - 0.02, max(allv) + 0.015
     x = np.arange(len(HEADS))
 
     fig, axes = plt.subplots(2, 2, figsize=(9.0, 4.6), sharex=True, sharey=True)
     for ax, (title, color, lines) in zip(axes.ravel(), PANELS):
-        # common anchor: raw pixels, faint gray
-        ax.plot(x, raw, color="#999999", ls=(0, (1, 1)), lw=1.2, alpha=0.7,
+        # common anchor: raw pixels, faint gray (no band, kept as a clean reference)
+        ax.plot(x, raw_m, color="#999999", ls=(0, (1, 1)), lw=1.2, alpha=0.7,
                 marker="x", markersize=4, label="Raw pixels", zorder=1)
         for src, scale, lab in lines:
             ls, mk = SCALE_STYLE[scale]
-            ax.plot(x, series(d, src), color=color, ls=ls, lw=1.9,
+            m, s = series(d, src)
+            # +/-1 SD band over the 10 evaluation seeds
+            ax.fill_between(x, m - s, m + s, color=color, alpha=0.12,
+                            lw=0, zorder=2)
+            ax.plot(x, m, color=color, ls=ls, lw=1.9,
                     marker=mk, markersize=4.5, label=lab, zorder=3)
         ax.set_title(title, fontsize=10)
         ax.set_ylim(ylo, yhi)

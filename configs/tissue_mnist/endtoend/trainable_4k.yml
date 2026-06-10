@@ -1,0 +1,32 @@
+# TissueMNIST end-to-end classical baseline: trainable 3x3 filters, 180 channels.
+dataset:
+  name: tissue_mnist
+  data_root: ./data
+  batch_size: 256
+  num_workers: 2
+  download: true
+  color_space: GRAYSCALE
+
+model:
+  architecture: classical_baseline
+  num_classes: 8
+  in_channels: 1
+  kernel_size: 3
+  stride: 3
+  out_channels: 180
+  fixed_random_filters: false
+  dropout: 0.5
+  activation: relu
+  head_hidden_channels: 64
+
+optim:
+  lr: 0.001
+  weight_decay: 1e-4
+  epochs: 100
+  grad_clip: 5.0
+  patience: 20
+  use_scheduler: true
+
+misc:
+  seed: [0, 1, 2, 3, 4]
+  log_every: 50

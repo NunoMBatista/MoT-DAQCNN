@@ -1,0 +1,40 @@
+# TissueMNIST end-to-end DAQCNN, analog + ZZ, four kernels.
+# Topology fixed to grid+chain+horizontal+star (grid+chain+horizontal base set
+# plus the val-selected analog 1k winner star).
+dataset:
+  name: tissue_mnist
+  data_root: ./data
+  batch_size: 256
+  num_workers: 2
+  download: true
+  color_space: GRAYSCALE
+
+model:
+  architecture: "original"
+  num_classes: 8
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["grid", "chain", "horizontal", "star"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  encoding_mode: "analog"
+  include_correlators: true
+  dropout: 0.5
+  activation: gelu
+  quantum_device: default.qubit
+  classical_device: auto
+
+optim:
+  lr: 0.0001
+  weight_decay: 0.000001
+  epochs: 100
+  grad_clip: 1.0
+  patience: 15
+  use_scheduler: true
+  scheduler_T_max: 100
+  scheduler_eta_min: 0.0
+
+misc:
+  seed: [0, 1, 2, 3, 4]
+  log_every: 50

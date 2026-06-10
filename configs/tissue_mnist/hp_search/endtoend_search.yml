@@ -1,0 +1,40 @@
+# Shared end-to-end search space for the TissueMNIST table. Topology and model
+# type are fixed in each base config, so this only tunes the training HPs. Same
+# ranges as the Breast/Pneumonia searches, batch sizes raised for the larger
+# (165k-image) dataset.
+settings:
+  metric: val_acc
+  direction: maximize
+  study_name: tissue_endtoend
+
+search_space:
+  optim.lr:
+    type: loguniform
+    low:  1.0e-8
+    high: 5.0e-3
+  optim.weight_decay:
+    type: loguniform
+    low:  1.0e-8
+    high: 1.0e-3
+  optim.grad_clip:
+    type: uniform
+    low:  0.0
+    high: 10.0
+  optim.patience:
+    type: int
+    low:  5
+    high: 40
+    step: 5
+  optim.use_scheduler:
+    type: categorical
+    choices: [true, false]
+  model.dropout:
+    type: uniform
+    low:  0.0
+    high: 0.7
+  model.activation:
+    type: categorical
+    choices: ["relu", "gelu"]
+  dataset.batch_size:
+    type: categorical
+    choices: [128, 256, 512]

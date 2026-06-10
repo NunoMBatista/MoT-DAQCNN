@@ -463,6 +463,9 @@ def main():
         for head in args.heads:
             cell_dir = cells_dir / f"{head}__{src}"
             print(f"\n=== {head} on {src} ===")
+            if (cell_dir / "summary.json").exists():
+                print(f"  [skip] already complete")  # idempotent resume/top-up
+                continue
             t0 = time.time()
             summary, per_seed = run_cell(
                 head, src, train, val, test, in_ch,

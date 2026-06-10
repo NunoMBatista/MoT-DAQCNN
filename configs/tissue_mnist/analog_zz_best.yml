@@ -1,0 +1,20 @@
+# tissue_mnist capacity-sweep best-config, analog-ZZ 1k (topology val-selected = star)
+dataset:
+  name: tissue_mnist
+  data_root: ./data
+  batch_size: 64
+  num_workers: 2
+  download: true
+  color_space: GRAYSCALE
+model:
+  num_classes: 8
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ["star"]
+  scaling_factor: 1.0
+  evolution_time: 2.5
+  mode: trotter
+  encoding_mode: "analog"
+  include_correlators: true
+  quantum_device: default.qubit
+  classical_device: auto

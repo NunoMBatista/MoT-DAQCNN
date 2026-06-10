@@ -22,8 +22,11 @@ import numpy as np
 # Baseline AUCs from outputs/paper_results/linear_probing/breast_mnist.csv
 # (raw pixels + random filters at matched dim, single source of truth)
 BASELINE_RAW = 0.7888
-BASELINE_RANDOM_45 = 0.7659      # matches 1-kern Z+ZZ dim (3645)
-BASELINE_RANDOM_180 = 0.7690     # matches 4-kern Z+ZZ dim (14580)
+# Seed-averaged random-projection baselines (mean over projection seeds, not a
+# single draw). The old single-seed random_45 (0.7659) was a 5th-percentile low
+# draw; reporting the seed mean avoids flattering the quantum kernels.
+BASELINE_RANDOM_45 = 0.7843      # matches 1-kern Z+ZZ dim (3645)
+BASELINE_RANDOM_180 = 0.7654     # matches 4-kern Z+ZZ dim (14580)
 
 
 def load_rows(csv_path):
@@ -43,6 +46,8 @@ def build_matrix(rows, scale, topology_order, encoding_order):
     M = np.full((len(encoding_order), len(topology_order)), np.nan)
     for r in rows:
         if r["scale"] != scale:
+            continue
+        if r["encoding"] not in encoding_order:   # skip encodings we don't plot (e.g. Analog-Z)
             continue
         i = encoding_order.index(r["encoding"])
         if r["topology_set"] in topology_order:

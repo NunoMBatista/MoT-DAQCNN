@@ -5,7 +5,7 @@ to the dimension-matched classical-nonlinear map rff_180 (also C-tuned).
 4k quantum = 4 topologies x 45 = 180 channels x 81 patches = 14580 flat dims,
 matching rff_180 (180 RFF features x 81 patches).
 """
-import os, sys
+import os, sys, gc, argparse
 import numpy as np
 import torch
 from sklearn.metrics import roc_auc_score
@@ -73,25 +73,41 @@ def load_rff180(ds):
     return flat("train"), flat("val"), flat("test")
 
 
-for ds in ["breast_mnist", "pneumonia_mnist"]:
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--datasets", default="breast_mnist,pneumonia_mnist")
+_ap.add_argument("--only-enc", default="", help="comma list of encoding labels and/or 'rff_180'")
+_args = _ap.parse_args()
+DATASETS = _args.datasets.split(",")
+ONLY_ENC = set(x for x in _args.only_enc.split(",") if x)
+
+for ds in DATASETS:
     print(f"\n===== {ds} : 4-kernel fair probe =====", flush=True)
     for name, enc, corr in ENCODINGS:
-        # stage 1: val-select the topology set at C=1.0
-        cand = []
+        if ONLY_ENC and name not in ONLY_ENC:
+            continue
+        # stage 1: val-select the topology set at C=1.0, keeping ONLY the best
+        # set's arrays in memory (holding all five 14580-dim copies can OOM).
+        best = None  # (set, untuned_test, data)
+        best_val = -1.0
         for s in SETS:
             d = load_set(s, enc, corr, ds)
             if d is None:
                 continue
             v, t = fit_auc(*d, 1.0)
-            cand.append((s, v, t, d))
-        if not cand:
+            if v > best_val:
+                best_val, best = v, (s, t, d)
+            else:
+                del d
+            gc.collect()
+        if best is None:
             print(f"  {name}: no caches", flush=True); continue
-        best = max(cand, key=lambda r: r[1])
         # stage 2: C-tune the val-selected set
-        vb, tb, Cb = ctune(*best[3])
+        vb, tb, Cb = ctune(*best[2])
         setname = "+".join(x[:3] for x in best[0])
-        print(f"  {name:<11s} val-set={setname:<20s} untuned_test={best[2]:.4f}  "
+        print(f"  {name:<11s} val-set={setname:<20s} untuned_test={best[1]:.4f}  "
               f"C-tuned_test={tb:.4f} (C={Cb})", flush=True)
+        del best; gc.collect()
     # classical 4k anchor
-    vr, tr_, Cr = ctune(*load_rff180(ds))
-    print(f"  {'rff_180':<11s} {'(classical)':<29s} C-tuned_test={tr_:.4f} (C={Cr})", flush=True)
+    if not ONLY_ENC or "rff_180" in ONLY_ENC:
+        vr, tr_, Cr = ctune(*load_rff180(ds))
+        print(f"  {'rff_180':<11s} {'(classical)':<29s} C-tuned_test={tr_:.4f} (C={Cr})", flush=True)
