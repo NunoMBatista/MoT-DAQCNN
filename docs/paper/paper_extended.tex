@@ -8,6 +8,9 @@
 \usepackage{xcolor}
 \usepackage{booktabs}
 
+% placeholder for table cells pending the full-dataset TissueMNIST probe rerun
+\newcommand{\tbd}{{\scriptsize\texttt{TBD}}}
+
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 
@@ -352,7 +355,9 @@ We evaluate eight geometries for the $3\!\times\!3$ kernel:
 \emph{cross} (centre plus four cardinal neighbours, corners isolated);
 \emph{ring} (perimeter atoms, centre removed);
 \emph{chain} (nine atoms in a line);
-\emph{star} (eight-atom ring, weak central hub);
+\emph{star} (eight atoms on a unit circle around a central hub; adjacent
+circle atoms lie closer than the hub, so spoke--spoke couplings dominate the
+hub--spoke links);
 and \emph{grid} ($3\!\times\!3$ grid at $1.5\times$ the unit spacing,
 weakening all couplings and making nearest-neighbour interactions
 dominate over diagonals in absolute terms).
@@ -361,6 +366,26 @@ feature map.
 When $M$ topologies are used simultaneously, their feature vectors are
 concatenated, yielding $M \times f_k$ features per patch where $f_k$ is the
 per-topology feature count.
+Figure~\ref{fig:topologies} shows the interaction graph each geometry induces
+over the nine patch pixels.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/atom_topologies.pdf}
+\caption{Interaction graph induced by each of the eight $3\!\times\!3$
+atom-array geometries over the nine patch pixels. Nodes are the nine qubits at
+their canonical pixel positions; edge width and opacity scale with the physical
+coupling $V_{ij}=C_6/r_{ij}^6$ computed from each geometry's atom coordinates.
+\emph{Kings} couples all nearest and diagonal neighbours; \emph{horizontal} and
+\emph{vertical} form three decoupled rows and columns; \emph{cross} keeps only
+the centre and its four cardinal neighbours; \emph{ring} the perimeter;
+\emph{chain} a single path through all nine qubits; \emph{star} places eight
+qubits on a circle around a central hub, but adjacent circle atoms sit closer
+than the hub, so the strongest links form the outer ring and the hub-spoke
+couplings are weaker (the densest graph overall); \emph{grid} weakens every
+coupling by spacing the array at $1.5\times$ unit distance.}
+\label{fig:topologies}
+\end{figure}
 
 \subsection{Linear Feature Probing}
 \label{sec:probing_method}
@@ -429,6 +454,29 @@ We evaluate five head capacities of increasing expressivity:
 \emph{MLP-2}, two hidden layers ($H_1=64,\,H_2=32$), each with activation and
 dropout; and \emph{CNN-16}\,/\,\emph{CNN-64}, the convolutional head of
 Section~\ref{sec:classical_head} with $16$ and $64$ channels respectively.
+Table~\ref{tab:heads} details the five head architectures.
+
+\begin{table}[t]
+\centering
+\caption{Trained-head architectures for the capacity sweep. \texttt{Act} is
+ReLU or GELU and \texttt{Drop} is dropout, both searched per cell; $C$ is the
+class count. Trainable-parameter counts are for the single-kernel $45$-channel
+input and scale with input dimensionality. CNN-64 is also the end-to-end
+classification head of Section~\ref{sec:classical_head}.}
+\label{tab:heads}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lll}
+\toprule
+Head & Architecture & Params \\
+\midrule
+Linear & Flatten, Linear$(C)$ & $7{,}292$ \\
+MLP-1  & Flatten, FC$(32)$, Act, Drop, Linear$(C)$ & $116{,}738$ \\
+MLP-2  & Flatten, FC$(64)$, FC$(32)$, Act, Drop, Linear$(C)$ & $235{,}490$ \\
+CNN-16 & Conv$(16)$-BN-Act-Pool, Conv$(16)$-Act, Drop, FC & $4{,}258$ \\
+CNN-64 & Conv$(64)$-BN-Act-Pool, Conv$(64)$-Act, Drop, FC & $29{,}314$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 For each (head, feature source) cell, a 30-trial Optuna search over
 learning rate, weight decay, and dropout selects the best configuration
@@ -528,6 +576,35 @@ fixed topology, holding the rest at the values above.
 The top-1 configuration from each search is re-evaluated over ten random seeds
 (five for TissueMNIST); we report mean $\pm$ standard deviation of test
 accuracy and AUC.
+Table~\ref{tab:hpsearch} summarises both search spaces.
+
+\begin{table}[t]
+\centering
+\caption{Hyperparameter search spaces. The end-to-end search (Optuna TPE) runs
+per model and dataset; the head-capacity sweep tunes only the optimizer triple
+per cell at a fixed topology. LogU and U denote log-uniform and uniform priors.}
+\label{tab:hpsearch}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lll}
+\toprule
+Hyperparameter & End-to-end & Capacity sweep \\
+\midrule
+Learning rate      & LogU$[10^{-8},5\!\times\!10^{-3}]$ & LogU$[10^{-5},5\!\times\!10^{-3}]$ \\
+Weight decay       & LogU$[10^{-8},10^{-3}]$ & searched \\
+Dropout            & U$[0,0.7]$ & searched \\
+Gradient-clip norm & U$[0,10]$ & fixed \\
+Activation         & \{ReLU, GELU\} & fixed \\
+Batch size         & \{16,32,64\} & 32 (256 Tissue) \\
+Cosine schedule    & \{on, off\} & on \\
+Optimizer          & Adam & Adam \\
+Max epochs         & 100 & 100 \\
+Topology (quantum) & categorical & fixed \\
+\midrule
+Trials             & 200 (25 Tissue) & 30 / cell \\
+Validation seeds   & 10 (5 Tissue) & 10 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Implementation}
 
@@ -585,6 +662,47 @@ single-kernel scale, negative at four-kernel), and the encoding effect is again
 small.
 The contribution of the correlators is therefore specific to tasks whose
 single-qubit representation leaves separability headroom.
+Table~\ref{tab:probing} reports the per-topology probing AUCs behind these
+means, including TissueMNIST, which uses an 8-class macro one-vs-rest AUC rather
+than the binary AUROC of the other two datasets.
+
+\begin{table*}[t]
+\centering
+\caption{Single-kernel linear-probing AUC for every $3\!\times\!3$ topology and
+encoding, test split. BreastMNIST and PneumoniaMNIST use binary AUROC
+(LinearSVC on standardized features); TissueMNIST uses 8-class macro
+one-vs-rest AUC (multinomial logistic regression), so its columns are not
+directly comparable in level to the binary datasets. On BreastMNIST the ZZ
+correlators (Dig-ZZ, Ana-ZZ) lift AUC well above the single-qubit columns
+(Dig-Z, Ana-Z) and the seed-averaged Random$\times 45$ baseline ($0.784$); on
+the already-separable PneumoniaMNIST (Random$\times 45$ baseline $0.893$) the
+columns are close and the ordering is topology dependent. The encoding effect
+(Dig vs Ana) is small and changes sign across topologies.
+Selecting the per-encoding best topology from these \emph{test} values is
+optimistically biased; the downstream experiments use validation-selected
+topologies. TissueMNIST columns are being recomputed on the full splits with a
+matched protocol (\texttt{TBD}).}
+\label{tab:probing}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccccccccccc}
+\toprule
+ & \multicolumn{4}{c}{BreastMNIST} & \multicolumn{4}{c}{PneumoniaMNIST} & \multicolumn{4}{c}{TissueMNIST} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}\cmidrule(lr){10-13}
+Topology & Dig-Z & Dig-ZZ & Ana-Z & Ana-ZZ & Dig-Z & Dig-ZZ & Ana-Z & Ana-ZZ & Dig-Z & Dig-ZZ & Ana-Z & Ana-ZZ \\
+\midrule
+kings      & $0.768$ & $0.793$ & $0.747$ & $0.810$ & $0.919$ & $0.911$ & $0.920$ & $0.921$ & \tbd & \tbd & \tbd & \tbd \\
+horizontal & $0.775$ & $0.788$ & $0.782$ & $0.793$ & $0.932$ & $0.936$ & $0.903$ & $0.912$ & \tbd & \tbd & \tbd & \tbd \\
+vertical   & $0.792$ & $0.784$ & $0.747$ & $0.807$ & $0.934$ & $0.924$ & $0.916$ & $0.915$ & \tbd & \tbd & \tbd & \tbd \\
+cross      & $0.764$ & $0.821$ & $0.738$ & $0.805$ & $0.929$ & $0.931$ & $0.909$ & $0.910$ & \tbd & \tbd & \tbd & \tbd \\
+ring       & $0.768$ & $0.812$ & $0.709$ & $0.788$ & $0.920$ & $0.922$ & $0.919$ & $0.912$ & \tbd & \tbd & \tbd & \tbd \\
+chain      & $0.802$ & $0.785$ & $0.767$ & $0.811$ & $0.920$ & $0.928$ & $0.923$ & $0.907$ & \tbd & \tbd & \tbd & \tbd \\
+star       & $0.760$ & $0.790$ & $0.714$ & $0.767$ & $0.923$ & $0.927$ & $0.927$ & $0.930$ & \tbd & \tbd & \tbd & \tbd \\
+grid       & $0.751$ & $0.804$ & $0.744$ & $0.849$ & $0.910$ & $0.935$ & $0.894$ & $0.906$ & \tbd & \tbd & \tbd & \tbd \\
+\midrule
+Mean       & $0.772$ & $0.797$ & $0.743$ & $0.804$ & $0.923$ & $0.927$ & $0.914$ & $0.914$ & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table*}
 
 \subsection{End-to-End Classification}
 \label{sec:results_endtoend}
@@ -726,11 +844,26 @@ point (Table~\ref{tab:endtoend}).}
 \label{fig:capacity_sweep}
 \end{figure*}
 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.8\textwidth]{figures/capacity_delta_ext.pdf}
+\caption{Quantum-minus-classical AUC gap across the capacity ladder. Each cell
+is a quantum source's test AUC minus the best classical source at the same
+head; red marks the quantum source ahead of every classical source, blue marks
+it behind the best classical one. The only positive entries at the linear head
+are the four-kernel and single-kernel Digital-ZZ cells on TissueMNIST
+($+0.014$, $+0.008$), the verified low-capacity exception; on the binary
+datasets the gap is already non-positive and moves toward zero or negative as
+the head grows to a trained CNN.}
+\label{fig:capacity_delta}
+\end{figure*}
+
 \paragraph{Quantum versus classical nonlinearity}
 With features standardized, the strongest quantum and strongest
 dimension-matched classical sources track each other across the ladder: the
 best-quantum minus best-classical AUC stays within $\pm 0.008$ at every head
-on both datasets, inside one standard deviation.
+on both datasets, inside one standard deviation
+(Fig.~\ref{fig:capacity_delta}).
 The decisive control is the nonlinear map.
 Digital-ZZ never exceeds RFF by more than one standard deviation at any head,
 and on PneumoniaMNIST RFF outperforms it at the linear probe ($-0.030$) and at
