@@ -5,14 +5,14 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=200G
-#SBATCH --time=8:00:00
+#SBATCH --time=24:00:00
 #SBATCH -J ta_allenc
-#SBATCH --output=logs/ta_allenc_%j.out
-# Matched full-dataset linear probe for all 4 TissueMNIST encodings (Dig/Ana x
-# Z/ZZ), 8 topologies, macro-OVR test AUC. Reads the digital (49G) and analog
-# (23G) ZZ caches once each -> needs the big mem. Writes the CSV the merged
-# 3-dataset probing table consumes.
+#SBATCH --output=logs/ta_allenc_%x_%j.out
+# Matched full-dataset (165k) linear probe for ONE TissueMNIST encoding cache,
+# selected by $CACHE (digital | analog). Submit twice to run both in parallel.
+# Reads the big ZZ cache once (-> 200G), writes per-topology rows INCREMENTALLY
+# so a kill never loses completed work. ~5h per cache at full data.
 cd $HOME/MoT-DAQCNN
 export OMP_NUM_THREADS=16
-.venv/bin/python experiments/probe_tissue_all_encodings.py
-echo "TA_ALLENC_EXIT $?"
+.venv/bin/python experiments/probe_tissue_all_encodings.py --cache "$CACHE"
+echo "TA_ALLENC_${CACHE}_EXIT $?"
