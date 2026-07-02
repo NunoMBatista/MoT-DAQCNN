@@ -126,3 +126,7 @@ credentials
 .mcp.json
 CLAUDE.md
 .claude/
+# paper manuscript lives on Overleaf/arXiv, not in the code release
+docs/paper/paper_extended.tex
+docs/paper/references.bib
+docs/paper/IEEE*

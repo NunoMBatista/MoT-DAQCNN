@@ -80,10 +80,11 @@ The standard workflow has three steps: cache quantum features, search for the be
 
 Running quantum circuits for every patch in every training batch is slow. The `create_quantum_dataset.py` script runs the full dataset through the quantum kernels once and saves the output feature tensors to disk. Subsequent training runs load directly from this cache.
 
-Edit the `PARAMETERS` section inside the script to set the dataset, kernel topology, encoding mode, and ZZ flag, then run:
+Pass a cache-generation config (dataset, kernel topology, encoding mode, ZZ flag):
 
 ```bash
-python experiments/create_quantum_dataset.py
+python experiments/create_quantum_dataset.py \
+    --config configs/breast_mnist/cache_generation/digital_zz.yml
 ```
 
 The cache is written to `data/quantum_datasets/` with a filename encoding all relevant parameters (dataset, kernel size, stride, topologies, evolution time, etc.). The training scripts detect and load it automatically.
@@ -303,10 +304,8 @@ data/
 
 docs/
 └── paper/
-    ├── paper_extended.tex           # Paper source (IEEE QAI 2026 submission)
-    ├── references.bib
-    └── figures/                     # TikZ sources; matplotlib figures regenerate
-                                     # from outputs/paper_results CSVs
+    └── figures/                     # TikZ figure sources; matplotlib figures
+                                     #   regenerate from outputs/paper_results CSVs
 ```
 
 ## Results
