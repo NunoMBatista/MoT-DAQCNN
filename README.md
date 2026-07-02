@@ -18,7 +18,7 @@ where $\Omega$ is the global Rabi frequency, $\delta_i$ is the local detuning, $
 
 Two modes map image pixel values $p_i \in [0, 1]$ into the quantum state:
 
-- **Digital**: each pixel is applied as an $R_Y(p_i \cdot \pi)$ rotation gate before Hamiltonian evolution.
+- **Digital**: each pixel is applied as an $R_Y(p_i \cdot \pi)$ rotation followed by a Hadamard gate before Hamiltonian evolution.
 - **Analog**: pixel values are passed directly as the local detuning parameters $\delta_i$, so the data drives the evolution itself.
 
 ### Feature Extraction
@@ -37,7 +37,7 @@ Running $K$ topologies in parallel yields $K \times 45$ features per patch. All 
 
 The concatenated quantum feature maps are processed by a small classical head:
 
-$$\text{Conv}_{3 \times 3}\text{-BN-ReLU} \;\to\; \text{MaxPool} \;\to\; \text{Conv}_{3 \times 3}\text{-ReLU} \;\to\; \text{Flatten} \;\to\; \text{Linear}(d, C)$$
+$$\text{Conv}_{2 \times 2}\text{-BN-Act} \;\to\; \text{MaxPool} \;\to\; \text{Conv}_{2 \times 2}\text{-Act} \;\to\; \text{Dropout} \;\to\; \text{Flatten} \;\to\; \text{Dropout} \;\to\; \text{Linear}(d, C)$$
 
 where $C$ is the number of classes. Only the classical head is trained; the quantum kernels are fixed.
 
@@ -210,17 +210,18 @@ Distribution types: `uniform`, `loguniform`, `int`, `categorical`, `fixed`.
 
 ## Other Experiments
 
-**Feature probing ablation** — evaluates the intrinsic quality of quantum vs. classical features by training a Random Forest and SVM on frozen feature vectors extracted at two bottleneck points (immediately after the quantum kernel layer, and after the full CNN head):
+**Head-capacity sweep** — the paper's central experiment: trains five classifier heads of increasing capacity (linear to CNN-64) on identical frozen features from all quantum, random, and classical-nonlinear sources:
 
 ```bash
-python experiments/feature_probing_ablation.py \
-    --seeds 42 1 2 3 4
+python experiments/head_capacity_sweep.py --dataset breast_mnist \
+    --output-dir outputs/paper_results/capacity_sweep_std/breast_mnist
 ```
 
-**CKA kernel similarity** — measures Centred Kernel Alignment between feature representations of different quantum kernel topologies:
+**Linear probing** — evaluates the representational quality of frozen features with a linear SVM, swept across all eight atom-array topologies:
 
 ```bash
-python experiments/kernel_cka_similarity.py
+python experiments/linear_probing_topology_sweep.py --scale both \
+    --output-csv outputs/paper_results/linear_probing/breast_mnist_topology_sweep.csv
 ```
 
 **Batch runner** — runs a list of shell commands sequentially, useful for submitting a queue of experiments:
@@ -260,10 +261,9 @@ src/
     ├── quantum_dataset_cache.py # Load pre-computed quantum feature caches
     ├── model_cache_manager.py   # Checkpoint loading and output directory scanning
     ├── kernel_mapping.py        # Channel-to-kernel grouping utilities
-    ├── sparse_reconstruction.py # Sparse tensor construction from routing masks
+    ├── classical_nonlinear_features.py  # poly-2 / RFF per-patch feature maps
     ├── color_conversion.py      # RGB to grayscale / HSV conversion
     ├── hp_search_plots.py       # Optuna study visualisation
-    ├── analyze_feature_importance.py
     ├── view_results.py          # Print results from an output directory
     └── wab/
         └── fetch_original_baseline.py  # W&B result fetching utilities
@@ -276,20 +276,26 @@ configs/
 │   ├── original_daqcnn_best.yml # Best validated digital no-ZZ config
 │   ├── digital_zz_best.yml      # Best validated digital ZZ config
 │   └── analog_zz_best.yml       # Best validated analog ZZ config
-├── pneumonia_mnist/
-│   └── original/
-└── tissue_mnist/
-    ├── hp_search/
-    └── original/
+├── pneumonia_mnist/                 # Same layout: hp_search/, cache_generation/,
+└── tissue_mnist/                    #   endtoend/, and *_best.yml winners
 
 experiments/
-├── robust_test_original_daqcnn.py   # Main multi-seed training entry point
-├── hyperparameter_search.py         # Optuna-based HP search
 ├── create_quantum_dataset.py        # Pre-compute and cache quantum features
-├── feature_probing_ablation.py      # RF/SVM probing of frozen feature vectors
-├── kernel_cka_similarity.py         # CKA similarity between topology representations
+├── merge_quantum_chunks.py          # Reassemble chunked caches (HPC arrays)
+├── derive_z_from_zz.py              # Slice a Z-only cache out of a ZZ cache
+├── create_classical_cache.py        # poly-2 / RFF features in cache format
+├── hyperparameter_search.py         # Optuna-based end-to-end HP search
+├── head_capacity_sweep.py           # Keystone experiment: 5 heads x 13 sources
+├── robust_test_original_daqcnn.py   # Main multi-seed training entry point
+├── linear_probing_topology_sweep.py # Linear SVM probe across topologies
+├── probe_*.py, verify_*.py          # Fairness/verification suite (val-selected
+│                                    #   topologies, tuned classical baselines)
+├── plot_capacity_grid.py            # Paper Fig. 3 (capacity sweep grid)
+├── plot_capacity_delta_1col.py      # Paper Fig. 4 (quantum-classical delta)
+├── gen_atom_topologies_tikz.py      # Paper Fig. 2 (TikZ topology panels)
 ├── batch_runner.py                  # Sequential batch experiment runner
-└── summarize_results.py             # Aggregate metrics across output directories
+├── summarize_results.py             # Aggregate metrics across output directories
+└── archived_experiments/            # Superseded/exploratory scripts (see its README)
 
 data/
 ├── *.npz                            # MedMNIST dataset files
