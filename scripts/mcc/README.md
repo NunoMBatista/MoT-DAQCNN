@@ -1,7 +1,7 @@
 # MCC SLURM launchers
 
 One-shot `sbatch` scripts used to run the heavy jobs on the Mary Coombs Cluster
-(Hartree/STFC). They are cluster-specific (account `mxs42`, the project venv at
+(Hartree/STFC). They are cluster-specific (account placeholder `<your-account>`, the project venv at
 `~/MoT-DAQCNN/.venv`, 200 G for the ZZ-cache jobs) and assume the repo is synced
 to `~/MoT-DAQCNN`. See the "Remote HPC: Mary Coombs Cluster" section of
 `CLAUDE.md` for setup and gotchas.

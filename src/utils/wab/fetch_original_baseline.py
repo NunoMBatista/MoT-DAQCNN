@@ -1,7 +1,9 @@
+import os
+
 import wandb
 
 api = wandb.Api()
-entity = "nunombatista-university-of-coimbra"
+entity = os.environ.get("WANDB_ENTITY", "<your-wandb-entity>")
 project = "MoT-DAQCNN"
 
 def fetch_baseline_results():

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -A mxs42
+#SBATCH -A <your-account>
 #SBATCH -p shared
 #SBATCH -N 1
 #SBATCH -n 1

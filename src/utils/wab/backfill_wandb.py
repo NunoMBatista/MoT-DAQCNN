@@ -50,7 +50,7 @@ Auth:
 Typical usage:
   python wab/backfill_wandb.py \
     --project MoT-DAQCNN \
-    --entity nunombatista-university-of-coimbra \
+    --entity <your-wandb-entity> \
     --outputs-dir outputs \
     --mode online
 

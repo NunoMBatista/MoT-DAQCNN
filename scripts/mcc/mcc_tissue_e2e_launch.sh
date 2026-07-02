@@ -12,4 +12,4 @@ for m in digital_zz_1k digital_zz_4k; do
   sbatch -J "te_$m" --mem=200G --export=ALL,MODEL="$m" mcc_tissue_e2e.sh
 done
 sleep 2
-squeue -u nnb21-mxs42 -o "%.10i %.14j %.2t %R"
+squeue -u $USER -o "%.10i %.14j %.2t %R"
