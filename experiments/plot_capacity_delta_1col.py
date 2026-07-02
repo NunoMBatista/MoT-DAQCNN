@@ -30,7 +30,7 @@ for di, (ds, fn, _) in enumerate(DATASETS):
             if (h, q) in df.index:
                 M[di * len(QUANT) + ri, ci] = df.loc[(h, q)] - best_c
 
-fig, ax = plt.subplots(figsize=(3.4, 4.3))
+fig, ax = plt.subplots(figsize=(3.4, 2.75))
 norm = TwoSlopeNorm(vmin=-0.05, vcenter=0.0, vmax=0.05)
 cmap = plt.get_cmap("RdBu_r")
 im = ax.imshow(M, cmap=cmap, norm=norm, aspect="auto")
@@ -48,7 +48,7 @@ for r in range(M.shape[0]):
 for b in (1, 2):
     ax.axhline(b * len(QUANT) - 0.5, color="black", lw=1.1)
 for di, (_, _, name) in enumerate(DATASETS):
-    ax.text(-1.55, di * len(QUANT) + (len(QUANT) - 1) / 2, name, rotation=90,
+    ax.text(-2.05, di * len(QUANT) + (len(QUANT) - 1) / 2, name, rotation=90,
             ha="center", va="center", fontsize=7.5, fontweight="bold")
 
 ax.set_xticks(range(len(HEADS)))
@@ -57,9 +57,12 @@ ax.set_yticks(range(M.shape[0]))
 ax.set_yticklabels(row_labels, fontsize=6.0)
 ax.tick_params(length=0)
 
-cb = fig.colorbar(im, ax=ax, orientation="horizontal", fraction=0.045, pad=0.16)
-cb.set_label("Quantum $-$ best-classical AUC", fontsize=6.5)
-cb.ax.tick_params(labelsize=6)
+# Thin vertical colorbar on the right: adds width, not height, so it does not
+# re-introduce the wasted bottom strip a horizontal bar would.
+cb = fig.colorbar(im, ax=ax, orientation="vertical", fraction=0.04, pad=0.03)
+cb.set_label("Quantum $-$ best-classical AUC", fontsize=6.0, rotation=270,
+             labelpad=9)
+cb.ax.tick_params(labelsize=5.5)
 
 out = "docs/paper/figures/capacity_delta_1col.pdf"
 fig.savefig(out, bbox_inches="tight")

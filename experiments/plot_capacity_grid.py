@@ -78,7 +78,7 @@ def series(d, src):
 data = [(name, load(path)) for name, path in DATASETS]
 x = np.arange(len(HEADS))
 
-fig, axes = plt.subplots(3, 4, figsize=(7.1, 4.3), sharex=True)
+fig, axes = plt.subplots(3, 4, figsize=(7.1, 3.9), sharex=True)
 
 for ri, (dname, d) in enumerate(data):
     raw_m, _ = series(d, "raw")
