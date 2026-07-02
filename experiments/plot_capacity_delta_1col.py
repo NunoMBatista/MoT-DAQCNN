@@ -2,6 +2,7 @@
 Collapses the three per-dataset panels into ONE combined heatmap (15 rows =
 3 datasets x 5 quantum sources, 5 head columns) so it fits \\columnwidth.
 Writes docs/paper/figures/capacity_delta_1col.pdf."""
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -64,6 +65,7 @@ cb.set_label("Quantum $-$ best-classical AUC", fontsize=6.0, rotation=270,
              labelpad=9)
 cb.ax.tick_params(labelsize=5.5)
 
+os.makedirs("docs/paper/figures", exist_ok=True)
 out = "docs/paper/figures/capacity_delta_1col.pdf"
 fig.savefig(out, bbox_inches="tight")
 fig.savefig(out.replace(".pdf", ".png"), dpi=170, bbox_inches="tight")

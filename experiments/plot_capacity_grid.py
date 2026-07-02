@@ -205,6 +205,7 @@ fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=7.5,
            frameon=False, handlelength=2.6, bbox_to_anchor=(0.5, -0.03))
 
 fig.tight_layout(rect=[0, 0.05, 1, 1.0])
+os.makedirs(os.path.join(ROOT, "docs/paper/figures"), exist_ok=True)
 out = os.path.join(ROOT, "docs/paper/figures/capacity_sweep_grid")
 fig.savefig(out + ".pdf", bbox_inches="tight")
 fig.savefig(out + ".png", bbox_inches="tight", dpi=175)

@@ -301,11 +301,6 @@ experiments/
 data/
 ├── *.npz                            # MedMNIST dataset files
 └── quantum_datasets/                # Pre-computed quantum feature caches
-
-docs/
-└── paper/
-    └── figures/                     # TikZ figure sources; matplotlib figures
-                                     #   regenerate from outputs/paper_results CSVs
 ```
 
 ## Results
@@ -313,7 +308,7 @@ docs/
 The summary CSVs and per-cell JSONs behind every table and figure in the paper
 are committed under `outputs/paper_results/` (capacity sweeps, linear probing,
 and end-to-end validation summaries). The plot scripts in `experiments/`
-regenerate the paper figures directly from them. The pre-computed quantum
+regenerate the paper figures from them, writing to `docs/paper/figures/`. The pre-computed quantum
 feature caches (~80 GB) are not in the repository; they can be regenerated
 with `experiments/create_quantum_dataset.py` or requested from the authors.
 

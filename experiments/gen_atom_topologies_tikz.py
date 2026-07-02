@@ -6,6 +6,7 @@ topology's atom coordinates. Monochrome (black edges, white nodes), tightly
 packed 4x2 grid. Writes a standalone docs/paper/figures/atom_topologies.tex
 that compiles to atom_topologies.pdf for \\includegraphics.
 """
+import os
 import sys, os
 import numpy as np
 
@@ -79,6 +80,7 @@ for k, name in enumerate(ORDER):
 
 lines += [r"\end{tikzpicture}", r"\end{document}", ""]
 
+os.makedirs("docs/paper/figures", exist_ok=True)
 out = "docs/paper/figures/atom_topologies.tex"
 with open(out, "w") as f:
     f.write("\n".join(lines))
