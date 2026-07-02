@@ -1,0 +1,9 @@
+feature_source,dimensions,acc,auc
+Raw pixels,784,0.7756,0.7888
+Random ×45 filters,3645,0.7500,0.7659
+Random ×180 filters,14580,0.7244,0.7690
+"Digital-Z, 1-kern (horizontal)",729,0.7436,0.7753
+"Digital-ZZ, 1-kern (kings)",3645,0.7756,0.7926
+"Analog-ZZ, 1-kern (kings)",3645,0.7756,0.8095
+"Digital-ZZ, 4-kern",14580,0.7692,0.8300
+"Analog-ZZ, 4-kern",14580,0.7564,0.8189

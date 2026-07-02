@@ -1,0 +1,9 @@
+feature_source,dimensions,acc,auc
+Raw pixels,784,0.7756,0.7888
+Random ×45 filters,3645,0.7500,0.7659
+Random ×180 filters,14580,0.7244,0.7690
+"Digital-Z, 1-kern (ring)",729,0.7308,0.7675
+"Digital-ZZ, 1-kern (cross)",3645,0.7564,0.8214
+"Analog-ZZ, 1-kern (star)",3645,0.7500,0.7669
+"Digital-ZZ, 4-kern (g+c+h+ring)",14580,0.7692,0.8229
+"Analog-ZZ, 4-kern (g+c+h+kings)",14580,0.7564,0.8189

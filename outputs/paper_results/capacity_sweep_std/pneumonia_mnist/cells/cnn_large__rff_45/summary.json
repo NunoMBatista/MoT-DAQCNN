@@ -1,0 +1,18 @@
+{
+  "head": "cnn_large",
+  "source": "rff_45",
+  "in_channels": 45,
+  "n_trials_completed": 30,
+  "best_value_val_acc": 0.9790076613426208,
+  "best_params": {
+    "lr": 0.001203119685408023,
+    "wd": 3.2122869277144907e-07,
+    "dropout": 0.5469224964199725
+  },
+  "test_acc_mean": 0.8589743589743589,
+  "test_acc_std": 0.012780385921395439,
+  "test_auc_mean": 0.9515395573087879,
+  "test_auc_std": 0.0030602905482324055,
+  "test_f1_mean": 0.8348930373203898,
+  "test_f1_std": 0.017551786971989638
+}

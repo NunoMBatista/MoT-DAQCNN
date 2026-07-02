@@ -66,10 +66,10 @@ Eight $3 \times 3$ atom geometries are available, each producing a different van
 - wandb (optional, for experiment tracking)
 - medmnist
 
-Install dependencies:
+Install dependencies (pinned to the versions used for all paper results):
 
 ```bash
-pip install torch pennylane numpy pyyaml scikit-learn matplotlib optuna wandb medmnist
+pip install -r requirements.txt
 ```
 
 ## Typical Workflow
@@ -296,16 +296,30 @@ data/
 └── quantum_datasets/                # Pre-computed quantum feature caches
 
 docs/
-├── paper/
-│   └── results_report.tex           # Experimental results summary
-├── diagrams/
-│   ├── CNN_diagram.svg
-│   └── pipeline_architecture.svg
-└── weights_and_biases/
-    └── how_to_use.md
+└── paper/
+    ├── paper_extended.tex           # Paper source (IEEE QAI 2026 submission)
+    ├── references.bib
+    └── figures/                     # TikZ sources; matplotlib figures regenerate
+                                     # from outputs/paper_results CSVs
 ```
 
+## Results
+
+The summary CSVs and per-cell JSONs behind every table and figure in the paper
+are committed under `outputs/paper_results/` (capacity sweeps, linear probing,
+and end-to-end validation summaries). The plot scripts in `experiments/`
+regenerate the paper figures directly from them. The pre-computed quantum
+feature caches (~80 GB) are not in the repository; they can be regenerated
+with `experiments/create_quantum_dataset.py` or requested from the authors.
+
+## License
+
+MIT (see `LICENSE`).
+
 ## Citation
+
+This project extends the DAQCNN framework of Simen et al.; a reference to our
+accompanying paper will be added upon publication.
 
 ```bibtex
 @article{simenDigitalanalogQuantumConvolutional2024a,

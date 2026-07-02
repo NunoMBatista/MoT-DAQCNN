@@ -1,0 +1,16 @@
+# Pinned to the environment used for all paper results.
+# Note: gast is a required (but undeclared) transitive dependency of
+# pennylane 0.44 -- without it, `import pennylane` fails.
+torch==2.11.0
+pennylane==0.44.0
+gast==0.7.0
+numpy==2.2.6
+scipy==1.16.2
+pandas==2.3.3
+scikit-learn==1.7.2
+matplotlib==3.10.9
+seaborn==0.13.2
+optuna==4.7.0
+wandb==0.25.1
+medmnist==3.0.2
+PyYAML==6.0.3

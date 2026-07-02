@@ -1,0 +1,18 @@
+{
+  "head": "linear",
+  "source": "digital_z_1k",
+  "in_channels": 9,
+  "n_trials_completed": 30,
+  "best_value_val_acc": 0.9618320465087891,
+  "best_params": {
+    "lr": 0.0012595683215364752,
+    "wd": 0.00022390342721683693,
+    "dropout": 0.6850328395629348
+  },
+  "test_acc_mean": 0.848397435897436,
+  "test_acc_std": 0.0059618830890186825,
+  "test_auc_mean": 0.9267406311637082,
+  "test_auc_std": 0.0023775792769864753,
+  "test_f1_mean": 0.8221833242521225,
+  "test_f1_std": 0.008480628327728319
+}

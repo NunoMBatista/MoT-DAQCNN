@@ -1,0 +1,18 @@
+{
+  "head": "linear",
+  "source": "analog_zz_4k",
+  "in_channels": 180,
+  "n_trials_completed": 30,
+  "best_value_val_acc": 0.8333333134651184,
+  "best_params": {
+    "lr": 0.0019532942153506747,
+    "wd": 2.8096433529510078e-05,
+    "dropout": 0.014913790839538199
+  },
+  "test_acc_mean": 0.7166666666666667,
+  "test_acc_std": 0.03646528885468688,
+  "test_auc_mean": 0.8098475355054301,
+  "test_auc_std": 0.03158397669668359,
+  "test_f1_mean": 0.6901850232486796,
+  "test_f1_std": 0.03786496001985759
+}

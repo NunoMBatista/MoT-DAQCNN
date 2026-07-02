@@ -46,7 +46,6 @@ profile_default/
 ipython_config.py
 *.nb.html
 *.out.ipynb
-outputs/
 notebook_checkpoints/
 jupyter_runtime/
 jupyterlab_settings/
@@ -57,7 +56,12 @@ datasets/
 checkpoints/
 checkpoints-*/
 saved_models/
-outputs/
+outputs/**
+!outputs/paper_results/
+!outputs/paper_results/**/
+!outputs/paper_results/**/*.csv
+!outputs/paper_results/**/summary.json
+!outputs/paper_results/**/validation_summary.json
 results/
 runs/
 logs/

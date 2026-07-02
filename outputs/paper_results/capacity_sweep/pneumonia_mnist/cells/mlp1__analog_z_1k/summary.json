@@ -1,0 +1,18 @@
+{
+  "head": "mlp1",
+  "source": "analog_z_1k",
+  "in_channels": 9,
+  "n_trials_completed": 30,
+  "best_value_val_acc": 0.9732824563980103,
+  "best_params": {
+    "lr": 0.0014896713192705793,
+    "wd": 2.8173589244972024e-06,
+    "dropout": 0.2650678651682074
+  },
+  "test_acc_mean": 0.8556089743589743,
+  "test_acc_std": 0.009106456823830367,
+  "test_auc_mean": 0.9356311637080867,
+  "test_auc_std": 0.002816501935426039,
+  "test_f1_mean": 0.8329437307011507,
+  "test_f1_std": 0.012546025922654394
+}
