@@ -55,7 +55,11 @@ EPOCHS = 100
 PATIENCE = 30
 GRAD_CLIP = 1.0
 BATCH_SIZE = 32
-RANDOM_FILTER_SEED = 42  # fixed across all heads/seeds for the classical baseline
+# Fixed across all heads and training seeds, so the published classical
+# projection curves rest on ONE draw. See tracker item A12 and
+# experiments/a12_projection_seeds.py, which re-runs these cells with the draw
+# regenerated per seed.
+RANDOM_FILTER_SEED = 42
 
 
 # ---------------------------------------------------------------------------
@@ -233,9 +237,14 @@ def load_features(source_name, source_spec):
 
 def train_head(head, train, val, test, lr, weight_decay, use_scheduler,
                epochs=None, patience=None, batch_size=None,
-               grad_clip=GRAD_CLIP, device="cpu", seed=0):
+               grad_clip=GRAD_CLIP, device="cpu", seed=0, return_scores=False):
     """Train one head with given HPs. Returns dict of val/test metrics from
     the lowest-val-loss checkpoint.
+
+    With return_scores=True the returned dict also carries `test_scores` and
+    `test_labels`, the per-example arrays the AUC is computed from. Nothing
+    else changes; they are simply no longer discarded, which is what an
+    example-level confidence interval needs.
     """
     # Read module globals at call time so --epochs/--batch-size overrides apply.
     if epochs is None: epochs = EPOCHS
@@ -295,6 +304,26 @@ def train_head(head, train, val, test, lr, weight_decay, use_scheduler,
     if best_state is not None:
         head.load_state_dict(best_state)
     head.eval()
+
+    # Validation AUC at the restored checkpoint, for the A8 sensitivity check
+    # (the search objective is val_acc; this records what val AUC would have
+    # said about the same trial). Uses no RNG, so it changes no other number.
+    with torch.no_grad():
+        val_logits_best = head(Xv)
+        if NUM_CLASSES == 2:
+            val_scores = torch.softmax(val_logits_best, dim=1)[:, 1].cpu().numpy()
+        else:
+            val_scores = torch.softmax(val_logits_best, dim=1).cpu().numpy()
+    yv_np = yv.cpu().numpy()
+    try:
+        if NUM_CLASSES == 2:
+            best_val_auc = roc_auc_score(yv_np, val_scores)
+        else:
+            best_val_auc = roc_auc_score(yv_np, val_scores,
+                                         multi_class="ovr", average="macro")
+    except ValueError:
+        best_val_auc = float("nan")   # a split with a single class present
+
     with torch.no_grad():
         test_logits = head(Xt)
         preds = test_logits.argmax(dim=1).cpu().numpy()
@@ -311,10 +340,14 @@ def train_head(head, train, val, test, lr, weight_decay, use_scheduler,
         test_auc = roc_auc_score(yt_np, scores, multi_class="ovr", average="macro")
     test_f1 = f1_score(yt_np, preds, average="macro")
 
-    return {
-        "val_acc": best_val_acc, "val_loss": best_val_loss,
+    out = {
+        "val_acc": best_val_acc, "val_loss": best_val_loss, "val_auc": best_val_auc,
         "test_acc": test_acc, "test_auc": test_auc, "test_f1": test_f1,
     }
+    if return_scores:
+        out["test_scores"] = scores
+        out["test_labels"] = yt_np
+    return out
 
 
 # ---------------------------------------------------------------------------

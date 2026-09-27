@@ -128,3 +128,15 @@ CLAUDE.md
 .claude/
 # paper materials live on Overleaf/arXiv, not in the code release
 docs/
+
+# Retrieved from the MCC cluster (Sept 2026 rescue before access lapsed).
+# Large result dumps + code snapshot; never commit to the public release repo.
+outputs/mcc_retrieved/
+
+# Camera-ready source-of-record files (CSV, JSON readouts, per-example
+# test predictions): kept local, experiment outputs are not part of the
+# public release. Listed after the outputs/paper_results/ re-includes so it wins.
+outputs/paper_results/camera_ready/
+
+# Cluster job scripts (account names, paths); kept local.
+mcc_*.sh

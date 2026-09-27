@@ -1,0 +1,17 @@
+# A9 evolution-time sweep: pneumonia_mnist, digital encoding, T = 4.0
+# Three topologies only (val-selected best per encoding + kings reference).
+dataset:
+  name: pneumonia_mnist
+  color_space: GRAYSCALE
+  batch_size: 8
+
+model:
+  kernel_size: 3
+  stride: 3
+  kernel_topology_names: ['kings', 'horizontal', 'star']
+  scaling_factor: 1.0
+  evolution_time: 4.0
+  mode: trotter
+  encoding_mode: digital
+  include_correlators: true
+  quantum_device: lightning.qubit

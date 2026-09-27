@@ -27,7 +27,18 @@ from src.utils.quantum_dataset_cache import load_cached_quantum_dataset
 from src.utils.data import get_dataloaders
 from src.utils.classical_nonlinear_features import poly2_features, rff_features
 
-torch.manual_seed(0)   # reproducible loader shuffles / subsample draws
+# Subsample draw index (camera-ready, 2026-09-26): `python ... [SEED]`.
+# SEED=0 (the default) reproduces the original 2026-06-03 run exactly
+# (MCC job 145541); SEED>0 redraws the quantum subsample, the classical
+# subsample (both follow the global torch generator seeded here) and the RFF
+# weights, to check how stable the val-selected pick is.
+SEED = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+CLASSICAL_SEED = 42 + SEED   # RFF weight seed; 42 is rff_features' default
+torch.manual_seed(SEED)   # reproducible loader shuffles / subsample draws
+
+# every scored row also goes to a CSV (the original run printed to stdout only)
+OUT_CSV = f"outputs/camera_ready/tissue_fairness/verify_seed{SEED}.csv"
+ROWS = []   # (arm, name, gamma_rel, val_auc, test_auc, C)
 
 CACHE = "data/quantum_datasets/tissue_mnist__k3_s3_tkin-hor-ver-cro-rin-cha-sta-gri_ev2.50_sc1_gray_zz.npz"
 TOPOS = ["kings", "horizontal", "vertical", "cross", "ring", "chain", "star", "grid"]
@@ -93,6 +104,7 @@ for t in TOPOS:
                         flat(topo_block(Xq_v, [t])), yv,
                         flat(topo_block(Xq_te, [t])), yq_te)
     q1k.append((t, v, te)); print(f"  1k {t:<11s} val={v:.4f} test={te:.4f}", flush=True)
+    ROWS.append(("quantum_1k", t, "", v, te, C))
 b1 = max(q1k, key=lambda r: r[1])
 q4k = []
 for ens in ENSEMBLES:
@@ -100,6 +112,7 @@ for ens in ENSEMBLES:
                         flat(topo_block(Xq_v, ens)), yv,
                         flat(topo_block(Xq_te, ens)), yq_te)
     q4k.append(("+".join(x[:3] for x in ens), v, te)); print(f"  4k {q4k[-1][0]:<20s} val={v:.4f} test={te:.4f}", flush=True)
+    ROWS.append(("quantum_4k", q4k[-1][0], "", v, te, C))
 b4 = max(q4k, key=lambda r: r[1])
 
 # free quantum mem
@@ -127,18 +140,29 @@ print("\n=== CLASSICAL (matched estimator, val-tuned) ===", flush=True)
 v, te, C = fit_eval(flat(poly2_features(Ptr)), yc_tr, flat(poly2_features(Pv)), yc_v,
                     flat(poly2_features(Pte)), yc_te)
 print(f"  poly2_45            test={te:.4f}", flush=True)
+ROWS.append(("classical", "poly2_45", "", v, te, C))
 # RFF at swept gamma, both dims
 for D in (45, 180):
     rows = []
     for gr in GAMMAS_REL:
         g = g0 * gr
-        v, te, C = fit_eval(flat(rff_features(Ptr, D, gamma=g)), yc_tr,
-                            flat(rff_features(Pv, D, gamma=g)), yc_v,
-                            flat(rff_features(Pte, D, gamma=g)), yc_te)
+        # one RFF draw (seed) shared by the train, val and test features
+        v, te, C = fit_eval(flat(rff_features(Ptr, D, gamma=g, seed=CLASSICAL_SEED)), yc_tr,
+                            flat(rff_features(Pv, D, gamma=g, seed=CLASSICAL_SEED)), yc_v,
+                            flat(rff_features(Pte, D, gamma=g, seed=CLASSICAL_SEED)), yc_te)
         rows.append((gr, v, te))
+        ROWS.append(("classical", f"rff_{D}", gr, v, te, C))
     bg = max(rows, key=lambda r: r[1])
     print(f"  rff_{D} gamma-tuned   val={bg[1]:.4f} test={bg[2]:.4f} (gamma={bg[0]}x heuristic)", flush=True)
 
 print("\n=== VERDICT (linear-probe, fair) ===", flush=True)
 print(f"  quantum digital_zz 1k val-selected: {b1[0]} -> test {b1[2]:.4f}", flush=True)
 print(f"  quantum digital_zz 4k val-selected: {b4[0]} -> test {b4[2]:.4f}", flush=True)
+
+# archive every scored row (seed, arm, name, gamma multiple, val AUC, test AUC, C)
+os.makedirs(os.path.dirname(OUT_CSV), exist_ok=True)
+with open(OUT_CSV, "w") as f:
+    f.write("seed,arm,name,gamma_rel,val_auc,test_auc,C\n")
+    for arm, name, gr, v, te, C in ROWS:
+        f.write(f"{SEED},{arm},{name},{gr},{v:.6f},{te:.6f},{C}\n")
+print(f"wrote {OUT_CSV}", flush=True)

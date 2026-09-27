@@ -516,6 +516,7 @@ def validate_top_k(
     *,
     top_k: int = 5,
     seeds: Optional[List[int]] = None,
+    search_space: Optional[dict] = None,
 ) -> List[dict]:
     """Re-run the top-K configs with multiple seeds for robust validation.
 
@@ -557,6 +558,15 @@ def validate_top_k(
 
     for rank, trial in enumerate(top_trials, 1):
         cfg = copy.deepcopy(base_cfg)
+        # Fixed entries (type: fixed) are injected into every trial config by
+        # build_trial_config but never appear in trial.params, so they must be
+        # re-applied here or validation silently reverts to base_config.
+        # Before 2026-09-20 this loop skipped them, which is why the
+        # BreastMNIST/PneumoniaMNIST "random filter" validations were trained
+        # with trainable filters (see docs/paper/reviews/tracker.md).
+        for key, spec in (search_space or {}).items():
+            if isinstance(spec, dict) and spec.get("type") == "fixed":
+                _deep_set(cfg, key, spec["value"])
         for key in search_space_keys:
             if key in trial.params:
                 _deep_set(cfg, key, trial.params[key])
@@ -1240,6 +1250,7 @@ def main():
             val_dir,
             top_k=args.validate_top_k,
             seeds=val_seeds,
+            search_space=search_space,
         )
 
         # Save validation summary

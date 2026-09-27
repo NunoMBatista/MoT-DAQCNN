@@ -3,20 +3,34 @@
 Rows are datasets, columns are the four feature families. Every source curve
 from the per-dataset facets is kept (+/-1 SD bands, raw anchor); the compression
 is one figure with shared per-row y-axes and a single legend. At each head a
-gold star marks the best source across all families, labelled by the winning
-camp (quantum vs classical) and its margin over the other camp.
+gold star marks the validation-selected leader across all families; the camp
+is the star's column, and the margins are stated in the text (A11: the
+5.2 pt margin labels were dropped from the paper figure; --star-labels
+restores them).
 
 Run from the repo root:
     python experiments/plot_capacity_grid.py
 Writes docs/paper/figures/capacity_sweep_grid.{pdf,png}.
 """
-import csv
 import os
 import numpy as np
+import val_selected_margins as val_sel
 import matplotlib
 matplotlib.use("Agg")
+matplotlib.rcParams["pdf.fonttype"] = 42   # embed TrueType fonts in the PDF, not Type 3
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+import argparse
+
+# A11 (camera-ready): density variants for the user to compare; the defaults
+# reproduce the paper figure exactly
+ap = argparse.ArgumentParser()
+ap.add_argument("--no-bands", action="store_true", help="drop the +/-1 SD bands")
+ap.add_argument("--star-labels", action="store_true",
+                help="add the Q/C margin labels next to the winner stars")
+ap.add_argument("--out", default=None,
+                help="output stem (default docs/paper/figures/capacity_sweep_grid)")
+ARGS = ap.parse_args()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -42,12 +56,10 @@ FAMILIES = [
      [("poly2_45", "z"), ("rff_45", "1k"), ("rff_180", "4k")]),
 ]
 
-CS = "outputs/paper_results/capacity_sweep_std"
-DATASETS = [
-    ("BreastMNIST", f"{CS}/breast_mnist/summary.csv"),
-    ("PneumoniaMNIST", f"{CS}/pneumonia_mnist/summary.csv"),
-    ("TissueMNIST", f"{CS}/tissue_mnist/summary_rebuilt.csv"),  # preliminary, digital-only
-]
+# Curves and camp selection both read the per-seed JSONs. They reproduce the
+# summary CSVs exactly (checked on all 195 cells) and additionally carry the
+# per-seed validation accuracy that the camp selection needs.
+DATASETS = val_sel.DATASETS
 
 # camps for the cross-group margin: columns 0,1 = quantum; 2,3 = classical
 SRC_COL = {}
@@ -58,32 +70,36 @@ QUANTUM_SRCS = [s for s, c in SRC_COL.items() if c in (0, 1)]
 CLASSICAL_SRCS = [s for s, c in SRC_COL.items() if c in (2, 3)]
 
 
-def load(path):
-    d = {}
-    for r in csv.DictReader(open(os.path.join(ROOT, path))):
-        try:
-            d[(r["head"], r["source"])] = (float(r["test_auc_mean"]),
-                                           float(r["test_auc_std"]))
-        except (ValueError, KeyError):
-            pass
-    return d
+def series(cells, src):
+    """Per-head mean and SD of test AUC over the 10 validation seeds."""
+    means, sds = [], []
+    for head in HEADS:
+        cell = cells.get((head, src))
+        if cell is None:
+            means.append(np.nan)
+            sds.append(np.nan)
+            continue
+        vals = np.array(cell["test_aucs"])
+        means.append(vals.mean())
+        sds.append(vals.std())
+    return np.array(means), np.array(sds)
 
 
-def series(d, src):
-    m = np.array([d.get((h, src), (np.nan, np.nan))[0] for h in HEADS])
-    s = np.array([d.get((h, src), (np.nan, np.nan))[1] for h in HEADS])
-    return m, s
+# The camps must be exactly the ones the selection module ranks, or the figure
+# and the reported margins would answer different questions.
+assert sorted(QUANTUM_SRCS) == sorted(val_sel.QUANTUM)
+assert sorted(CLASSICAL_SRCS) == sorted(val_sel.CLASSICAL)
 
-
-data = [(name, load(path)) for name, path in DATASETS]
+data = [(name, val_sel.load_cells(sweep_dir)) for name, sweep_dir in DATASETS]
 x = np.arange(len(HEADS))
 
 fig, axes = plt.subplots(3, 4, figsize=(7.1, 3.9), sharex=True)
 
 for ri, (dname, d) in enumerate(data):
     raw_m, _ = series(d, "raw")
-    allv = [m for (m, s) in d.values() if not np.isnan(m)]
-    ylo, yhi = min(allv) - 0.020, max(allv) + 0.042  # headroom for star labels
+    allv = [float(np.mean(cell["test_aucs"])) for cell in d.values()]
+    # headroom for the star labels (less when they are off)
+    ylo, yhi = min(allv) - 0.020, max(allv) + (0.042 if ARGS.star_labels else 0.020)
 
     for ci, (title, color, lines) in enumerate(FAMILIES):
         ax = axes[ri, ci]
@@ -98,7 +114,8 @@ for ri, (dname, d) in enumerate(data):
             if np.isnan(m).all():
                 continue
             any_data = True
-            ax.fill_between(x, m - s, m + s, color=color, alpha=0.12, lw=0, zorder=2)
+            if not ARGS.no_bands:
+                ax.fill_between(x, m - s, m + s, color=color, alpha=0.12, lw=0, zorder=2)
             ax.plot(x, m, color=color, ls=ls, lw=1.6, marker=mk, markersize=3.6, zorder=3)
         if not any_data:
             ax.text(0.5, 0.5, "not run\n(digital-only)", ha="center", va="center",
@@ -111,12 +128,14 @@ for ri, (dname, d) in enumerate(data):
 
     # winner star + cross-camp margin (best quantum vs best classical) per head
     row_anno = {}
-    for hi in range(len(HEADS)):
-        def camp_best(srcs):
-            cand = [(series(d, s)[0][hi], s) for s in srcs
-                    if not np.isnan(series(d, s)[0][hi])]
-            return max(cand) if cand else None
-        bq, bc = camp_best(QUANTUM_SRCS), camp_best(CLASSICAL_SRCS)
+    for hi, head in enumerate(HEADS):
+        # Each camp's representative is chosen on VALIDATION accuracy (reviewer
+        # 4 #3); the value plotted is that fixed choice's test AUC, so no test
+        # number takes part in the selection.
+        def camp_rep(srcs):
+            src = val_sel.pick(d, head, srcs, "val_acc_mean")
+            return (series(d, src)[0][hi], src) if src is not None else None
+        bq, bc = camp_rep(QUANTUM_SRCS), camp_rep(CLASSICAL_SRCS)
         if bq is None or bc is None:
             continue
         quantum_wins = bq[0] >= bc[0]
@@ -133,7 +152,7 @@ for ri, (dname, d) in enumerate(data):
     # label-label collisions explicitly
     last = len(HEADS) - 1
     TH = 0.011          # label text height in data units
-    for ci, items in row_anno.items():
+    for ci, items in (row_anno.items() if ARGS.star_labels else []):
         col_srcs = [s for s, _ in FAMILIES[ci][2]] + ["raw"]
         placed = []     # (x0, x1, y0, y1) bands of labels already set
         for hi, bv, text in sorted(items):
@@ -194,19 +213,20 @@ for ax in axes[2]:
 
 handles = [
     Line2D([0], [0], color="#444", ls=SCALE_STYLE["z"][0], marker="v", ms=4,
-           label=r"smallest ($\langle Z\rangle$ / $\times$9 / poly-2)"),
+           label=r"$\langle Z\rangle$ / $\times$9 / poly-2"),
     Line2D([0], [0], color="#444", ls="solid", marker="o", ms=4, label="single-kernel, 45-dim"),
     Line2D([0], [0], color="#444", ls=(0, (5, 2)), marker="s", ms=4, label="four-kernel, 180-dim"),
     Line2D([0], [0], color="#999", ls=(0, (1, 1)), marker="x", ms=4, label="raw pixels"),
     Line2D([0], [0], color="black", marker="*", mfc="gold", mec="black", ms=8,
-           ls="none", label="best at capacity; Q.0136 = quantum leads classical by 0.0136"),
+           ls="none", label=("val-selected leader; Q.0136 = quantum leads classical by 0.0136"
+                            if ARGS.star_labels else "val-selected leader")),
 ]
 fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=7.5,
            frameon=False, handlelength=2.6, bbox_to_anchor=(0.5, -0.03))
 
 fig.tight_layout(rect=[0, 0.05, 1, 1.0])
-os.makedirs(os.path.join(ROOT, "docs/paper/figures"), exist_ok=True)
-out = os.path.join(ROOT, "docs/paper/figures/capacity_sweep_grid")
+out = ARGS.out or os.path.join(ROOT, "docs/paper/figures/capacity_sweep_grid")
+os.makedirs(os.path.dirname(out), exist_ok=True)
 fig.savefig(out + ".pdf", bbox_inches="tight")
 fig.savefig(out + ".png", bbox_inches="tight", dpi=175)
 print(f"wrote {out}.pdf / .png")

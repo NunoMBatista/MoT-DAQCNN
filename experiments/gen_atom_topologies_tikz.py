@@ -65,11 +65,24 @@ for k, name in enumerate(ORDER):
         return ox + (p % 3) * G, oy - (p // 3) * G
 
     lines.append(f"  % --- {name} ---")
-    for i, j, w in edges(ks[name]):
+    panel_edges = edges(ks[name])
+    # atoms with at least one drawn edge; a decoupled atom (ring's centre) has none
+    coupled = {i for i, j, w in panel_edges} | {j for i, j, w in panel_edges}
+    for i, j, w in panel_edges:
         lw, op = edge_style(w)
         xi, yi = pos(i); xj, yj = pos(j)
+        # the pixel midway between i and j, when the straight segment passes through one
+        ri, ci, rj, cj = i // 3, i % 3, j // 3, j % 3
+        mid = None
+        if (ri + rj) % 2 == 0 and (ci + cj) % 2 == 0:
+            m = ((ri + rj) // 2) * 3 + (ci + cj) // 2
+            if m not in (i, j):
+                mid = m
+        # a straight edge through a decoupled atom would read as two bonds to it,
+        # so bend that edge around the atom instead
+        path = "to[bend left=30]" if (mid is not None and mid not in coupled) else "--"
         lines.append(f"  \\draw[black,line width={lw}pt,opacity={op}] "
-                     f"({xi:.3f},{yi:.3f}) -- ({xj:.3f},{yj:.3f});")
+                     f"({xi:.3f},{yi:.3f}) {path} ({xj:.3f},{yj:.3f});")
     for p in range(9):
         x, y = pos(p)
         lines.append(f"  \\node[atomdot] at ({x:.3f},{y:.3f}) {{}};")

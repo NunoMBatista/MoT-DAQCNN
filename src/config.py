@@ -5,6 +5,7 @@ Every path is anchored to the repository root so scripts work regardless of
 the current working directory.
 """
 
+import os
 from pathlib import Path
 
 # Repository root: src/ lives one level below it
@@ -15,8 +16,13 @@ DATA_DIR = PROJECT_ROOT / "data"
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
 CONFIGS_DIR = PROJECT_ROOT / "configs"
 
-# Quantum dataset cache
-QUANTUM_DATASETS_DIR = DATA_DIR / "quantum_datasets"
+# Quantum dataset cache. DAQCNN_QUANTUM_DATASETS_DIR, when set, points the
+# cache lookup at another directory, so a one-off job (e.g. one RFF draw per
+# job) can use its own cache without touching data/quantum_datasets/.
+# Unset (the normal case) = the usual location.
+QUANTUM_DATASETS_DIR = Path(
+    os.environ.get("DAQCNN_QUANTUM_DATASETS_DIR", DATA_DIR / "quantum_datasets")
+)
 
 # Mapping from dataset name to (medmnist_flag, DatasetClass)
 # Names ending in _64 / _128 / _224 refer to MedMNIST+ higher-resolution

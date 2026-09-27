@@ -21,20 +21,20 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.utils.data import get_dataloaders
 from src.utils.classical_nonlinear_features import poly2_features, rff_features
 
-RFF_SEED = 42  # match RANDOM_FILTER_SEED in head_capacity_sweep.py
+RFF_SEED = 42  # match RANDOM_FILTER_SEED in head_capacity_sweep.py (the published caches)
 
-# source -> (synthetic topology name, feature-map fn)
+# source -> (synthetic topology name, feature-map fn of (images, rff_seed))
 SOURCES = {
-    "poly2_45": ("poly2",  lambda x: poly2_features(x)),
-    "rff_45":   ("rff45",  lambda x: rff_features(x, 45,  seed=RFF_SEED)),
-    "rff_180":  ("rff180", lambda x: rff_features(x, 180, seed=RFF_SEED)),
+    "poly2_45": ("poly2",  lambda x, seed: poly2_features(x)),
+    "rff_45":   ("rff45",  lambda x, seed: rff_features(x, 45,  seed=seed)),
+    "rff_180":  ("rff180", lambda x, seed: rff_features(x, 180, seed=seed)),
 }
 
 
-def stack(loader, fmap):
+def stack(loader, fmap, rff_seed):
     xs, ys = [], []
     for x, y in loader:
-        xs.append(fmap(x.float()))
+        xs.append(fmap(x.float(), rff_seed))
         ys.append(y.long().squeeze())
     return torch.cat(xs).numpy(), torch.cat(ys).numpy()
 
@@ -44,6 +44,10 @@ def main():
     ap.add_argument("--dataset", required=True)
     ap.add_argument("--source", required=True, choices=list(SOURCES))
     ap.add_argument("--out-dir", default="data/quantum_datasets")
+    # RFF projection draw. The default is the draw every published RFF cache
+    # uses; any other value should go to its own --out-dir, because the cache
+    # identity (and filename) does not include the draw.
+    ap.add_argument("--rff-seed", type=int, default=RFF_SEED)
     args = ap.parse_args()
 
     topo, fmap = SOURCES[args.source]
@@ -53,7 +57,7 @@ def main():
 
     feats, labs = {}, {}
     for split, loader in (("train", train_loader), ("val", val_loader), ("test", test_loader)):
-        feats[split], labs[split] = stack(loader, fmap)
+        feats[split], labs[split] = stack(loader, fmap, args.rff_seed)
         print(f"  {split}: {feats[split].shape}")
 
     F = feats["train"].shape[1]
@@ -74,6 +78,7 @@ def main():
         "train_samples": len(labs["train"]), "val_samples": len(labs["val"]),
         "test_samples": len(labs["test"]),
         "feature_source": args.source,  # provenance note (ignored by matcher)
+        "rff_seed": args.rff_seed,      # provenance note (ignored by matcher; unused by poly2)
     }
 
     os.makedirs(args.out_dir, exist_ok=True)
