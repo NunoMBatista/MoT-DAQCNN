@@ -56,12 +56,8 @@ datasets/
 checkpoints/
 checkpoints-*/
 saved_models/
-outputs/**
-!outputs/paper_results/
-!outputs/paper_results/**/
-!outputs/paper_results/**/*.csv
-!outputs/paper_results/**/summary.json
-!outputs/paper_results/**/validation_summary.json
+# Experiment outputs stay local: the public release is code and configs only.
+outputs/
 results/
 runs/
 logs/

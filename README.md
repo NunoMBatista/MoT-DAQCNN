@@ -305,10 +305,10 @@ data/
 
 ## Results
 
-The summary CSVs and per-cell JSONs behind every table and figure in the paper
-are committed under `outputs/paper_results/` (capacity sweeps, linear probing,
-and end-to-end validation summaries). The plot scripts in `experiments/`
-regenerate the paper figures from them, writing to `docs/paper/figures/`. The pre-computed quantum
+Experiment outputs, including the result files behind the paper's tables and
+figures, are not part of this repository; the scripts in `experiments/`
+regenerate them (the commands above write to `outputs/paper_results/`), and
+the plot scripts rebuild the figures from them. The pre-computed quantum
 feature caches (~80 GB) are not in the repository; they can be regenerated
 with `experiments/create_quantum_dataset.py` or requested from the authors.
 
